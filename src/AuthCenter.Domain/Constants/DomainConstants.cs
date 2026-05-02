@@ -22,6 +22,7 @@ public static class DomainConstants
         public const string RolesWrite = "AUTHCENTER_ROLES_WRITE";
         public const string PermissionsRead = "AUTHCENTER_PERMISSIONS_READ";
         public const string PermissionsWrite = "AUTHCENTER_PERMISSIONS_WRITE";
+        public const string AuditLogsRead = "AUTHCENTER_AUDIT_LOGS_READ";
     }
 
     public static class Roles

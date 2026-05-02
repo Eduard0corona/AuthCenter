@@ -20,26 +20,23 @@ public class SmtpEmailService : IEmailService
 
     public async Task SendPasswordResetAsync(string toEmail, string toName, string resetToken, string? callbackBaseUrl, CancellationToken ct = default)
     {
-        var resetLink = BuildTokenLink(callbackBaseUrl, toEmail, resetToken);
-        var body = BuildActionEmailBody(toName, "Reset password", "Reset password", resetLink, resetToken);
-
-        await SendAsync(toEmail, toName, "Reset password - AuthCenter", body, "Password reset", resetToken, resetLink, ct);
+        var link = BuildTokenLink(callbackBaseUrl, toEmail, resetToken);
+        var body = BuildActionEmailBody(toName, "Reset password", "Reset password", link);
+        await SendAsync(toEmail, toName, "Reset password - AuthCenter", body, "Password reset", ct);
     }
 
     public async Task SendEmailConfirmationAsync(string toEmail, string toName, string token, string? callbackBaseUrl, CancellationToken ct = default)
     {
         var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
-        var body = BuildActionEmailBody(toName, "Confirm your email", "Confirm email", link, token);
-
-        await SendAsync(toEmail, toName, "Confirm email - AuthCenter", body, "Email confirmation", token, link, ct);
+        var body = BuildActionEmailBody(toName, "Confirm your email", "Confirm email", link);
+        await SendAsync(toEmail, toName, "Confirm email - AuthCenter", body, "Email confirmation", ct);
     }
 
     public async Task SendInvitationAsync(string toEmail, string toName, string applicationName, string token, string? callbackBaseUrl, CancellationToken ct = default)
     {
         var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
-        var body = BuildActionEmailBody(toName, $"You were invited to {applicationName}", "Accept invitation", link, token);
-
-        await SendAsync(toEmail, toName, $"Invitation to {applicationName} - AuthCenter", body, "Invitation", token, link, ct);
+        var body = BuildActionEmailBody(toName, $"You were invited to {applicationName}", "Accept invitation", link);
+        await SendAsync(toEmail, toName, $"Invitation to {applicationName} - AuthCenter", body, "Invitation", ct);
     }
 
     private async Task SendAsync(
@@ -48,15 +45,13 @@ public class SmtpEmailService : IEmailService
         string subject,
         string body,
         string purpose,
-        string token,
-        string link,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_settings.Host))
         {
             _logger.LogWarning(
-                "Email SMTP not configured. {Purpose} token for {Email}: {Token} | Link: {Link}",
-                purpose, toEmail, token, link);
+                "Email SMTP not configured. {Purpose} email for {Email} was not sent.",
+                purpose, toEmail);
             return;
         }
 
@@ -97,15 +92,16 @@ public class SmtpEmailService : IEmailService
         return $"{callbackBaseUrl}{sep}token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
     }
 
-    private static string BuildActionEmailBody(string name, string title, string button, string link, string rawToken) => $"""
+    private static string BuildActionEmailBody(string name, string title, string button, string link) => $"""
         <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
           <h2>{title}</h2>
           <p>Hello <strong>{name}</strong>,</p>
-          <p>Use the following link to continue:</p>
+          <p>Use the following link to continue (valid for 24 hours):</p>
           <p><a href="{link}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
             {button}
           </a></p>
-          <p>Or use this token directly: <code>{rawToken}</code></p>
+          <p>If the button doesn't work, copy and paste this URL into your browser:</p>
+          <p style="word-break:break-all;font-size:13px;color:#555">{link}</p>
           <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
         </body></html>
         """;

@@ -217,6 +217,24 @@ public class AuthService : IAuthService
                     IsActive = true
                 });
                 await _db.SaveChangesAsync(ct);
+
+                // Grant access to this application for the newly-linked account
+                bool accessIsActive = settings.RegistrationMode == ApplicationRegistrationMode.Open;
+                var hasExistingAccess = await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct);
+                if (!hasExistingAccess)
+                {
+                    await _userAccessService.GrantAccessAsync(user.Id, appSystem.Id, accessIsActive, ct);
+
+                    if (settings.DefaultRoleId.HasValue)
+                    {
+                        var role = await _db.Roles.FindAsync([settings.DefaultRoleId.Value], ct);
+                        if (role?.Name is not null)
+                            await _userManager.AddToRoleAsync(user, role.Name);
+                    }
+                }
+
+                if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired && !hasExistingAccess)
+                    return OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
             }
             else
             {
@@ -322,7 +340,7 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("TOKEN_REUSE_DETECTED", "Refresh token has already been used.");
         }
 
-        if (DateTime.UtcNow >= storedToken.ExpiresAt)
+        if (_dateTimeProvider.UtcNow >= storedToken.ExpiresAt)
         {
             await _auditService.LogAsync("REFRESH_TOKEN_EXPIRED", storedToken.UserId, null, null, null, ipAddress, userAgent, ct: ct);
             return OperationResult<AuthResponse>.Failure("TOKEN_EXPIRED", "Refresh token has expired.");
@@ -379,15 +397,20 @@ public class AuthService : IAuthService
 
     public async Task<OperationResult> LogoutAsync(Guid userId, string? refreshToken, CancellationToken ct = default)
     {
+        string? applicationCode = null;
+
         if (refreshToken is not null)
         {
             var tokenHash = _tokenService.HashToken(refreshToken);
             var storedToken = await _refreshTokenService.FindByHashAsync(tokenHash, ct);
             if (storedToken?.UserId == userId && storedToken.RevokedAt is null)
+            {
+                applicationCode = storedToken.ApplicationCode;
                 await _refreshTokenService.RevokeAsync(storedToken, null, ct);
+            }
         }
 
-        await _auditService.LogAsync("LOGOUT", userId, ct: ct);
+        await _auditService.LogAsync("LOGOUT", userId, applicationCode, ct: ct);
         return OperationResult.Success();
     }
 
@@ -451,7 +474,9 @@ public class AuthService : IAuthService
 
         await _userManager.UpdateSecurityStampAsync(user);
         user.HasLocalPassword = true;
-        user.EmailConfirmed = true;
+        // Receiving a password reset proves inbox ownership — treat as equivalent to email confirmation
+        if (!user.EmailConfirmed)
+            user.EmailConfirmed = true;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
         await _refreshTokenService.RevokeAllForUserAsync(user.Id, ct);

@@ -55,9 +55,11 @@ public class UserAccessService : IUserAccessService
 
         if (pagination.HasPendingAccess.HasValue)
         {
+            // HasPendingAccess=true  → user has at least one inactive (pending) access record
+            // HasPendingAccess=false → user has no inactive access records at all
             query = pagination.HasPendingAccess.Value
                 ? query.Where(u => u.ApplicationAccesses.Any(a => !a.IsActive))
-                : query.Where(u => !u.ApplicationAccesses.Any(a => !a.IsActive));
+                : query.Where(u => u.ApplicationAccesses.All(a => a.IsActive));
         }
 
         query = query.OrderBy(u => u.FullName);
@@ -65,12 +67,21 @@ public class UserAccessService : IUserAccessService
         var totalCount = await query.CountAsync(ct);
         var users = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
 
-        var dtos = new List<UserDto>(users.Count);
-        foreach (var user in users)
-        {
-            var roles = await _userManager.GetRolesAsync(user);
-            dtos.Add(MapToDto(user, roles));
-        }
+        var userIds = users.Select(u => u.Id).ToList();
+        var rolesByUser = await _db.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
+            .Where(x => x.RoleName != null)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        var roleMap = rolesByUser
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName!).ToList());
+
+        var dtos = users
+            .Select(u => MapToDto(u, roleMap.TryGetValue(u.Id, out var r) ? r : []))
+            .ToList();
 
         return PagedResult<UserDto>.Create(dtos, totalCount, pagination.Page, pagination.PageSize);
     }
@@ -79,6 +90,25 @@ public class UserAccessService : IUserAccessService
     {
         if (await _userManager.FindByEmailAsync(request.Email) is not null)
             return OperationResult<UserDto>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
+
+        // Validate all pre-conditions before writing anything
+        if (request.GrantApplicationAccess && !request.ApplicationSystemId.HasValue)
+            return OperationResult<UserDto>.Failure("APP_REQUIRED", "ApplicationSystemId is required when granting access.");
+
+        if (request.RoleIds.Count > 0)
+        {
+            foreach (var roleId in request.RoleIds.Distinct())
+            {
+                var role = await _db.Roles.FindAsync([roleId], ct);
+                if (role is null)
+                    return OperationResult<UserDto>.Failure("ROLE_NOT_FOUND", $"Role {roleId} not found.");
+
+                if (request.ApplicationSystemId.HasValue &&
+                    role.ApplicationSystemId.HasValue &&
+                    role.ApplicationSystemId.Value != request.ApplicationSystemId.Value)
+                    return OperationResult<UserDto>.Failure("ROLE_APP_MISMATCH", "Role must belong to the selected application.");
+            }
+        }
 
         var now = _dateTimeProvider.UtcNow;
         var user = new ApplicationUser
@@ -101,12 +131,7 @@ public class UserAccessService : IUserAccessService
             return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
 
         if (request.GrantApplicationAccess)
-        {
-            if (!request.ApplicationSystemId.HasValue)
-                return OperationResult<UserDto>.Failure("APP_REQUIRED", "ApplicationSystemId is required when granting access.");
-
-            await GrantAccessAsync(user.Id, request.ApplicationSystemId.Value, request.ApplicationAccessIsActive, ct);
-        }
+            await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
 
         var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
         if (!roleResult.IsSuccess)
@@ -163,8 +188,9 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult<UserDto>.Failure("USER_NOT_FOUND", "User not found.");
 
         user.FullName = request.FullName;
         user.PictureUrl = request.PictureUrl;
@@ -235,8 +261,9 @@ public class UserAccessService : IUserAccessService
     public async Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
     {
         var access = await _db.UserApplicationAccesses
-            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct)
-            ?? throw new NotFoundException("UserApplicationAccess", $"{userId}/{applicationSystemId}");
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
+        if (access is null)
+            return OperationResult.Failure("ACCESS_NOT_FOUND", "User does not have access to this application.");
 
         access.IsActive = false;
         access.RevokedAt = _dateTimeProvider.UtcNow;
@@ -246,11 +273,13 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult> AssignRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
 
-        var role = await _db.Roles.FindAsync([roleId], ct)
-            ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+        var role = await _db.Roles.FindAsync([roleId], ct);
+        if (role is null)
+            return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
 
         if (role.Name is null)
             return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
@@ -267,11 +296,13 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult> RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
 
-        var role = await _db.Roles.FindAsync([roleId], ct)
-            ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+        var role = await _db.Roles.FindAsync([roleId], ct);
+        if (role is null)
+            return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
 
         if (role.Name is null)
             return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
@@ -288,8 +319,9 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult> ActivateUserAsync(Guid userId, CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
         user.IsActive = true;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
@@ -298,8 +330,9 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult> DeactivateUserAsync(Guid userId, CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
         user.IsActive = false;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
@@ -349,8 +382,9 @@ public class UserAccessService : IUserAccessService
     {
         foreach (var roleId in roleIds.Distinct())
         {
-            var role = await _db.Roles.FindAsync([roleId], ct)
-                ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+            var role = await _db.Roles.FindAsync([roleId], ct);
+            if (role is null)
+                return OperationResult.Failure("ROLE_NOT_FOUND", $"Role {roleId} not found.");
 
             if (applicationSystemId.HasValue &&
                 role.ApplicationSystemId.HasValue &&

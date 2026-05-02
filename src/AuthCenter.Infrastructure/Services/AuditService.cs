@@ -12,12 +12,18 @@ namespace AuthCenter.Infrastructure.Services;
 
 public class AuditService : IAuditService
 {
+    private readonly IDbContextFactory<AuthCenterDbContext> _dbFactory;
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<AuditService> _logger;
 
-    public AuditService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider, ILogger<AuditService> logger)
+    public AuditService(
+        IDbContextFactory<AuthCenterDbContext> dbFactory,
+        AuthCenterDbContext db,
+        IDateTimeProvider dateTimeProvider,
+        ILogger<AuditService> logger)
     {
+        _dbFactory = dbFactory;
         _db = db;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
@@ -49,8 +55,12 @@ public class AuditService : IAuditService
                 MetadataJson = metadata is not null ? JsonSerializer.Serialize(metadata) : null,
                 CreatedAt = _dateTimeProvider.UtcNow
             };
-            _db.AuditLogs.Add(log);
-            await _db.SaveChangesAsync(ct);
+
+            // Use a dedicated context so SaveChangesAsync only flushes the audit entry,
+            // not any pending changes in the caller's unit-of-work
+            await using var auditDb = await _dbFactory.CreateDbContextAsync(ct);
+            auditDb.AuditLogs.Add(log);
+            await auditDb.SaveChangesAsync(ct);
         }
         catch (Exception ex)
         {

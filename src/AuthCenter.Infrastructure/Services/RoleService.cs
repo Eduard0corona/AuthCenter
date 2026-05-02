@@ -73,13 +73,19 @@ public class RoleService : IRoleService
             return OperationResult<RoleDto>.Failure("ROLE_CREATION_FAILED", string.Join(", ", errors));
         }
 
-        return OperationResult<RoleDto>.Success(MapToDto(role));
+        // Re-query with RolePermissions included so MapToDto doesn't NRE on the navigation property
+        var created = await _db.Roles
+            .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
+            .AsNoTracking()
+            .FirstAsync(r => r.Id == role.Id);
+        return OperationResult<RoleDto>.Success(MapToDto(created));
     }
 
     public async Task<OperationResult<RoleDto>> UpdateAsync(Guid id, UpdateRoleRequest request, CancellationToken ct = default)
     {
-        var role = await _roleManager.FindByIdAsync(id.ToString())
-            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+        var role = await _roleManager.FindByIdAsync(id.ToString());
+        if (role is null)
+            return OperationResult<RoleDto>.Failure("ROLE_NOT_FOUND", "Role not found.");
 
         role.Name = request.Name;
         role.NormalizedName = request.Name.ToUpperInvariant();
@@ -97,11 +103,13 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult> AddPermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
     {
-        var role = await _db.Roles.FindAsync([roleId], ct)
-            ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+        var role = await _db.Roles.FindAsync([roleId], ct);
+        if (role is null)
+            return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
 
-        var permission = await _db.Permissions.FindAsync([permissionId], ct)
-            ?? throw new NotFoundException(nameof(Permission), permissionId);
+        var permission = await _db.Permissions.FindAsync([permissionId], ct);
+        if (permission is null)
+            return OperationResult.Failure("PERMISSION_NOT_FOUND", "Permission not found.");
 
         if (role.ApplicationSystemId.HasValue && role.ApplicationSystemId.Value != permission.ApplicationSystemId)
             return OperationResult.Failure("PERMISSION_APP_MISMATCH", "Permission must belong to the same application as the role.");
@@ -125,8 +133,9 @@ public class RoleService : IRoleService
     public async Task<OperationResult> RemovePermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
     {
         var rp = await _db.RolePermissions
-            .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId, ct)
-            ?? throw new NotFoundException("RolePermission", $"{roleId}/{permissionId}");
+            .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId, ct);
+        if (rp is null)
+            return OperationResult.Failure("PERMISSION_NOT_ASSIGNED", "Permission is not assigned to this role.");
 
         _db.RolePermissions.Remove(rp);
         await _db.SaveChangesAsync(ct);
@@ -135,8 +144,9 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default)
     {
-        var role = await _db.Roles.FindAsync([id], ct)
-            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+        var role = await _db.Roles.FindAsync([id], ct);
+        if (role is null)
+            return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
 
         role.IsActive = true;
         await _db.SaveChangesAsync(ct);
@@ -145,8 +155,9 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult> DeactivateAsync(Guid id, CancellationToken ct = default)
     {
-        var role = await _db.Roles.FindAsync([id], ct)
-            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+        var role = await _db.Roles.FindAsync([id], ct);
+        if (role is null)
+            return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
 
         if (role.IsSystemRole)
             return OperationResult.Failure("SYSTEM_ROLE", "System roles cannot be deactivated.");

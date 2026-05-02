@@ -20,7 +20,7 @@ public class AuditLogsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Policy = DomainConstants.Permissions.PermissionsRead)]
+    [Authorize(Policy = DomainConstants.Permissions.AuditLogsRead)]
     public async Task<IActionResult> Get([FromQuery] AuditLogQuery query, CancellationToken ct)
     {
         var result = await _auditService.GetAsync(query, ct);

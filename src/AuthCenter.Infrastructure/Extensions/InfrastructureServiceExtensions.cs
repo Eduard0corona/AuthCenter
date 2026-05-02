@@ -19,6 +19,12 @@ public static class InfrastructureServiceExtensions
                 configuration.GetConnectionString("DefaultConnection"),
                 sql => sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName)));
 
+        services.AddDbContextFactory<AuthCenterDbContext>(options =>
+            options.UseSqlServer(
+                configuration.GetConnectionString("DefaultConnection"),
+                sql => sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName)),
+            ServiceLifetime.Scoped);
+
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
         services.Configure<GoogleAuthSettings>(configuration.GetSection("Authentication:Google"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));

@@ -60,6 +60,7 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.RolesWrite, "Write roles"),
             (DomainConstants.Permissions.PermissionsRead, "Read permissions"),
             (DomainConstants.Permissions.PermissionsWrite, "Write permissions"),
+            (DomainConstants.Permissions.AuditLogsRead, "Read audit logs"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -88,6 +89,7 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.ApplicationsRead,
                 DomainConstants.Permissions.RolesRead,
                 DomainConstants.Permissions.PermissionsRead,
+                DomainConstants.Permissions.AuditLogsRead,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);

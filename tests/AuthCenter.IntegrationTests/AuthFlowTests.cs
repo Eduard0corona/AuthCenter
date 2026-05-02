@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
+using AuthCenter.Contracts.Responses.Audit;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Enums;
@@ -232,6 +233,13 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
 
         var auditResponse = await client.GetAsync("/api/audit-logs?action=LOGIN_SUCCESS");
         auditResponse.EnsureSuccessStatusCode();
+
+        var auditBody = await auditResponse.Content.ReadFromJsonAsync<ApiResponse<PagedResult<AuditLogDto>>>();
+        Assert.NotNull(auditBody);
+        Assert.True(auditBody.Success);
+        Assert.NotNull(auditBody.Data);
+        Assert.True(auditBody.Data.TotalCount > 0, "Expected at least one LOGIN_SUCCESS audit entry.");
+        Assert.All(auditBody.Data.Items, entry => Assert.Equal("LOGIN_SUCCESS", entry.Action));
     }
 
     private static async Task<AuthResponse> LoginAsync(HttpClient client, string email, string password)
