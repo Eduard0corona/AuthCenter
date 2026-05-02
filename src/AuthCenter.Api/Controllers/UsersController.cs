@@ -45,6 +45,15 @@ public class UsersController : ControllerBase
         return Ok(ApiResponse.Ok());
     }
 
+    [HttpPatch("{id:guid}/applications/{applicationId:guid}/approve")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> ApproveAccess(Guid id, Guid applicationId, CancellationToken ct)
+    {
+        var result = await _userAccessService.ApproveApplicationAccessAsync(id, applicationId, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
+
     [HttpDelete("{id:guid}/applications/{applicationId:guid}")]
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> RevokeAccess(Guid id, Guid applicationId, CancellationToken ct)

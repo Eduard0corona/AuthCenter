@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Auth;
+using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -90,6 +91,41 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.Equal(HttpStatusCode.Forbidden, forbiddenResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task ApproveAccess_ActivatesPendingApplicationAccess()
+    {
+        using var client = _factory.CreateClient();
+        var adminAuth = await LoginAsync(client, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.AccessToken);
+
+        var pendingEmail = $"pending-{Guid.NewGuid():N}@example.com";
+        const string pendingPassword = "Pending12345";
+        var (userId, applicationId) = await CreateUserWithApplicationAccessAsync(pendingEmail, pendingPassword, isActive: false);
+
+        var pendingLogin = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = pendingEmail,
+            Password = pendingPassword,
+            ApplicationCode = "AUTHCENTER"
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, pendingLogin.StatusCode);
+
+        var approvalResponse = await client.PatchAsync($"/api/users/{userId}/applications/{applicationId}/approve", null);
+        approvalResponse.EnsureSuccessStatusCode();
+
+        var approvedAuth = await LoginAsync(client, pendingEmail, pendingPassword);
+        Assert.Contains("AUTHCENTER", approvedAuth.User.Applications);
+
+        var userResponse = await client.GetAsync($"/api/users/{userId}");
+        userResponse.EnsureSuccessStatusCode();
+        var userBody = await userResponse.Content.ReadFromJsonAsync<ApiResponse<UserDto>>();
+
+        Assert.NotNull(userBody?.Data);
+        var access = Assert.Single(userBody.Data.ApplicationAccesses);
+        Assert.Equal(applicationId, access.ApplicationId);
+        Assert.True(access.IsActive);
+    }
+
     private static async Task<AuthResponse> LoginAsync(HttpClient client, string email, string password)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -112,7 +148,10 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         return body.Data;
     }
 
-    private async Task CreateUserWithApplicationAccessAsync(string email, string password)
+    private async Task<(Guid UserId, Guid ApplicationId)> CreateUserWithApplicationAccessAsync(
+        string email,
+        string password,
+        bool isActive = true)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
@@ -139,9 +178,11 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             Id = Guid.NewGuid(),
             UserId = user.Id,
             ApplicationSystemId = app.Id,
-            IsActive = true,
+            IsActive = isActive,
             CreatedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
+
+        return (user.Id, app.Id);
     }
 }

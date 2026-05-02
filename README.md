@@ -112,6 +112,7 @@ Outside `Development` and `Testing`, the API validates startup configuration and
 |--------|----------|-------------|
 | GET | `/api/users` | List all users |
 | POST | `/api/users/{id}/applications/{appId}` | Grant application access |
+| PATCH | `/api/users/{id}/applications/{appId}/approve` | Approve pending application access |
 | DELETE | `/api/users/{id}/applications/{appId}` | Revoke application access |
 | POST | `/api/users/{id}/roles/{roleId}` | Assign role |
 | DELETE | `/api/users/{id}/roles/{roleId}` | Remove role |

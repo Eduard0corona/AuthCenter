@@ -83,6 +83,23 @@ public class UserAccessService : IUserAccessService
         return OperationResult.Success();
     }
 
+    public async Task<OperationResult> ApproveApplicationAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
+    {
+        var access = await _db.UserApplicationAccesses
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
+
+        if (access is null)
+            return OperationResult.Failure("ACCESS_NOT_FOUND", "User does not have pending access for this application.");
+
+        if (access.IsActive)
+            return OperationResult.Failure("ACCESS_ALREADY_ACTIVE", "User access is already active for this application.");
+
+        access.IsActive = true;
+        access.RevokedAt = null;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
     public async Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
     {
         var access = await _db.UserApplicationAccesses
@@ -181,6 +198,18 @@ public class UserAccessService : IUserAccessService
         Applications = user.ApplicationAccesses
             .Where(a => a.IsActive)
             .Select(a => a.ApplicationSystem.Code)
+            .ToList(),
+        ApplicationAccesses = user.ApplicationAccesses
+            .OrderBy(a => a.ApplicationSystem.Code)
+            .Select(a => new UserApplicationAccessDto
+            {
+                ApplicationId = a.ApplicationSystemId,
+                ApplicationCode = a.ApplicationSystem.Code,
+                ApplicationName = a.ApplicationSystem.Name,
+                IsActive = a.IsActive,
+                CreatedAt = a.CreatedAt,
+                RevokedAt = a.RevokedAt
+            })
             .ToList()
     };
 }

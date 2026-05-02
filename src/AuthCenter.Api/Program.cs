@@ -72,7 +72,8 @@ try
     builder.Services.AddAuthorization();
 
     // Rate Limiting
-    builder.Services.AddAuthRateLimiting();
+    if (!builder.Environment.IsEnvironment("Testing"))
+        builder.Services.AddAuthRateLimiting();
 
     // Controllers
     builder.Services.AddControllers();
@@ -144,7 +145,8 @@ try
 
     app.UseSerilogRequestLogging();
 
-    app.UseRateLimiter();
+    if (!app.Environment.IsEnvironment("Testing"))
+        app.UseRateLimiter();
 
     if (app.Environment.IsDevelopment())
     {

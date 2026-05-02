@@ -12,4 +12,15 @@ public class UserDto
     public DateTime? LastLoginAt { get; init; }
     public IReadOnlyList<string> Roles { get; init; } = [];
     public IReadOnlyList<string> Applications { get; init; } = [];
+    public IReadOnlyList<UserApplicationAccessDto> ApplicationAccesses { get; init; } = [];
+}
+
+public class UserApplicationAccessDto
+{
+    public Guid ApplicationId { get; init; }
+    public string ApplicationCode { get; init; } = string.Empty;
+    public string ApplicationName { get; init; } = string.Empty;
+    public bool IsActive { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime? RevokedAt { get; init; }
 }
