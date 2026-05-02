@@ -18,7 +18,7 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.Property(a => a.MetadataJson).HasColumnType("nvarchar(max)");
         builder.Property(a => a.CreatedAt).IsRequired();
 
-        builder.HasIndex(a => a.CreatedAt);
+        builder.HasIndex(a => a.CreatedAt).IsDescending();
         builder.HasIndex(a => a.UserId);
         builder.HasIndex(a => a.Action);
     }

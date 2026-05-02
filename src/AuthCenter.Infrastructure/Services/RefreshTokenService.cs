@@ -58,4 +58,17 @@ public class RefreshTokenService : IRefreshTokenService
 
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task RevokeAllForUserAsync(Guid userId, string applicationCode, CancellationToken ct = default)
+    {
+        var tokens = await _db.RefreshTokens
+            .Where(rt => rt.UserId == userId && rt.ApplicationCode == applicationCode && rt.RevokedAt == null)
+            .ToListAsync(ct);
+
+        var now = _dateTimeProvider.UtcNow;
+        foreach (var token in tokens)
+            token.RevokedAt = now;
+
+        await _db.SaveChangesAsync(ct);
+    }
 }

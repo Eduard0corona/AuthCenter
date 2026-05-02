@@ -335,8 +335,8 @@ public class AuthService : IAuthService
 
         if (storedToken.RevokedAt is not null)
         {
-            await _refreshTokenService.RevokeAllForUserAsync(storedToken.UserId, ct);
-            await _auditService.LogAsync("REFRESH_TOKEN_REUSE_DETECTED", storedToken.UserId, null, null, null, ipAddress, userAgent, ct: ct);
+            await _refreshTokenService.RevokeAllForUserAsync(storedToken.UserId, storedToken.ApplicationCode, ct);
+            await _auditService.LogAsync("REFRESH_TOKEN_REUSE_DETECTED", storedToken.UserId, storedToken.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
             return OperationResult<AuthResponse>.Failure("TOKEN_REUSE_DETECTED", "Refresh token has already been used.");
         }
 
@@ -429,7 +429,7 @@ public class AuthService : IAuthService
             return OperationResult.Failure("TOKEN_ALREADY_REVOKED", "Token is already revoked.");
 
         await _refreshTokenService.RevokeAsync(storedToken, null, ct);
-        await _auditService.LogAsync("TOKEN_REVOKED", requestingUserId, ct: ct);
+        await _auditService.LogAsync("TOKEN_REVOKED", requestingUserId, storedToken.ApplicationCode, ct: ct);
         return OperationResult.Success();
     }
 

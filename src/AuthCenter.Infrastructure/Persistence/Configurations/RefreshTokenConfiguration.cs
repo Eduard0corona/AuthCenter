@@ -18,6 +18,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.Property(r => r.ExpiresAt).IsRequired();
 
         builder.HasIndex(r => r.TokenHash).IsUnique();
+        builder.HasIndex(r => new { r.UserId, r.RevokedAt });
 
         builder.Ignore(r => r.IsActive);
     }

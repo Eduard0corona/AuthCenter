@@ -9,6 +9,7 @@ using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AuthCenter.Infrastructure.Services;
 
@@ -16,11 +17,14 @@ public class ApplicationService : IApplicationService
 {
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan AppCacheTtl = TimeSpan.FromMinutes(5);
 
-    public ApplicationService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider)
+    public ApplicationService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider, IMemoryCache cache)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
+        _cache = cache;
     }
 
     public async Task<PagedResult<ApplicationDto>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -50,10 +54,22 @@ public class ApplicationService : IApplicationService
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Code == code, ct);
 
-    public Task<ApplicationSystem?> GetByCodeWithSettingsAsync(string code, CancellationToken ct = default) =>
-        _db.ApplicationSystems
+    public async Task<ApplicationSystem?> GetByCodeWithSettingsAsync(string code, CancellationToken ct = default)
+    {
+        var cacheKey = $"app_settings:{code}";
+        if (_cache.TryGetValue(cacheKey, out ApplicationSystem? cached))
+            return cached;
+
+        var app = await _db.ApplicationSystems
             .Include(a => a.RegistrationSettings)
+            .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Code == code, ct);
+
+        if (app is not null)
+            _cache.Set(cacheKey, app, AppCacheTtl);
+
+        return app;
+    }
 
     public async Task<OperationResult<ApplicationDto>> CreateAsync(CreateApplicationRequest request, CancellationToken ct = default)
     {
@@ -122,6 +138,7 @@ public class ApplicationService : IApplicationService
         }
 
         await _db.SaveChangesAsync(ct);
+        _cache.Remove($"app_settings:{app.Code}");
         return OperationResult<ApplicationDto>.Success(MapToDto(app));
     }
 
@@ -132,6 +149,7 @@ public class ApplicationService : IApplicationService
         app.IsActive = true;
         app.UpdatedAt = _dateTimeProvider.UtcNow;
         await _db.SaveChangesAsync(ct);
+        _cache.Remove($"app_settings:{app.Code}");
         return OperationResult.Success();
     }
 
@@ -142,6 +160,7 @@ public class ApplicationService : IApplicationService
         app.IsActive = false;
         app.UpdatedAt = _dateTimeProvider.UtcNow;
         await _db.SaveChangesAsync(ct);
+        _cache.Remove($"app_settings:{app.Code}");
         return OperationResult.Success();
     }
 

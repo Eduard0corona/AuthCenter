@@ -25,6 +25,8 @@ public static class InfrastructureServiceExtensions
                 sql => sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName)),
             ServiceLifetime.Scoped);
 
+        services.AddMemoryCache();
+
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
         services.Configure<GoogleAuthSettings>(configuration.GetSection("Authentication:Google"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));

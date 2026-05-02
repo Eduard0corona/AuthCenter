@@ -208,10 +208,17 @@ public class UserAccessService : IUserAccessService
         var user = await _db.Users
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
+            .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == userId, ct);
 
         if (user is null) return null;
-        var roles = await _userManager.GetRolesAsync(user);
+
+        var roles = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
+            .Where(n => n != null)
+            .ToListAsync(ct);
+
         return MapToDto(user, roles);
     }
 
@@ -380,23 +387,32 @@ public class UserAccessService : IUserAccessService
 
     private async Task<OperationResult> AssignRolesAsync(ApplicationUser user, IReadOnlyList<Guid> roleIds, Guid? applicationSystemId, CancellationToken ct)
     {
-        foreach (var roleId in roleIds.Distinct())
+        var distinctIds = roleIds.Distinct().ToList();
+        if (distinctIds.Count == 0) return OperationResult.Success();
+
+        var roles = await _db.Roles
+            .Where(r => distinctIds.Contains(r.Id))
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        foreach (var roleId in distinctIds)
         {
-            var role = await _db.Roles.FindAsync([roleId], ct);
+            var role = roles.FirstOrDefault(r => r.Id == roleId);
             if (role is null)
                 return OperationResult.Failure("ROLE_NOT_FOUND", $"Role {roleId} not found.");
 
             if (applicationSystemId.HasValue &&
                 role.ApplicationSystemId.HasValue &&
                 role.ApplicationSystemId.Value != applicationSystemId.Value)
-            {
                 return OperationResult.Failure("ROLE_APP_MISMATCH", "Role must belong to the selected application.");
-            }
 
             if (role.Name is null)
                 return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
+        }
 
-            var result = await _userManager.AddToRoleAsync(user, role.Name);
+        foreach (var role in roles)
+        {
+            var result = await _userManager.AddToRoleAsync(user, role.Name!);
             if (!result.Succeeded)
                 return OperationResult.Failure("ROLE_ASSIGN_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
         }

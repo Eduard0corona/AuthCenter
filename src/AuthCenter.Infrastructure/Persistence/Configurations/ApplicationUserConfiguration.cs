@@ -12,6 +12,8 @@ public class ApplicationUserConfiguration : IEntityTypeConfiguration<Application
         builder.Property(u => u.PictureUrl).HasMaxLength(2048);
         builder.Property(u => u.CreatedAt).IsRequired();
 
+        builder.HasIndex(u => u.FullName);
+
         builder.HasMany(u => u.RefreshTokens)
             .WithOne(rt => rt.User)
             .HasForeignKey(rt => rt.UserId)

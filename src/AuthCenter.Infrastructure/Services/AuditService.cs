@@ -13,18 +13,15 @@ namespace AuthCenter.Infrastructure.Services;
 public class AuditService : IAuditService
 {
     private readonly IDbContextFactory<AuthCenterDbContext> _dbFactory;
-    private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<AuditService> _logger;
 
     public AuditService(
         IDbContextFactory<AuthCenterDbContext> dbFactory,
-        AuthCenterDbContext db,
         IDateTimeProvider dateTimeProvider,
         ILogger<AuditService> logger)
     {
         _dbFactory = dbFactory;
-        _db = db;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
     }
@@ -70,7 +67,8 @@ public class AuditService : IAuditService
 
     public async Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default)
     {
-        var logs = _db.AuditLogs.AsNoTracking();
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var logs = db.AuditLogs.AsNoTracking();
 
         if (query.UserId.HasValue)
             logs = logs.Where(a => a.UserId == query.UserId.Value);

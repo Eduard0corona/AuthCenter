@@ -8,4 +8,5 @@ public interface IRefreshTokenService
     Task<RefreshToken?> FindByHashAsync(string tokenHash, CancellationToken ct = default);
     Task RevokeAsync(RefreshToken token, string? replacedByHash, CancellationToken ct = default);
     Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);
+    Task RevokeAllForUserAsync(Guid userId, string applicationCode, CancellationToken ct = default);
 }

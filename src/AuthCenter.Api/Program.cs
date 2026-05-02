@@ -62,7 +62,8 @@ try
             ValidIssuer = jwtSettings.Issuer,
             ValidAudience = jwtSettings.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SigningKey)),
-            ClockSkew = TimeSpan.Zero
+            ClockSkew = TimeSpan.Zero,
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
         };
     });
 
@@ -88,9 +89,16 @@ try
             {
                 policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
             }
+            else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+            {
+                // Wildcard is only intentional in local dev and automated test runs.
+                policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+            }
             else
             {
-                policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+                // Non-dev/test with no origins should have been caught by ValidateStartupConfiguration.
+                // Fall back to localhost-only so a misconfigured staging is not wide open.
+                policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod();
             }
         });
     });
@@ -143,6 +151,14 @@ try
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+    app.Use(async (ctx, next) =>
+    {
+        ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+        ctx.Response.Headers.Append("X-Frame-Options", "DENY");
+        ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+        await next();
+    });
+
     app.UseSerilogRequestLogging();
 
     if (!app.Environment.IsEnvironment("Testing"))
@@ -183,10 +199,10 @@ public partial class Program
             throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured outside Development.");
 
         if (string.IsNullOrWhiteSpace(jwtSettings.SigningKey) ||
-            jwtSettings.SigningKey.Length < 32 ||
+            jwtSettings.SigningKey.Length < 64 ||
             jwtSettings.SigningKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Jwt:SigningKey must be a non-placeholder value with at least 32 characters outside Development.");
+            throw new InvalidOperationException("Jwt:SigningKey must be at least 64 characters and not use a placeholder value outside Development.");
         }
 
         var googleClientId = configuration["Authentication:Google:ClientId"];

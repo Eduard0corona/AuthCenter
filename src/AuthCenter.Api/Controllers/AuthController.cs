@@ -41,6 +41,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
+    [EnableRateLimiting(RateLimitingExtensions.Google)]
     [HttpPost("google")]
     public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request, CancellationToken ct)
     {
@@ -107,6 +108,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse.Ok("If this email exists, a reset link has been sent."));
     }
 
+    [EnableRateLimiting(RateLimitingExtensions.ResetPassword)]
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
@@ -116,6 +118,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse.Ok("Password has been reset successfully."));
     }
 
+    [EnableRateLimiting(RateLimitingExtensions.ConfirmEmail)]
     [HttpPost("confirm-email")]
     public async Task<IActionResult> ConfirmEmail([FromBody] ConfirmEmailRequest request, CancellationToken ct)
     {
@@ -125,6 +128,7 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse.Ok("Email has been confirmed successfully."));
     }
 
+    [EnableRateLimiting(RateLimitingExtensions.ResendEmailConfirmation)]
     [HttpPost("resend-email-confirmation")]
     public async Task<IActionResult> ResendEmailConfirmation([FromBody] ResendEmailConfirmationRequest request, CancellationToken ct)
     {

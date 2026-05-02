@@ -51,7 +51,7 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult<RoleDto>> CreateAsync(CreateRoleRequest request, CancellationToken ct = default)
     {
-        if (await _roleManager.RoleExistsAsync(request.Name))
+        if (await _db.Roles.AnyAsync(r => r.NormalizedName == request.Name.ToUpperInvariant(), ct))
             return OperationResult<RoleDto>.Failure("ROLE_EXISTS", $"Role '{request.Name}' already exists.");
 
         var role = new ApplicationRole
@@ -167,30 +167,20 @@ public class RoleService : IRoleService
         return OperationResult.Success();
     }
 
-    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default)
-    {
-        var roleIds = await _db.UserRoles
+    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default) =>
+        await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(ct);
-
-        return await _db.RolePermissions
-            .Where(rp => roleIds.Contains(rp.RoleId) && rp.Role.IsActive && rp.Permission.IsActive)
+            .Join(_db.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (_, rp) => rp)
+            .Where(rp => rp.Role.IsActive && rp.Permission.IsActive)
             .Select(rp => rp.Permission.Code)
             .Distinct()
             .ToListAsync(ct);
-    }
 
-    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
-    {
-        var roleIds = await _db.UserRoles
+    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
+        await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(ct);
-
-        return await _db.RolePermissions
+            .Join(_db.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (_, rp) => rp)
             .Where(rp =>
-                roleIds.Contains(rp.RoleId) &&
                 rp.Role.IsActive &&
                 rp.Permission.IsActive &&
                 rp.Permission.ApplicationSystemId == applicationSystemId &&
@@ -198,37 +188,25 @@ public class RoleService : IRoleService
             .Select(rp => rp.Permission.Code)
             .Distinct()
             .ToListAsync(ct);
-    }
 
-    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, CancellationToken ct = default)
-    {
-        var roleIds = await _db.UserRoles
+    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, CancellationToken ct = default) =>
+        await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(ct);
-
-        return await _db.Roles
-            .Where(r => roleIds.Contains(r.Id) && r.IsActive && r.Name != null)
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
+            .Where(r => r.IsActive && r.Name != null)
             .Select(r => r.Name!)
             .ToListAsync(ct);
-    }
 
-    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
-    {
-        var roleIds = await _db.UserRoles
+    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
+        await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(ct);
-
-        return await _db.Roles
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
             .Where(r =>
-                roleIds.Contains(r.Id) &&
                 r.IsActive &&
                 r.Name != null &&
                 (!r.ApplicationSystemId.HasValue || r.ApplicationSystemId == applicationSystemId))
             .Select(r => r.Name!)
             .ToListAsync(ct);
-    }
 
     private static RoleDto MapToDto(ApplicationRole role) => new()
     {

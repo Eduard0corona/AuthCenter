@@ -9,6 +9,10 @@ public static class RateLimitingExtensions
     public const string Register = "auth-register";
     public const string Refresh = "auth-refresh";
     public const string ForgotPassword = "auth-forgot-password";
+    public const string Google = "auth-google";
+    public const string ResetPassword = "auth-reset-password";
+    public const string ConfirmEmail = "auth-confirm-email";
+    public const string ResendEmailConfirmation = "auth-resend-email-confirmation";
 
     public static IServiceCollection AddAuthRateLimiting(this IServiceCollection services)
     {
@@ -60,6 +64,54 @@ public static class RateLimitingExtensions
                     {
                         PermitLimit = 3,
                         Window = TimeSpan.FromMinutes(5),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // 5 intentos de Google login por IP por minuto
+            options.AddPolicy(Google, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // 3 solicitudes de reset-password por IP cada 5 minutos
+            options.AddPolicy(ResetPassword, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 3,
+                        Window = TimeSpan.FromMinutes(5),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // 5 solicitudes de confirm-email por IP por hora
+            options.AddPolicy(ConfirmEmail, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 5,
+                        Window = TimeSpan.FromHours(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // 3 reenvíos de confirmación de email por IP cada 10 minutos
+            options.AddPolicy(ResendEmailConfirmation, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 3,
+                        Window = TimeSpan.FromMinutes(10),
                         QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                         QueueLimit = 0
                     }));
