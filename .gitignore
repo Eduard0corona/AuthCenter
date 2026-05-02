@@ -1,0 +1,51 @@
+## .NET
+*.user
+*.suo
+.vs/
+bin/
+obj/
+*.nupkg
+.nuget/
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Rider
+.idea/
+*.sln.iml
+
+## VS Code
+.vscode/
+
+## Local assistant/tooling state
+.claude/settings.local.json
+
+## Logs
+logs/
+*.log
+
+## Secrets
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+secrets.json
+
+## User secrets
+%APPDATA%\Microsoft\UserSecrets
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## OS
+.DS_Store
+Thumbs.db

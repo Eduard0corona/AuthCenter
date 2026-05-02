@@ -1,0 +1,171 @@
+using AuthCenter.Application.Common;
+using AuthCenter.Application.Common.Exceptions;
+using AuthCenter.Application.Interfaces;
+using AuthCenter.Contracts.Requests.Common;
+using AuthCenter.Contracts.Requests.Roles;
+using AuthCenter.Contracts.Responses;
+using AuthCenter.Contracts.Responses.Roles;
+using AuthCenter.Domain.Entities;
+using AuthCenter.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+
+namespace AuthCenter.Infrastructure.Services;
+
+public class RoleService : IRoleService
+{
+    private readonly AuthCenterDbContext _db;
+    private readonly RoleManager<ApplicationRole> _roleManager;
+    private readonly IDateTimeProvider _dateTimeProvider;
+
+    public RoleService(AuthCenterDbContext db, RoleManager<ApplicationRole> roleManager, IDateTimeProvider dateTimeProvider)
+    {
+        _db = db;
+        _roleManager = roleManager;
+        _dateTimeProvider = dateTimeProvider;
+    }
+
+    public async Task<PagedResult<RoleDto>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
+    {
+        var query = _db.Roles
+            .Include(r => r.RolePermissions)
+                .ThenInclude(rp => rp.Permission)
+            .AsNoTracking()
+            .OrderBy(r => r.Name);
+
+        var totalCount = await query.CountAsync(ct);
+        var roles = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
+
+        return PagedResult<RoleDto>.Create(roles.Select(MapToDto).ToList(), totalCount, pagination.Page, pagination.PageSize);
+    }
+
+    public async Task<RoleDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        var role = await _db.Roles
+            .Include(r => r.RolePermissions)
+                .ThenInclude(rp => rp.Permission)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == id, ct);
+        return role is null ? null : MapToDto(role);
+    }
+
+    public async Task<OperationResult<RoleDto>> CreateAsync(CreateRoleRequest request, CancellationToken ct = default)
+    {
+        if (await _roleManager.RoleExistsAsync(request.Name))
+            return OperationResult<RoleDto>.Failure("ROLE_EXISTS", $"Role '{request.Name}' already exists.");
+
+        var role = new ApplicationRole
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            NormalizedName = request.Name.ToUpperInvariant(),
+            Description = request.Description,
+            ApplicationSystemId = request.ApplicationSystemId,
+            IsSystemRole = request.IsSystemRole,
+            IsActive = true,
+            CreatedAt = _dateTimeProvider.UtcNow
+        };
+
+        var result = await _roleManager.CreateAsync(role);
+        if (!result.Succeeded)
+        {
+            var errors = result.Errors.Select(e => e.Description).ToList();
+            return OperationResult<RoleDto>.Failure("ROLE_CREATION_FAILED", string.Join(", ", errors));
+        }
+
+        return OperationResult<RoleDto>.Success(MapToDto(role));
+    }
+
+    public async Task<OperationResult<RoleDto>> UpdateAsync(Guid id, UpdateRoleRequest request, CancellationToken ct = default)
+    {
+        var role = await _roleManager.FindByIdAsync(id.ToString())
+            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+
+        role.Name = request.Name;
+        role.NormalizedName = request.Name.ToUpperInvariant();
+        role.Description = request.Description;
+
+        var result = await _roleManager.UpdateAsync(role);
+        if (!result.Succeeded)
+        {
+            var errors = result.Errors.Select(e => e.Description).ToList();
+            return OperationResult<RoleDto>.Failure("ROLE_UPDATE_FAILED", string.Join(", ", errors));
+        }
+
+        return OperationResult<RoleDto>.Success(MapToDto(role));
+    }
+
+    public async Task<OperationResult> AddPermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
+    {
+        var role = await _db.Roles.FindAsync([roleId], ct)
+            ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+
+        var permission = await _db.Permissions.FindAsync([permissionId], ct)
+            ?? throw new NotFoundException(nameof(Permission), permissionId);
+
+        var exists = await _db.RolePermissions
+            .AnyAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId, ct);
+
+        if (exists)
+            return OperationResult.Failure("PERMISSION_ALREADY_ASSIGNED", "Permission is already assigned to this role.");
+
+        _db.RolePermissions.Add(new RolePermission
+        {
+            RoleId = roleId,
+            PermissionId = permissionId,
+            CreatedAt = _dateTimeProvider.UtcNow
+        });
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> RemovePermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
+    {
+        var rp = await _db.RolePermissions
+            .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId, ct)
+            ?? throw new NotFoundException("RolePermission", $"{roleId}/{permissionId}");
+
+        _db.RolePermissions.Remove(rp);
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default)
+    {
+        var roleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(ct);
+
+        return await _db.RolePermissions
+            .Where(rp => roleIds.Contains(rp.RoleId))
+            .Select(rp => rp.Permission.Code)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
+    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, CancellationToken ct = default)
+    {
+        var roleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(ct);
+
+        return await _db.Roles
+            .Where(r => roleIds.Contains(r.Id) && r.Name != null)
+            .Select(r => r.Name!)
+            .ToListAsync(ct);
+    }
+
+    private static RoleDto MapToDto(ApplicationRole role) => new()
+    {
+        Id = role.Id,
+        Name = role.Name ?? string.Empty,
+        Description = role.Description,
+        ApplicationSystemId = role.ApplicationSystemId,
+        IsSystemRole = role.IsSystemRole,
+        IsActive = role.IsActive,
+        CreatedAt = role.CreatedAt,
+        Permissions = role.RolePermissions.Select(rp => rp.Permission.Code).ToList()
+    };
+}
