@@ -16,12 +16,13 @@ public class RefreshTokenService : IRefreshTokenService
         _dateTimeProvider = dateTimeProvider;
     }
 
-    public async Task<RefreshToken> CreateAsync(Guid userId, string tokenHash, string? ipAddress, string? userAgent, CancellationToken ct = default)
+    public async Task<RefreshToken> CreateAsync(Guid userId, string applicationCode, string tokenHash, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
         var token = new RefreshToken
         {
             Id = Guid.NewGuid(),
             UserId = userId,
+            ApplicationCode = applicationCode,
             TokenHash = tokenHash,
             CreatedAt = _dateTimeProvider.UtcNow,
             ExpiresAt = _dateTimeProvider.UtcNow.AddDays(30),

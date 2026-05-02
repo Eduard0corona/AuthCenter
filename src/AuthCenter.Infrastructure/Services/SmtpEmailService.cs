@@ -20,16 +20,43 @@ public class SmtpEmailService : IEmailService
 
     public async Task SendPasswordResetAsync(string toEmail, string toName, string resetToken, string? callbackBaseUrl, CancellationToken ct = default)
     {
-        var resetLink = BuildResetLink(callbackBaseUrl, toEmail, resetToken);
-        var subject = "Restablecer contraseña — AuthCenter";
-        var body = BuildResetEmailBody(toName, resetLink, resetToken);
+        var resetLink = BuildTokenLink(callbackBaseUrl, toEmail, resetToken);
+        var body = BuildActionEmailBody(toName, "Reset password", "Reset password", resetLink, resetToken);
 
+        await SendAsync(toEmail, toName, "Reset password - AuthCenter", body, "Password reset", resetToken, resetLink, ct);
+    }
+
+    public async Task SendEmailConfirmationAsync(string toEmail, string toName, string token, string? callbackBaseUrl, CancellationToken ct = default)
+    {
+        var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
+        var body = BuildActionEmailBody(toName, "Confirm your email", "Confirm email", link, token);
+
+        await SendAsync(toEmail, toName, "Confirm email - AuthCenter", body, "Email confirmation", token, link, ct);
+    }
+
+    public async Task SendInvitationAsync(string toEmail, string toName, string applicationName, string token, string? callbackBaseUrl, CancellationToken ct = default)
+    {
+        var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
+        var body = BuildActionEmailBody(toName, $"You were invited to {applicationName}", "Accept invitation", link, token);
+
+        await SendAsync(toEmail, toName, $"Invitation to {applicationName} - AuthCenter", body, "Invitation", token, link, ct);
+    }
+
+    private async Task SendAsync(
+        string toEmail,
+        string toName,
+        string subject,
+        string body,
+        string purpose,
+        string token,
+        string link,
+        CancellationToken ct)
+    {
         if (string.IsNullOrWhiteSpace(_settings.Host))
         {
-            // Sin SMTP configurado: loguear el token para desarrollo
             _logger.LogWarning(
-                "Email SMTP not configured. Password reset token for {Email}: {Token} | Link: {Link}",
-                toEmail, resetToken, resetLink);
+                "Email SMTP not configured. {Purpose} token for {Email}: {Token} | Link: {Link}",
+                purpose, toEmail, token, link);
             return;
         }
 
@@ -52,16 +79,16 @@ public class SmtpEmailService : IEmailService
         try
         {
             await client.SendMailAsync(message, ct);
-            _logger.LogInformation("Password reset email sent to {Email}", toEmail);
+            _logger.LogInformation("{Purpose} email sent to {Email}", purpose, toEmail);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send password reset email to {Email}", toEmail);
+            _logger.LogError(ex, "Failed to send {Purpose} email to {Email}", purpose, toEmail);
             throw;
         }
     }
 
-    private static string BuildResetLink(string? callbackBaseUrl, string email, string token)
+    private static string BuildTokenLink(string? callbackBaseUrl, string email, string token)
     {
         if (string.IsNullOrWhiteSpace(callbackBaseUrl))
             return $"token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
@@ -70,18 +97,16 @@ public class SmtpEmailService : IEmailService
         return $"{callbackBaseUrl}{sep}token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
     }
 
-    private static string BuildResetEmailBody(string name, string resetLink, string rawToken) => $"""
+    private static string BuildActionEmailBody(string name, string title, string button, string link, string rawToken) => $"""
         <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
-          <h2>Restablecer contraseña</h2>
-          <p>Hola <strong>{name}</strong>,</p>
-          <p>Recibimos una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace
-          (válido por 24 horas):</p>
-          <p><a href="{resetLink}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
-            Restablecer contraseña
+          <h2>{title}</h2>
+          <p>Hello <strong>{name}</strong>,</p>
+          <p>Use the following link to continue:</p>
+          <p><a href="{link}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
+            {button}
           </a></p>
-          <p>O usa este token directamente: <code>{rawToken}</code></p>
-          <p>Si no solicitaste este cambio, ignora este correo.</p>
-          <hr/><p style="color:#888;font-size:12px">AuthCenter — Servicio de identidad centralizado</p>
+          <p>Or use this token directly: <code>{rawToken}</code></p>
+          <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
         </body></html>
         """;
 }

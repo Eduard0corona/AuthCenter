@@ -2,6 +2,7 @@ using AuthCenter.Application.Common;
 using AuthCenter.Application.Common.Exceptions;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Common;
+using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Entities;
@@ -16,21 +17,50 @@ public class UserAccessService : IUserAccessService
     private readonly AuthCenterDbContext _db;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IEmailService _emailService;
 
-    public UserAccessService(AuthCenterDbContext db, UserManager<ApplicationUser> userManager, IDateTimeProvider dateTimeProvider)
+    public UserAccessService(
+        AuthCenterDbContext db,
+        UserManager<ApplicationUser> userManager,
+        IDateTimeProvider dateTimeProvider,
+        IEmailService emailService)
     {
         _db = db;
         _userManager = userManager;
         _dateTimeProvider = dateTimeProvider;
+        _emailService = emailService;
     }
 
     public async Task<PagedResult<UserDto>> GetAllUsersAsync(PaginationQuery pagination, CancellationToken ct = default)
+        => await GetAllUsersAsync(new UserQuery { Page = pagination.Page, PageSize = pagination.PageSize }, ct);
+
+    public async Task<PagedResult<UserDto>> GetAllUsersAsync(UserQuery pagination, CancellationToken ct = default)
     {
         var query = _db.Users
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
-            .AsNoTracking()
-            .OrderBy(u => u.FullName);
+            .AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(pagination.Search))
+        {
+            var search = pagination.Search.Trim();
+            query = query.Where(u => u.FullName.Contains(search) || (u.Email != null && u.Email.Contains(search)));
+        }
+
+        if (pagination.ApplicationSystemId.HasValue)
+            query = query.Where(u => u.ApplicationAccesses.Any(a => a.ApplicationSystemId == pagination.ApplicationSystemId.Value));
+
+        if (pagination.IsActive.HasValue)
+            query = query.Where(u => u.IsActive == pagination.IsActive.Value);
+
+        if (pagination.HasPendingAccess.HasValue)
+        {
+            query = pagination.HasPendingAccess.Value
+                ? query.Where(u => u.ApplicationAccesses.Any(a => !a.IsActive))
+                : query.Where(u => !u.ApplicationAccesses.Any(a => !a.IsActive));
+        }
+
+        query = query.OrderBy(u => u.FullName);
 
         var totalCount = await query.CountAsync(ct);
         var users = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
@@ -43,6 +73,108 @@ public class UserAccessService : IUserAccessService
         }
 
         return PagedResult<UserDto>.Create(dtos, totalCount, pagination.Page, pagination.PageSize);
+    }
+
+    public async Task<OperationResult<UserDto>> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default)
+    {
+        if (await _userManager.FindByEmailAsync(request.Email) is not null)
+            return OperationResult<UserDto>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
+
+        var now = _dateTimeProvider.UtcNow;
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            FullName = request.FullName,
+            Email = request.Email,
+            UserName = request.Email,
+            EmailConfirmed = true,
+            HasLocalPassword = !string.IsNullOrWhiteSpace(request.Password),
+            IsActive = true,
+            CreatedAt = now
+        };
+
+        var result = string.IsNullOrWhiteSpace(request.Password)
+            ? await _userManager.CreateAsync(user)
+            : await _userManager.CreateAsync(user, request.Password);
+
+        if (!result.Succeeded)
+            return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+
+        if (request.GrantApplicationAccess)
+        {
+            if (!request.ApplicationSystemId.HasValue)
+                return OperationResult<UserDto>.Failure("APP_REQUIRED", "ApplicationSystemId is required when granting access.");
+
+            await GrantAccessAsync(user.Id, request.ApplicationSystemId.Value, request.ApplicationAccessIsActive, ct);
+        }
+
+        var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
+        if (!roleResult.IsSuccess)
+            return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
+
+        return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+    }
+
+    public async Task<OperationResult<UserDto>> InviteUserAsync(InviteUserRequest request, CancellationToken ct = default)
+    {
+        var app = await _db.ApplicationSystems
+            .Include(a => a.RegistrationSettings)
+            .FirstOrDefaultAsync(a => a.Id == request.ApplicationSystemId, ct);
+
+        if (app is null || !app.IsActive)
+            return OperationResult<UserDto>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
+
+        if (!IsEmailDomainAllowed(request.Email, app.RegistrationSettings?.AllowedEmailDomains))
+            return OperationResult<UserDto>.Failure("EMAIL_DOMAIN_NOT_ALLOWED", "Email domain is not allowed for this application.");
+
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        var now = _dateTimeProvider.UtcNow;
+
+        if (user is null)
+        {
+            user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                FullName = request.FullName,
+                Email = request.Email,
+                UserName = request.Email,
+                EmailConfirmed = true,
+                HasLocalPassword = false,
+                IsActive = true,
+                CreatedAt = now
+            };
+
+            var createResult = await _userManager.CreateAsync(user);
+            if (!createResult.Succeeded)
+                return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", createResult.Errors.Select(e => e.Description)));
+        }
+
+        await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
+
+        var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
+        if (!roleResult.IsSuccess)
+            return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
+
+        var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+        await _emailService.SendInvitationAsync(user.Email!, user.FullName, app.Name, token, request.CallbackBaseUrl, ct);
+
+        return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+    }
+
+    public async Task<OperationResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString())
+            ?? throw new NotFoundException(nameof(ApplicationUser), userId);
+
+        user.FullName = request.FullName;
+        user.PictureUrl = request.PictureUrl;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+
+        var result = await _userManager.UpdateAsync(user);
+        if (!result.Succeeded)
+            return OperationResult<UserDto>.Failure("USER_UPDATE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+
+        return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
     }
 
     public async Task<UserDto?> GetUserByIdAsync(Guid userId, CancellationToken ct = default)
@@ -212,4 +344,46 @@ public class UserAccessService : IUserAccessService
             })
             .ToList()
     };
+
+    private async Task<OperationResult> AssignRolesAsync(ApplicationUser user, IReadOnlyList<Guid> roleIds, Guid? applicationSystemId, CancellationToken ct)
+    {
+        foreach (var roleId in roleIds.Distinct())
+        {
+            var role = await _db.Roles.FindAsync([roleId], ct)
+                ?? throw new NotFoundException(nameof(ApplicationRole), roleId);
+
+            if (applicationSystemId.HasValue &&
+                role.ApplicationSystemId.HasValue &&
+                role.ApplicationSystemId.Value != applicationSystemId.Value)
+            {
+                return OperationResult.Failure("ROLE_APP_MISMATCH", "Role must belong to the selected application.");
+            }
+
+            if (role.Name is null)
+                return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
+
+            var result = await _userManager.AddToRoleAsync(user, role.Name);
+            if (!result.Succeeded)
+                return OperationResult.Failure("ROLE_ASSIGN_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+        }
+
+        return OperationResult.Success();
+    }
+
+    private static bool IsEmailDomainAllowed(string email, string? allowedEmailDomains)
+    {
+        if (string.IsNullOrWhiteSpace(allowedEmailDomains))
+            return true;
+
+        var at = email.LastIndexOf('@');
+        if (at < 0 || at == email.Length - 1)
+            return false;
+
+        var domain = email[(at + 1)..].Trim().ToLowerInvariant();
+        var allowed = allowedEmailDomains
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(d => d.TrimStart('@').ToLowerInvariant());
+
+        return allowed.Contains(domain);
+    }
 }

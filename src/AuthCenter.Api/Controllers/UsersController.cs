@@ -1,5 +1,6 @@
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Common;
+using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +22,7 @@ public class UsersController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = DomainConstants.Permissions.UsersRead)]
-    public async Task<IActionResult> GetAll([FromQuery] PaginationQuery pagination, CancellationToken ct)
+    public async Task<IActionResult> GetAll([FromQuery] UserQuery pagination, CancellationToken ct)
     {
         var result = await _userAccessService.GetAllUsersAsync(pagination, ct);
         return Ok(ApiResponse<object>.Ok(result));
@@ -34,6 +35,33 @@ public class UsersController : ControllerBase
         var user = await _userAccessService.GetUserByIdAsync(id, ct);
         if (user is null) return NotFound(ApiResponse<object>.Fail("NOT_FOUND", "User not found."));
         return Ok(ApiResponse<object>.Ok(user));
+    }
+
+    [HttpPost]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken ct)
+    {
+        var result = await _userAccessService.CreateUserAsync(request, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, ApiResponse<object>.Ok(result.Data));
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request, CancellationToken ct)
+    {
+        var result = await _userAccessService.UpdateUserAsync(id, request, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse<object>.Ok(result.Data!));
+    }
+
+    [HttpPost("invitations")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> Invite([FromBody] InviteUserRequest request, CancellationToken ct)
+    {
+        var result = await _userAccessService.InviteUserAsync(request, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
     [HttpPost("{id:guid}/applications/{applicationId:guid}")]

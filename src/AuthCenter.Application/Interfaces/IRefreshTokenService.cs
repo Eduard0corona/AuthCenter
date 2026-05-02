@@ -4,7 +4,7 @@ namespace AuthCenter.Application.Interfaces;
 
 public interface IRefreshTokenService
 {
-    Task<RefreshToken> CreateAsync(Guid userId, string tokenHash, string? ipAddress, string? userAgent, CancellationToken ct = default);
+    Task<RefreshToken> CreateAsync(Guid userId, string applicationCode, string tokenHash, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<RefreshToken?> FindByHashAsync(string tokenHash, CancellationToken ct = default);
     Task RevokeAsync(RefreshToken token, string? replacedByHash, CancellationToken ct = default);
     Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);

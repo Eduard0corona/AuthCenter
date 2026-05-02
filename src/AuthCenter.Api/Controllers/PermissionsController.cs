@@ -28,6 +28,15 @@ public class PermissionsController : ControllerBase
         return Ok(ApiResponse<object>.Ok(result));
     }
 
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = DomainConstants.Permissions.PermissionsRead)]
+    public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
+    {
+        var permission = await _permissionService.GetByIdAsync(id, ct);
+        if (permission is null) return NotFound(ApiResponse<object>.Fail("NOT_FOUND", "Permission not found."));
+        return Ok(ApiResponse<object>.Ok(permission));
+    }
+
     [HttpGet("~/api/applications/{applicationId:guid}/permissions")]
     [Authorize(Policy = DomainConstants.Permissions.PermissionsRead)]
     public async Task<IActionResult> GetByApplication(Guid applicationId, [FromQuery] PaginationQuery pagination, CancellationToken ct)
@@ -52,5 +61,23 @@ public class PermissionsController : ControllerBase
         var result = await _permissionService.UpdateAsync(id, request, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
+    }
+
+    [HttpPatch("{id:guid}/activate")]
+    [Authorize(Policy = DomainConstants.Permissions.PermissionsWrite)]
+    public async Task<IActionResult> Activate(Guid id, CancellationToken ct)
+    {
+        var result = await _permissionService.ActivateAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
+
+    [HttpPatch("{id:guid}/deactivate")]
+    [Authorize(Policy = DomainConstants.Permissions.PermissionsWrite)]
+    public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct)
+    {
+        var result = await _permissionService.DeactivateAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
     }
 }

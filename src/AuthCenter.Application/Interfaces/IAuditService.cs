@@ -1,3 +1,7 @@
+using AuthCenter.Contracts.Requests.Audit;
+using AuthCenter.Contracts.Responses;
+using AuthCenter.Contracts.Responses.Audit;
+
 namespace AuthCenter.Application.Interfaces;
 
 public interface IAuditService
@@ -12,4 +16,6 @@ public interface IAuditService
         string? userAgent = null,
         object? metadata = null,
         CancellationToken ct = default);
+
+    Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default);
 }

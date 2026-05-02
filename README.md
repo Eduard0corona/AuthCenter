@@ -95,6 +95,10 @@ Outside `Development` and `Testing`, the API validates startup configuration and
 | POST | `/api/auth/logout` | Logout (revoke refresh token) |
 | POST | `/api/auth/revoke-token` | Revoke a specific refresh token |
 | GET | `/api/auth/me` | Get current authenticated user |
+| POST | `/api/auth/confirm-email` | Confirm email with token |
+| POST | `/api/auth/resend-email-confirmation` | Resend email confirmation |
+| POST | `/api/auth/forgot-password` | Send password reset token |
+| POST | `/api/auth/reset-password` | Reset password or accept invitation |
 
 ### Applications
 
@@ -111,11 +115,16 @@ Outside `Development` and `Testing`, the API validates startup configuration and
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/users` | List all users |
+| POST | `/api/users` | Create user administratively |
+| PUT | `/api/users/{id}` | Update user profile fields |
+| POST | `/api/users/invitations` | Invite a user to an application |
 | POST | `/api/users/{id}/applications/{appId}` | Grant application access |
 | PATCH | `/api/users/{id}/applications/{appId}/approve` | Approve pending application access |
 | DELETE | `/api/users/{id}/applications/{appId}` | Revoke application access |
 | POST | `/api/users/{id}/roles/{roleId}` | Assign role |
 | DELETE | `/api/users/{id}/roles/{roleId}` | Remove role |
+| PATCH | `/api/users/{id}/activate` | Activate user |
+| PATCH | `/api/users/{id}/deactivate` | Deactivate user |
 
 ### Other
 
@@ -123,6 +132,7 @@ Outside `Development` and `Testing`, the API validates startup configuration and
 |--------|----------|-------------|
 | GET | `/api/roles` | List roles |
 | GET | `/api/permissions` | List permissions |
+| GET | `/api/audit-logs` | Search audit logs |
 | GET | `/health` | Health check |
 
 ## Testing Login with Password
@@ -150,8 +160,9 @@ curl -X POST https://localhost:7001/api/auth/google \
 
 - **Roles** are assigned to users via `/api/users/{id}/roles/{roleId}`.
 - **Permissions** are assigned to roles via `/api/roles/{roleId}/permissions/{permissionId}`.
-- The JWT includes `roles` and `permissions` claims.
+- The JWT includes `roles`, `permissions`, and `applications` claims scoped to the application used for login.
 - Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`.
+- Refresh tokens are bound to the application they were issued for.
 
 ### Default Seed Data
 

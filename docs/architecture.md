@@ -73,3 +73,5 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
 - **Permission policies**: `PermissionPolicyProvider` intercepts any policy name and creates a `PermissionRequirement` from it, enabling `[Authorize(Policy = "AUTHCENTER_USERS_READ")]` without registering each permission manually.
 - **Configuration validation**: non-development environments fail fast when critical connection, JWT, and CORS settings are missing or still use placeholder values.
 - **Integration testing**: API integration tests run against EF Core InMemory and seed the same default `AUTHCENTER` application, roles, permissions, and admin flow used by the application seed.
+- **Application-scoped tokens**: login and refresh issue JWT roles, permissions, and application claims scoped to the requested application, preventing cross-application permission leakage.
+- **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

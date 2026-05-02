@@ -103,6 +103,9 @@ public class RoleService : IRoleService
         var permission = await _db.Permissions.FindAsync([permissionId], ct)
             ?? throw new NotFoundException(nameof(Permission), permissionId);
 
+        if (role.ApplicationSystemId.HasValue && role.ApplicationSystemId.Value != permission.ApplicationSystemId)
+            return OperationResult.Failure("PERMISSION_APP_MISMATCH", "Permission must belong to the same application as the role.");
+
         var exists = await _db.RolePermissions
             .AnyAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId, ct);
 
@@ -130,6 +133,29 @@ public class RoleService : IRoleService
         return OperationResult.Success();
     }
 
+    public async Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default)
+    {
+        var role = await _db.Roles.FindAsync([id], ct)
+            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+
+        role.IsActive = true;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> DeactivateAsync(Guid id, CancellationToken ct = default)
+    {
+        var role = await _db.Roles.FindAsync([id], ct)
+            ?? throw new NotFoundException(nameof(ApplicationRole), id);
+
+        if (role.IsSystemRole)
+            return OperationResult.Failure("SYSTEM_ROLE", "System roles cannot be deactivated.");
+
+        role.IsActive = false;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
     public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default)
     {
         var roleIds = await _db.UserRoles
@@ -138,7 +164,26 @@ public class RoleService : IRoleService
             .ToListAsync(ct);
 
         return await _db.RolePermissions
-            .Where(rp => roleIds.Contains(rp.RoleId))
+            .Where(rp => roleIds.Contains(rp.RoleId) && rp.Role.IsActive && rp.Permission.IsActive)
+            .Select(rp => rp.Permission.Code)
+            .Distinct()
+            .ToListAsync(ct);
+    }
+
+    public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
+    {
+        var roleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(ct);
+
+        return await _db.RolePermissions
+            .Where(rp =>
+                roleIds.Contains(rp.RoleId) &&
+                rp.Role.IsActive &&
+                rp.Permission.IsActive &&
+                rp.Permission.ApplicationSystemId == applicationSystemId &&
+                (!rp.Role.ApplicationSystemId.HasValue || rp.Role.ApplicationSystemId == applicationSystemId))
             .Select(rp => rp.Permission.Code)
             .Distinct()
             .ToListAsync(ct);
@@ -152,7 +197,24 @@ public class RoleService : IRoleService
             .ToListAsync(ct);
 
         return await _db.Roles
-            .Where(r => roleIds.Contains(r.Id) && r.Name != null)
+            .Where(r => roleIds.Contains(r.Id) && r.IsActive && r.Name != null)
+            .Select(r => r.Name!)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
+    {
+        var roleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(ct);
+
+        return await _db.Roles
+            .Where(r =>
+                roleIds.Contains(r.Id) &&
+                r.IsActive &&
+                r.Name != null &&
+                (!r.ApplicationSystemId.HasValue || r.ApplicationSystemId == applicationSystemId))
             .Select(r => r.Name!)
             .ToListAsync(ct);
     }

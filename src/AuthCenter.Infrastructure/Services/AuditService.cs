@@ -1,7 +1,11 @@
 using System.Text.Json;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Contracts.Requests.Audit;
+using AuthCenter.Contracts.Responses;
+using AuthCenter.Contracts.Responses.Audit;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace AuthCenter.Infrastructure.Services;
@@ -52,5 +56,48 @@ public class AuditService : IAuditService
         {
             _logger.LogError(ex, "Failed to persist audit log for action {Action}", action);
         }
+    }
+
+    public async Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default)
+    {
+        var logs = _db.AuditLogs.AsNoTracking();
+
+        if (query.UserId.HasValue)
+            logs = logs.Where(a => a.UserId == query.UserId.Value);
+
+        if (!string.IsNullOrWhiteSpace(query.ApplicationCode))
+            logs = logs.Where(a => a.ApplicationCode == query.ApplicationCode);
+
+        if (!string.IsNullOrWhiteSpace(query.Action))
+            logs = logs.Where(a => a.Action == query.Action);
+
+        if (query.FromUtc.HasValue)
+            logs = logs.Where(a => a.CreatedAt >= query.FromUtc.Value);
+
+        if (query.ToUtc.HasValue)
+            logs = logs.Where(a => a.CreatedAt <= query.ToUtc.Value);
+
+        logs = logs.OrderByDescending(a => a.CreatedAt);
+
+        var totalCount = await logs.CountAsync(ct);
+        var items = await logs
+            .Skip(query.Skip)
+            .Take(query.PageSize)
+            .Select(a => new AuditLogDto
+            {
+                Id = a.Id,
+                UserId = a.UserId,
+                ApplicationCode = a.ApplicationCode,
+                Action = a.Action,
+                EntityName = a.EntityName,
+                EntityId = a.EntityId,
+                IpAddress = a.IpAddress,
+                UserAgent = a.UserAgent,
+                MetadataJson = a.MetadataJson,
+                CreatedAt = a.CreatedAt
+            })
+            .ToListAsync(ct);
+
+        return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
     }
 }

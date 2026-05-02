@@ -19,4 +19,5 @@ public class ApplicationRegistrationSettingsDto
     public bool AllowPasswordLogin { get; init; }
     public bool RequireEmailConfirmation { get; init; }
     public string? AllowedEmailDomains { get; init; }
+    public Guid? DefaultRoleId { get; init; }
 }

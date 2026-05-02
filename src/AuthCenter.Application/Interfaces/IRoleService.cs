@@ -14,6 +14,10 @@ public interface IRoleService
     Task<OperationResult<RoleDto>> UpdateAsync(Guid id, UpdateRoleRequest request, CancellationToken ct = default);
     Task<OperationResult> AddPermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default);
     Task<OperationResult> RemovePermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default);
+    Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default);
+    Task<OperationResult> DeactivateAsync(Guid id, CancellationToken ct = default);
     Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default);
+    Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
     Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, CancellationToken ct = default);
+    Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
 }

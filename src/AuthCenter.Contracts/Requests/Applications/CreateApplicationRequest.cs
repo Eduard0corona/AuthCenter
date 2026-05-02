@@ -10,4 +10,5 @@ public class CreateApplicationRequest
     public bool AllowPasswordLogin { get; init; } = true;
     public bool RequireEmailConfirmation { get; init; }
     public string? AllowedEmailDomains { get; init; }
+    public Guid? DefaultRoleId { get; init; }
 }

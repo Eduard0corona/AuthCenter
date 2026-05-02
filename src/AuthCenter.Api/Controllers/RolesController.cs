@@ -72,4 +72,22 @@ public class RolesController : ControllerBase
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
     }
+
+    [HttpPatch("{id:guid}/activate")]
+    [Authorize(Policy = DomainConstants.Permissions.RolesWrite)]
+    public async Task<IActionResult> Activate(Guid id, CancellationToken ct)
+    {
+        var result = await _roleService.ActivateAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
+
+    [HttpPatch("{id:guid}/deactivate")]
+    [Authorize(Policy = DomainConstants.Permissions.RolesWrite)]
+    public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct)
+    {
+        var result = await _roleService.DeactivateAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
 }

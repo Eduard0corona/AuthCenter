@@ -54,7 +54,7 @@ public class AuthController : ControllerBase
     [HttpPost("refresh-token")]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request, CancellationToken ct)
     {
-        var result = await _authService.RefreshTokenAsync(request.RefreshToken, GetIpAddress(), GetUserAgent(), ct);
+        var result = await _authService.RefreshTokenAsync(request.RefreshToken, request.ApplicationCode, GetIpAddress(), GetUserAgent(), ct);
         if (!result.IsSuccess)
             return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
@@ -114,6 +114,22 @@ public class AuthController : ControllerBase
         if (!result.IsSuccess)
             return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok("Password has been reset successfully."));
+    }
+
+    [HttpPost("confirm-email")]
+    public async Task<IActionResult> ConfirmEmail([FromBody] ConfirmEmailRequest request, CancellationToken ct)
+    {
+        var result = await _authService.ConfirmEmailAsync(request, GetIpAddress(), ct);
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok("Email has been confirmed successfully."));
+    }
+
+    [HttpPost("resend-email-confirmation")]
+    public async Task<IActionResult> ResendEmailConfirmation([FromBody] ResendEmailConfirmationRequest request, CancellationToken ct)
+    {
+        await _authService.ResendEmailConfirmationAsync(request, GetIpAddress(), ct);
+        return Ok(ApiResponse.Ok("If this account requires confirmation, a confirmation email has been sent."));
     }
 
     private string? GetIpAddress() =>

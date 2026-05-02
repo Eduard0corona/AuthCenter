@@ -74,6 +74,9 @@ public class AuthService : IAuthService
         if (settings.RegistrationMode is ApplicationRegistrationMode.Closed or ApplicationRegistrationMode.InviteOnly)
             return OperationResult<AuthResponse>.Failure("REGISTRATION_CLOSED", "Self-registration is not allowed for this application.");
 
+        if (!IsEmailDomainAllowed(request.Email, settings.AllowedEmailDomains))
+            return OperationResult<AuthResponse>.Failure("EMAIL_DOMAIN_NOT_ALLOWED", "Email domain is not allowed for this application.");
+
         var existing = await _userManager.FindByEmailAsync(request.Email);
         if (existing is not null)
             return OperationResult<AuthResponse>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
@@ -85,6 +88,7 @@ public class AuthService : IAuthService
             FullName = request.FullName,
             Email = request.Email,
             UserName = request.Email,
+            EmailConfirmed = !settings.RequireEmailConfirmation,
             IsExternalUser = false,
             HasLocalPassword = true,
             IsActive = true,
@@ -110,10 +114,17 @@ public class AuthService : IAuthService
 
         await _auditService.LogAsync("USER_REGISTERED", user.Id, appSystem.Code, nameof(ApplicationUser), user.Id.ToString(), ipAddress, userAgent, ct: ct);
 
+        if (settings.RequireEmailConfirmation)
+        {
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, null, ct);
+            return OperationResult<AuthResponse>.Failure("EMAIL_CONFIRMATION_REQUIRED", "Please confirm your email before signing in.");
+        }
+
         if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
             return OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
 
-        return await BuildAuthResponseAsync(user, appSystem.Code, ipAddress, userAgent, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }
 
     public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -134,11 +145,17 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("INVALID_CREDENTIALS", "Invalid email or password.");
         }
 
-        var appSystem = await _applicationService.GetByCodeAsync(request.ApplicationCode, ct);
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(request.ApplicationCode, ct);
         if (appSystem is null || !appSystem.IsActive)
         {
             await _auditService.LogAsync("LOGIN_FAILED", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, new { reason = "AppNotFound" }, ct);
             return OperationResult<AuthResponse>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
+        }
+
+        if (appSystem.RegistrationSettings?.RequireEmailConfirmation == true && !user.EmailConfirmed)
+        {
+            await _auditService.LogAsync("LOGIN_FAILED", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, new { reason = "EmailNotConfirmed" }, ct);
+            return OperationResult<AuthResponse>.Failure("EMAIL_NOT_CONFIRMED", "Please confirm your email before signing in.");
         }
 
         var hasAccess = await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct);
@@ -154,7 +171,7 @@ public class AuthService : IAuthService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
-        return await BuildAuthResponseAsync(user, appSystem.Code, ipAddress, userAgent, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }
 
     public async Task<OperationResult<AuthResponse>> GoogleLoginAsync(GoogleLoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -170,6 +187,9 @@ public class AuthService : IAuthService
         var settings = appSystem.RegistrationSettings;
         if (settings is null || !settings.AllowGoogleLogin)
             return OperationResult<AuthResponse>.Failure("GOOGLE_LOGIN_DISABLED", "Google login is not allowed for this application.");
+
+        if (!IsEmailDomainAllowed(payload.Email, settings.AllowedEmailDomains))
+            return OperationResult<AuthResponse>.Failure("EMAIL_DOMAIN_NOT_ALLOWED", "Email domain is not allowed for this application.");
 
         var externalProvider = await _db.ExternalIdentityProviders
             .Include(e => e.User)
@@ -281,10 +301,10 @@ public class AuthService : IAuthService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("LOGIN_GOOGLE_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
-        return await BuildAuthResponseAsync(user, appSystem.Code, ipAddress, userAgent, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }
 
-    public async Task<OperationResult<AuthResponse>> RefreshTokenAsync(string refreshToken, string? ipAddress, string? userAgent, CancellationToken ct = default)
+    public async Task<OperationResult<AuthResponse>> RefreshTokenAsync(string refreshToken, string? applicationCode, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
         var tokenHash = _tokenService.HashToken(refreshToken);
         var storedToken = await _refreshTokenService.FindByHashAsync(tokenHash, ct);
@@ -308,21 +328,32 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("TOKEN_EXPIRED", "Refresh token has expired.");
         }
 
+        var appSystem = await _applicationService.GetByCodeAsync(applicationCode ?? storedToken.ApplicationCode, ct);
+        if (appSystem is null || !appSystem.IsActive)
+            return OperationResult<AuthResponse>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
+
+        if (!string.Equals(storedToken.ApplicationCode, appSystem.Code, StringComparison.Ordinal))
+            return OperationResult<AuthResponse>.Failure("TOKEN_APP_MISMATCH", "Refresh token was issued for another application.");
+
         if (!storedToken.User.IsActive)
             return OperationResult<AuthResponse>.Failure("USER_INACTIVE", "User account is inactive.");
 
+        var hasAccess = await _userAccessService.HasActiveAccessAsync(storedToken.UserId, appSystem.Id, ct);
+        if (!hasAccess)
+            return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
+
         var (newToken, newHash) = _tokenService.GenerateRefreshToken();
         await _refreshTokenService.RevokeAsync(storedToken, newHash, ct);
-        await _refreshTokenService.CreateAsync(storedToken.UserId, newHash, ipAddress, userAgent, ct);
+        await _refreshTokenService.CreateAsync(storedToken.UserId, appSystem.Code, newHash, ipAddress, userAgent, ct);
 
         var user = storedToken.User;
         user.LastLoginAt = _dateTimeProvider.UtcNow;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
 
-        var apps = await _userAccessService.GetApplicationCodesForUserAsync(user.Id, ct);
-        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, ct);
-        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, ct);
+        var apps = new List<string> { appSystem.Code };
+        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, appSystem.Id, ct);
+        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, appSystem.Id, ct);
 
         var accessToken = _tokenService.GenerateAccessToken(user, roles, permissions, apps);
 
@@ -419,21 +450,55 @@ public class AuthService : IAuthService
         }
 
         await _userManager.UpdateSecurityStampAsync(user);
+        user.HasLocalPassword = true;
+        user.EmailConfirmed = true;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+        await _userManager.UpdateAsync(user);
         await _refreshTokenService.RevokeAllForUserAsync(user.Id, ct);
         await _auditService.LogAsync("PASSWORD_RESET", user.Id, null, null, null, ipAddress, null, ct: ct);
 
         return OperationResult.Success();
     }
 
-    private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, string appCode, string? ipAddress, string? userAgent, CancellationToken ct)
+    public async Task<OperationResult> ConfirmEmailAsync(ConfirmEmailRequest request, string? ipAddress, CancellationToken ct = default)
     {
-        var apps = await _userAccessService.GetApplicationCodesForUserAsync(user.Id, ct);
-        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, ct);
-        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, ct);
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is null)
+            return OperationResult.Failure("INVALID_TOKEN", "Email confirmation failed.");
+
+        var result = await _userManager.ConfirmEmailAsync(user, request.Token);
+        if (!result.Succeeded)
+            return OperationResult.Failure("INVALID_TOKEN", "Email confirmation failed.");
+
+        await _auditService.LogAsync("EMAIL_CONFIRMED", user.Id, ipAddress: ipAddress, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> ResendEmailConfirmationAsync(ResendEmailConfirmationRequest request, string? ipAddress, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByEmailAsync(request.Email);
+        if (user is null || user.EmailConfirmed)
+            return OperationResult.Success();
+
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(request.ApplicationCode, ct);
+        if (appSystem is null || appSystem.RegistrationSettings?.RequireEmailConfirmation != true)
+            return OperationResult.Success();
+
+        var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+        await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, request.CallbackBaseUrl, ct);
+        await _auditService.LogAsync("EMAIL_CONFIRMATION_RESENT", user.Id, request.ApplicationCode, ipAddress: ipAddress, ct: ct);
+        return OperationResult.Success();
+    }
+
+    private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, CancellationToken ct)
+    {
+        var apps = new List<string> { appCode };
+        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, appSystemId, ct);
+        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, appSystemId, ct);
 
         var accessToken = _tokenService.GenerateAccessToken(user, roles, permissions, apps);
         var (rawRefresh, refreshHash) = _tokenService.GenerateRefreshToken();
-        await _refreshTokenService.CreateAsync(user.Id, refreshHash, ipAddress, userAgent, ct);
+        await _refreshTokenService.CreateAsync(user.Id, appCode, refreshHash, ipAddress, userAgent, ct);
 
         return OperationResult<AuthResponse>.Success(new AuthResponse
         {
@@ -451,5 +516,22 @@ public class AuthService : IAuthService
                 Permissions = permissions.ToList()
             }
         });
+    }
+
+    private static bool IsEmailDomainAllowed(string email, string? allowedEmailDomains)
+    {
+        if (string.IsNullOrWhiteSpace(allowedEmailDomains))
+            return true;
+
+        var at = email.LastIndexOf('@');
+        if (at < 0 || at == email.Length - 1)
+            return false;
+
+        var domain = email[(at + 1)..].Trim().ToLowerInvariant();
+        var allowed = allowedEmailDomains
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(d => d.TrimStart('@').ToLowerInvariant());
+
+        return allowed.Contains(domain);
     }
 }

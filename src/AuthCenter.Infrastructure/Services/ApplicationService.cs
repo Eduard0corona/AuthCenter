@@ -63,6 +63,9 @@ public class ApplicationService : IApplicationService
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
 
+        if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == request.DefaultRoleId.Value, ct))
+            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_NOT_FOUND", "Default role was not found.");
+
         var now = _dateTimeProvider.UtcNow;
         var app = new ApplicationSystem
         {
@@ -80,6 +83,7 @@ public class ApplicationService : IApplicationService
                 AllowPasswordLogin = request.AllowPasswordLogin,
                 RequireEmailConfirmation = request.RequireEmailConfirmation,
                 AllowedEmailDomains = request.AllowedEmailDomains,
+                DefaultRoleId = request.DefaultRoleId,
                 CreatedAt = now
             }
         };
@@ -99,6 +103,9 @@ public class ApplicationService : IApplicationService
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
 
+        if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == request.DefaultRoleId.Value, ct))
+            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_NOT_FOUND", "Default role was not found.");
+
         app.Name = request.Name;
         app.Description = request.Description;
         app.UpdatedAt = _dateTimeProvider.UtcNow;
@@ -110,6 +117,7 @@ public class ApplicationService : IApplicationService
             app.RegistrationSettings.AllowPasswordLogin = request.AllowPasswordLogin;
             app.RegistrationSettings.RequireEmailConfirmation = request.RequireEmailConfirmation;
             app.RegistrationSettings.AllowedEmailDomains = request.AllowedEmailDomains;
+            app.RegistrationSettings.DefaultRoleId = request.DefaultRoleId;
             app.RegistrationSettings.UpdatedAt = _dateTimeProvider.UtcNow;
         }
 
@@ -152,7 +160,8 @@ public class ApplicationService : IApplicationService
             AllowGoogleLogin = app.RegistrationSettings.AllowGoogleLogin,
             AllowPasswordLogin = app.RegistrationSettings.AllowPasswordLogin,
             RequireEmailConfirmation = app.RegistrationSettings.RequireEmailConfirmation,
-            AllowedEmailDomains = app.RegistrationSettings.AllowedEmailDomains
+            AllowedEmailDomains = app.RegistrationSettings.AllowedEmailDomains,
+            DefaultRoleId = app.RegistrationSettings.DefaultRoleId
         }
     };
 }

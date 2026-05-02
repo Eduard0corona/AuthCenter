@@ -30,6 +30,12 @@ public class PermissionService : IPermissionService
         return PagedResult<PermissionDto>.Create(perms.Select(MapToDto).ToList(), totalCount, pagination.Page, pagination.PageSize);
     }
 
+    public async Task<PermissionDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        var permission = await _db.Permissions.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+        return permission is null ? null : MapToDto(permission);
+    }
+
     public async Task<PagedResult<PermissionDto>> GetByApplicationAsync(Guid applicationSystemId, PaginationQuery pagination, CancellationToken ct = default)
     {
         var query = _db.Permissions
@@ -76,6 +82,26 @@ public class PermissionService : IPermissionService
 
         await _db.SaveChangesAsync(ct);
         return OperationResult<PermissionDto>.Success(MapToDto(permission));
+    }
+
+    public async Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default)
+    {
+        var permission = await _db.Permissions.FindAsync([id], ct)
+            ?? throw new NotFoundException(nameof(Permission), id);
+
+        permission.IsActive = true;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> DeactivateAsync(Guid id, CancellationToken ct = default)
+    {
+        var permission = await _db.Permissions.FindAsync([id], ct)
+            ?? throw new NotFoundException(nameof(Permission), id);
+
+        permission.IsActive = false;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
     }
 
     private static PermissionDto MapToDto(Permission p) => new()
