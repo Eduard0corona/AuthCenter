@@ -39,6 +39,15 @@ public class RefreshTokenService : IRefreshTokenService
             .Include(rt => rt.User)
             .FirstOrDefaultAsync(rt => rt.TokenHash == tokenHash, ct);
 
+    public Task<RefreshToken?> FindByIdAsync(Guid tokenId, CancellationToken ct = default) =>
+        _db.RefreshTokens.FirstOrDefaultAsync(rt => rt.Id == tokenId, ct);
+
+    public async Task<IReadOnlyList<RefreshToken>> GetActiveSessionsAsync(Guid userId, CancellationToken ct = default) =>
+        await _db.RefreshTokens
+            .Where(rt => rt.UserId == userId && rt.RevokedAt == null && rt.ExpiresAt > _dateTimeProvider.UtcNow)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
     public async Task RevokeAsync(RefreshToken token, string? replacedByHash, CancellationToken ct = default)
     {
         token.RevokedAt = _dateTimeProvider.UtcNow;

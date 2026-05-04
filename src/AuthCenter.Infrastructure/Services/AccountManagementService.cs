@@ -1,0 +1,262 @@
+using AuthCenter.Application.Common;
+using AuthCenter.Application.Interfaces;
+using AuthCenter.Contracts.Requests.Auth;
+using AuthCenter.Contracts.Responses.Auth;
+using AuthCenter.Domain.Entities;
+using AuthCenter.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+
+namespace AuthCenter.Infrastructure.Services;
+
+public class AccountManagementService : IAccountManagementService
+{
+    private readonly AuthCenterDbContext _db;
+    private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IRefreshTokenService _refreshTokenService;
+    private readonly IEmailService _emailService;
+    private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IAuditService _auditService;
+
+    public AccountManagementService(
+        AuthCenterDbContext db,
+        UserManager<ApplicationUser> userManager,
+        IRefreshTokenService refreshTokenService,
+        IEmailService emailService,
+        IDateTimeProvider dateTimeProvider,
+        IAuditService auditService)
+    {
+        _db = db;
+        _userManager = userManager;
+        _refreshTokenService = refreshTokenService;
+        _emailService = emailService;
+        _dateTimeProvider = dateTimeProvider;
+        _auditService = auditService;
+    }
+
+    public async Task<OperationResult> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        if (!user.HasLocalPassword)
+            return OperationResult.Failure("NO_LOCAL_PASSWORD", "Account uses external login; password cannot be changed.");
+
+        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+            return OperationResult.Failure("PASSWORD_CHANGE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+
+        user.MustChangePassword = false;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+        await _userManager.UpdateAsync(user);
+
+        await _auditService.LogAsync("CHANGE_PASSWORD", userId: userId, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<IReadOnlyList<SessionDto>> GetActiveSessionsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var tokens = await _refreshTokenService.GetActiveSessionsAsync(userId, ct);
+        return tokens.Select(t => new SessionDto
+        {
+            Id = t.Id,
+            ApplicationCode = t.ApplicationCode,
+            IpAddress = t.IpAddress,
+            UserAgent = t.UserAgent,
+            CreatedAt = t.CreatedAt,
+            ExpiresAt = t.ExpiresAt
+        }).ToList();
+    }
+
+    public async Task<OperationResult> RevokeSessionAsync(Guid userId, Guid tokenId, CancellationToken ct = default)
+    {
+        var token = await _refreshTokenService.FindByIdAsync(tokenId, ct);
+        if (token is null || token.UserId != userId)
+            return OperationResult.Failure("SESSION_NOT_FOUND", "Session not found.");
+
+        if (token.RevokedAt is not null)
+            return OperationResult.Failure("SESSION_ALREADY_REVOKED", "Session is already revoked.");
+
+        await _refreshTokenService.RevokeAsync(token, null, ct);
+        await _auditService.LogAsync("REVOKE_SESSION", userId: userId, entityId: tokenId.ToString(), ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> RevokeAllSessionsAsync(Guid userId, CancellationToken ct = default)
+    {
+        await _refreshTokenService.RevokeAllForUserAsync(userId, ct);
+        await _auditService.LogAsync("REVOKE_ALL_SESSIONS", userId: userId, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<IReadOnlyList<ExternalProviderDto>> GetExternalProvidersAsync(Guid userId, CancellationToken ct = default)
+    {
+        var providers = await _db.ExternalIdentityProviders
+            .Where(p => p.UserId == userId && p.IsActive)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        return providers.Select(p => new ExternalProviderDto
+        {
+            Id = p.Id,
+            Provider = p.Provider,
+            Email = p.Email,
+            DisplayName = p.DisplayName,
+            PictureUrl = p.PictureUrl,
+            LinkedAt = p.LinkedAt,
+            LastUsedAt = p.LastUsedAt
+        }).ToList();
+    }
+
+    public async Task<OperationResult> UnlinkExternalProviderAsync(Guid userId, Guid providerId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        var provider = await _db.ExternalIdentityProviders
+            .FirstOrDefaultAsync(p => p.Id == providerId && p.UserId == userId && p.IsActive, ct);
+
+        if (provider is null)
+            return OperationResult.Failure("PROVIDER_NOT_FOUND", "External provider not found.");
+
+        var activeProviderCount = await _db.ExternalIdentityProviders
+            .CountAsync(p => p.UserId == userId && p.IsActive, ct);
+
+        if (!user.HasLocalPassword && activeProviderCount <= 1)
+            return OperationResult.Failure("CANNOT_UNLINK_LAST_PROVIDER", "Cannot unlink the only login method. Set a password first.");
+
+        provider.IsActive = false;
+        await _db.SaveChangesAsync(ct);
+
+        await _auditService.LogAsync("UNLINK_PROVIDER", userId: userId, entityId: provider.Provider, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> RequestEmailChangeAsync(Guid userId, RequestEmailChangeRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        var newEmail = request.NewEmail.Trim().ToLowerInvariant();
+
+        if (string.Equals(user.Email, newEmail, StringComparison.OrdinalIgnoreCase))
+            return OperationResult.Failure("SAME_EMAIL", "New email is the same as the current email.");
+
+        var existing = await _userManager.FindByEmailAsync(newEmail);
+        if (existing is not null)
+            return OperationResult.Failure("EMAIL_TAKEN", "This email is already in use.");
+
+        var token = await _userManager.GenerateChangeEmailTokenAsync(user, newEmail);
+        await _emailService.SendEmailChangeConfirmationAsync(newEmail, user.FullName, token, request.CallbackBaseUrl, ct);
+
+        await _auditService.LogAsync("REQUEST_EMAIL_CHANGE", userId: userId, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> ConfirmEmailChangeAsync(ConfirmEmailChangeRequest request, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(request.UserId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        var result = await _userManager.ChangeEmailAsync(user, request.NewEmail, request.Token);
+        if (!result.Succeeded)
+            return OperationResult.Failure("EMAIL_CHANGE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+
+        // Keep UserName in sync with Email
+        user.UserName = request.NewEmail;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+        await _userManager.UpdateAsync(user);
+
+        await _auditService.LogAsync("CONFIRM_EMAIL_CHANGE", userId: user.Id, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> DeleteAccountAsync(Guid userId, DeleteAccountRequest request, CancellationToken ct = default)
+    {
+        if (!request.ConfirmDeletion)
+            return OperationResult.Failure("DELETION_NOT_CONFIRMED", "Account deletion must be explicitly confirmed.");
+
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        if (user.HasLocalPassword)
+        {
+            if (string.IsNullOrWhiteSpace(request.Password))
+                return OperationResult.Failure("PASSWORD_REQUIRED", "Password is required to delete an account with local login.");
+
+            var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+            if (!passwordValid)
+                return OperationResult.Failure("INVALID_PASSWORD", "Incorrect password.");
+        }
+
+        var now = _dateTimeProvider.UtcNow;
+
+        await _refreshTokenService.RevokeAllForUserAsync(userId, ct);
+
+        user.DeletedAt = now;
+        user.IsActive = false;
+        user.UpdatedAt = now;
+        user.FullName = "Deleted User";
+        user.PictureUrl = null;
+        user.PhoneNumber = null;
+
+        var anonymizedEmail = $"deleted_{userId:N}@deleted.invalid";
+        user.Email = anonymizedEmail;
+        user.NormalizedEmail = anonymizedEmail.ToUpperInvariant();
+        user.UserName = anonymizedEmail;
+        user.NormalizedUserName = anonymizedEmail.ToUpperInvariant();
+
+        await _userManager.UpdateAsync(user);
+
+        await _auditService.LogAsync("DELETE_ACCOUNT", userId: userId, ct: ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<IReadOnlyList<TrustedDeviceDto>> GetTrustedDevicesAsync(Guid userId, CancellationToken ct = default)
+    {
+        return await _db.UserTrustedDevices
+            .AsNoTracking()
+            .Where(d => d.UserId == userId && d.ExpiresAt > _dateTimeProvider.UtcNow)
+            .OrderByDescending(d => d.LastUsedAt ?? d.CreatedAt)
+            .Select(d => new TrustedDeviceDto
+            {
+                Id = d.Id,
+                DeviceName = d.DeviceName,
+                CreatedAt = d.CreatedAt,
+                ExpiresAt = d.ExpiresAt,
+                LastUsedAt = d.LastUsedAt
+            })
+            .ToListAsync(ct);
+    }
+
+    public async Task<OperationResult> RevokeTrustedDeviceAsync(Guid userId, Guid deviceId, CancellationToken ct = default)
+    {
+        var device = await _db.UserTrustedDevices.FirstOrDefaultAsync(d => d.Id == deviceId && d.UserId == userId, ct);
+        if (device is null)
+            return OperationResult.Failure("TRUSTED_DEVICE_NOT_FOUND", "Trusted device not found.");
+
+        _db.UserTrustedDevices.Remove(device);
+        await _db.SaveChangesAsync(ct);
+        await _auditService.LogAsync("TRUSTED_DEVICE_REVOKED", userId: userId, entityId: deviceId.ToString(), ct: ct);
+
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> RevokeAllTrustedDevicesAsync(Guid userId, CancellationToken ct = default)
+    {
+        var devices = await _db.UserTrustedDevices.Where(d => d.UserId == userId).ToListAsync(ct);
+        if (devices.Count == 0)
+            return OperationResult.Success();
+
+        _db.UserTrustedDevices.RemoveRange(devices);
+        await _db.SaveChangesAsync(ct);
+        await _auditService.LogAsync("TRUSTED_DEVICES_REVOKED", userId: userId, ct: ct);
+
+        return OperationResult.Success();
+    }
+}

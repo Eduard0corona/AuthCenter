@@ -37,6 +37,7 @@ public class UserAccessService : IUserAccessService
     public async Task<PagedResult<UserDto>> GetAllUsersAsync(UserQuery pagination, CancellationToken ct = default)
     {
         var query = _db.Users
+            .Where(u => u.DeletedAt == null)
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
             .AsNoTracking();
@@ -355,6 +356,51 @@ public class UserAccessService : IUserAccessService
             .Where(a => a.UserId == userId && a.IsActive)
             .Select(a => a.ApplicationSystem.Code)
             .ToListAsync(ct);
+
+    public async Task<OperationResult> ForcePasswordChangeAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        if (!user.HasLocalPassword)
+            return OperationResult.Failure("NO_LOCAL_PASSWORD", "User does not have a local password.");
+
+        user.MustChangePassword = true;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+        var result = await _userManager.UpdateAsync(user);
+        if (!result.Succeeded)
+            return OperationResult.Failure("UPDATE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> AdminDeleteUserAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+
+        if (user.DeletedAt is not null)
+            return OperationResult.Failure("USER_ALREADY_DELETED", "User is already deleted.");
+
+        var now = _dateTimeProvider.UtcNow;
+        user.DeletedAt = now;
+        user.IsActive = false;
+        user.UpdatedAt = now;
+        user.FullName = "Deleted User";
+        user.PictureUrl = null;
+        user.PhoneNumber = null;
+
+        var anonymizedEmail = $"deleted_{userId:N}@deleted.invalid";
+        user.Email = anonymizedEmail;
+        user.NormalizedEmail = anonymizedEmail.ToUpperInvariant();
+        user.UserName = anonymizedEmail;
+        user.NormalizedUserName = anonymizedEmail.ToUpperInvariant();
+
+        await _userManager.UpdateAsync(user);
+        return OperationResult.Success();
+    }
 
     private static UserDto MapToDto(ApplicationUser user, IList<string> roles) => new()
     {

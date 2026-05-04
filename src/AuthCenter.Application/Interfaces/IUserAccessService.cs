@@ -23,4 +23,6 @@ public interface IUserAccessService
     Task<OperationResult> DeactivateUserAsync(Guid userId, CancellationToken ct = default);
     Task<bool> HasActiveAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
     Task<IList<string>> GetApplicationCodesForUserAsync(Guid userId, CancellationToken ct = default);
+    Task<OperationResult> ForcePasswordChangeAsync(Guid userId, CancellationToken ct = default);
+    Task<OperationResult> AdminDeleteUserAsync(Guid userId, CancellationToken ct = default);
 }

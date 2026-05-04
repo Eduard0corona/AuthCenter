@@ -39,6 +39,36 @@ public class SmtpEmailService : IEmailService
         await SendAsync(toEmail, toName, $"Invitation to {applicationName} - AuthCenter", body, "Invitation", ct);
     }
 
+    public async Task SendEmailChangeConfirmationAsync(string toEmail, string toName, string token, string? callbackBaseUrl, CancellationToken ct = default)
+    {
+        var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
+        var body = BuildActionEmailBody(toName, "Confirm your new email address", "Confirm email change", link);
+        await SendAsync(toEmail, toName, "Confirm email change - AuthCenter", body, "Email change confirmation", ct);
+    }
+
+    public async Task SendMagicLinkAsync(string toEmail, string toName, string token, string? callbackBaseUrl, CancellationToken ct = default)
+    {
+        var link = BuildTokenLink(callbackBaseUrl, toEmail, token);
+        var body = BuildActionEmailBody(toName, "Sign in to your account", "Sign in", link);
+        await SendAsync(toEmail, toName, "Sign in link - AuthCenter", body, "Magic link", ct);
+    }
+
+    public async Task SendMfaEmailOtpAsync(string toEmail, string toName, string code, CancellationToken ct = default)
+    {
+        var body = $"""
+        <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
+          <h2>Your sign-in code</h2>
+          <p>Hello <strong>{toName}</strong>,</p>
+          <p>Your one-time sign-in code (valid for a few minutes):</p>
+          <p style="font-size:36px;letter-spacing:10px;font-weight:bold;font-family:monospace;color:#0066cc">{code}</p>
+          <p>If you didn't request this code, ignore this email.</p>
+          <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
+        </body></html>
+        """;
+
+        await SendAsync(toEmail, toName, "Your sign-in code - AuthCenter", body, "MFA Email OTP", ct);
+    }
+
     private async Task SendAsync(
         string toEmail,
         string toName,

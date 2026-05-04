@@ -28,7 +28,19 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("AllowAppleLogin")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowGitHubLogin")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("AllowGoogleLogin")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowMagicLink")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("AllowMicrosoftLogin")
                         .HasColumnType("bit");
 
                     b.Property<bool>("AllowPasswordLogin")
@@ -51,6 +63,9 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.Property<bool>("RequireEmailConfirmation")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("RequireMfa")
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -163,6 +178,9 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -192,6 +210,9 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("bit");
 
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
@@ -345,6 +366,135 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("ExternalIdentityProviders");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthAuthorizationCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CodeChallenge")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CodeChallengeMethod")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Nonce")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("OAuthClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RedirectUri")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ScopesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("OAuthClientId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("OAuthAuthorizationCodes");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthClient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AccessTokenLifetimeSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AllowedScopesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("AutoConsent")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ClientId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("ClientType")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("GrantTypesJson")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("HashedClientSecret")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LoginUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RedirectUrisJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("RequirePkce")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId")
+                        .IsUnique();
+
+                    b.ToTable("OAuthClients");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -399,9 +549,17 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("GrantedScopes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("IpAddress")
                         .HasMaxLength(45)
                         .HasColumnType("nvarchar(45)");
+
+                    b.Property<string>("OAuthClientId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("ReplacedByTokenHash")
                         .HasMaxLength(512)
@@ -479,6 +637,87 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("UserApplicationAccesses");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserMfaCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("BackupCodesRegeneratedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EnabledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EncryptedTotpSecret")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("HashedBackupCodes")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserMfaCredentials");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserTrustedDevice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserTrustedDevices");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -616,6 +855,25 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthAuthorizationCode", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.OAuthClient", "OAuthClient")
+                        .WithMany("AuthorizationCodes")
+                        .HasForeignKey("OAuthClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("OAuthClient");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
@@ -672,6 +930,28 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("ApplicationSystem");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserMfaCredential", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("MfaCredential")
+                        .HasForeignKey("AuthCenter.Domain.Entities.UserMfaCredential", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserTrustedDevice", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });
@@ -749,7 +1029,14 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
                     b.Navigation("ExternalIdentityProviders");
 
+                    b.Navigation("MfaCredential");
+
                     b.Navigation("RefreshTokens");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthClient", b =>
+                {
+                    b.Navigation("AuthorizationCodes");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>

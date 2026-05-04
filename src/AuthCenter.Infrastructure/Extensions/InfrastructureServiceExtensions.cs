@@ -29,7 +29,18 @@ public static class InfrastructureServiceExtensions
 
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
         services.Configure<GoogleAuthSettings>(configuration.GetSection("Authentication:Google"));
+        services.Configure<MicrosoftAuthSettings>(configuration.GetSection("Authentication:Microsoft"));
+        services.Configure<GitHubAuthSettings>(configuration.GetSection("Authentication:GitHub"));
+        services.Configure<AppleAuthSettings>(configuration.GetSection("Authentication:Apple"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        services.Configure<MfaSettings>(configuration.GetSection("Mfa"));
+
+        services.AddHttpClient("GitHub", client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("AuthCenter/1.0");
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -51,12 +62,19 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IGoogleAuthService, GoogleAuthService>();
+        services.AddScoped<IMicrosoftAuthService, MicrosoftAuthService>();
+        services.AddScoped<IGitHubAuthService, GitHubAuthService>();
+        services.AddScoped<IAppleAuthService, AppleAuthService>();
         services.AddScoped<IApplicationService, ApplicationService>();
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IUserAccessService, UserAccessService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddScoped<IAccountManagementService, AccountManagementService>();
+        services.AddScoped<IMfaService, TotpService>();
+        services.AddScoped<IOAuthClientService, OAuthClientService>();
+        services.AddScoped<IOAuthAuthorizationService, OAuthAuthorizationService>();
 
         return services;
     }

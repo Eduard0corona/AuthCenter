@@ -96,8 +96,13 @@ public class ApplicationService : IApplicationService
                 Id = Guid.NewGuid(),
                 RegistrationMode = mode,
                 AllowGoogleLogin = request.AllowGoogleLogin,
+                AllowMicrosoftLogin = request.AllowMicrosoftLogin,
+                AllowGitHubLogin = request.AllowGitHubLogin,
+                AllowAppleLogin = request.AllowAppleLogin,
+                AllowMagicLink = request.AllowMagicLink,
                 AllowPasswordLogin = request.AllowPasswordLogin,
                 RequireEmailConfirmation = request.RequireEmailConfirmation,
+                RequireMfa = request.RequireMfa,
                 AllowedEmailDomains = request.AllowedEmailDomains,
                 DefaultRoleId = request.DefaultRoleId,
                 CreatedAt = now
@@ -130,8 +135,13 @@ public class ApplicationService : IApplicationService
         {
             app.RegistrationSettings.RegistrationMode = mode;
             app.RegistrationSettings.AllowGoogleLogin = request.AllowGoogleLogin;
+            app.RegistrationSettings.AllowMicrosoftLogin = request.AllowMicrosoftLogin;
+            app.RegistrationSettings.AllowGitHubLogin = request.AllowGitHubLogin;
+            app.RegistrationSettings.AllowAppleLogin = request.AllowAppleLogin;
+            app.RegistrationSettings.AllowMagicLink = request.AllowMagicLink;
             app.RegistrationSettings.AllowPasswordLogin = request.AllowPasswordLogin;
             app.RegistrationSettings.RequireEmailConfirmation = request.RequireEmailConfirmation;
+            app.RegistrationSettings.RequireMfa = request.RequireMfa;
             app.RegistrationSettings.AllowedEmailDomains = request.AllowedEmailDomains;
             app.RegistrationSettings.DefaultRoleId = request.DefaultRoleId;
             app.RegistrationSettings.UpdatedAt = _dateTimeProvider.UtcNow;
@@ -177,8 +187,13 @@ public class ApplicationService : IApplicationService
         {
             RegistrationMode = app.RegistrationSettings.RegistrationMode.ToString(),
             AllowGoogleLogin = app.RegistrationSettings.AllowGoogleLogin,
+            AllowMicrosoftLogin = app.RegistrationSettings.AllowMicrosoftLogin,
+            AllowGitHubLogin = app.RegistrationSettings.AllowGitHubLogin,
+            AllowAppleLogin = app.RegistrationSettings.AllowAppleLogin,
+            AllowMagicLink = app.RegistrationSettings.AllowMagicLink,
             AllowPasswordLogin = app.RegistrationSettings.AllowPasswordLogin,
             RequireEmailConfirmation = app.RegistrationSettings.RequireEmailConfirmation,
+            RequireMfa = app.RegistrationSettings.RequireMfa,
             AllowedEmailDomains = app.RegistrationSettings.AllowedEmailDomains,
             DefaultRoleId = app.RegistrationSettings.DefaultRoleId
         }

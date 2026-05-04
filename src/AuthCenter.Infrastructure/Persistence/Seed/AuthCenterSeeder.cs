@@ -61,6 +61,8 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.PermissionsRead, "Read permissions"),
             (DomainConstants.Permissions.PermissionsWrite, "Write permissions"),
             (DomainConstants.Permissions.AuditLogsRead, "Read audit logs"),
+            (DomainConstants.Permissions.OAuthClientsRead, "Read OAuth clients"),
+            (DomainConstants.Permissions.OAuthClientsWrite, "Write OAuth clients"),
         };
 
         var now2 = DateTime.UtcNow;

@@ -126,4 +126,31 @@ public class UsersController : ControllerBase
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
     }
+
+    [HttpPost("{id:guid}/force-password-change")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> ForcePasswordChange(Guid id, CancellationToken ct)
+    {
+        var result = await _userAccessService.ForcePasswordChangeAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
+
+    [HttpDelete("{id:guid}/mfa")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> AdminResetMfa(Guid id, [FromServices] IMfaService mfaService, CancellationToken ct)
+    {
+        var result = await mfaService.AdminResetMfaAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> AdminDelete(Guid id, CancellationToken ct)
+    {
+        var result = await _userAccessService.AdminDeleteUserAsync(id, ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        return Ok(ApiResponse.Ok());
+    }
 }

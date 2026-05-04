@@ -10,7 +10,12 @@ public class ApplicationRegistrationSettings
     public Guid? DefaultRoleId { get; set; }
     public bool RequireEmailConfirmation { get; set; }
     public bool AllowGoogleLogin { get; set; }
+    public bool AllowMicrosoftLogin { get; set; }
+    public bool AllowGitHubLogin { get; set; }
+    public bool AllowAppleLogin { get; set; }
+    public bool AllowMagicLink { get; set; }
     public bool AllowPasswordLogin { get; set; }
+    public bool RequireMfa { get; set; }
     public string? AllowedEmailDomains { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

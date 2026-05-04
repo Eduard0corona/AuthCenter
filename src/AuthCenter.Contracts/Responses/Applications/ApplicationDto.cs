@@ -16,8 +16,13 @@ public class ApplicationRegistrationSettingsDto
 {
     public string RegistrationMode { get; init; } = string.Empty;
     public bool AllowGoogleLogin { get; init; }
+    public bool AllowMicrosoftLogin { get; init; }
+    public bool AllowGitHubLogin { get; init; }
+    public bool AllowAppleLogin { get; init; }
+    public bool AllowMagicLink { get; init; }
     public bool AllowPasswordLogin { get; init; }
     public bool RequireEmailConfirmation { get; init; }
+    public bool RequireMfa { get; init; }
     public string? AllowedEmailDomains { get; init; }
     public Guid? DefaultRoleId { get; init; }
 }

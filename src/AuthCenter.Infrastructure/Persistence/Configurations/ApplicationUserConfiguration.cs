@@ -28,5 +28,10 @@ public class ApplicationUserConfiguration : IEntityTypeConfiguration<Application
             .WithOne(a => a.User)
             .HasForeignKey(a => a.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(u => u.MfaCredential)
+            .WithOne(m => m.User)
+            .HasForeignKey<UserMfaCredential>(m => m.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

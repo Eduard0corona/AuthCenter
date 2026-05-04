@@ -20,7 +20,10 @@ public class RefreshTokenHashTests
             RefreshTokenDays = 30
         });
         var dateTimeProvider = new DateTimeProvider();
-        _tokenService = new TokenService(settings, dateTimeProvider);
+        _tokenService = new TokenService(
+            settings,
+            Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
+            dateTimeProvider);
     }
 
     [Fact]

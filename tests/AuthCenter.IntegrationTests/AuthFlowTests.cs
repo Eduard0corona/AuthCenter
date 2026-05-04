@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
@@ -12,7 +13,9 @@ using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using OtpNet;
 
 namespace AuthCenter.IntegrationTests;
 
@@ -242,6 +245,316 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.All(auditBody.Data.Items, entry => Assert.Equal("LOGIN_SUCCESS", entry.Action));
     }
 
+    [Fact]
+    public async Task MfaTotpFlow_RequiresVerification_RejectsTokenReuse_SupportsTrustedDevice_AndCanBeAdminReset()
+    {
+        using var client = _factory.CreateClient();
+        var email = $"mfa-{Guid.NewGuid():N}@example.com";
+        const string password = "MfaUser12345";
+        var (userId, _) = await CreateUserWithApplicationAccessAsync(email, password);
+
+        var initialAuth = await LoginAsync(client, email, password);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", initialAuth.AccessToken);
+
+        var setupResponse = await client.PostAsync("/api/auth/mfa/setup", null);
+        setupResponse.EnsureSuccessStatusCode();
+        var setup = await ReadDataAsync<MfaSetupResponse>(setupResponse);
+
+        Assert.StartsWith("otpauth://totp/", setup.TotpUri);
+        Assert.False(string.IsNullOrWhiteSpace(setup.SecretBase32));
+
+        var code = ComputeTotp(setup.SecretBase32);
+        var enableResponse = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest
+        {
+            TotpCode = code
+        });
+
+        enableResponse.EnsureSuccessStatusCode();
+        var backupCodes = await ReadDataAsync<BackupCodesResponse>(enableResponse);
+        Assert.Equal(8, backupCodes.Codes.Count);
+        Assert.All(backupCodes.Codes, c => Assert.Equal(10, c.Length));
+
+        var statusResponse = await client.GetAsync("/api/auth/mfa/status");
+        statusResponse.EnsureSuccessStatusCode();
+        var status = await ReadDataAsync<MfaStatusDto>(statusResponse);
+        Assert.True(status.IsEnabled);
+        Assert.True(status.HasBackupCodes);
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = email,
+            Password = password,
+            ApplicationCode = "AUTHCENTER"
+        });
+
+        loginResponse.EnsureSuccessStatusCode();
+        var pending = await ReadDataAsync<MfaPendingResponse>(loginResponse);
+        Assert.True(pending.MfaRequired);
+        Assert.False(string.IsNullOrWhiteSpace(pending.MfaPendingToken));
+
+        var verifyResponse = await client.PostAsJsonAsync("/api/auth/mfa/verify", new VerifyMfaRequest
+        {
+            MfaPendingToken = pending.MfaPendingToken,
+            TotpCode = ComputeTotp(setup.SecretBase32),
+            TrustDevice = true
+        });
+
+        verifyResponse.EnsureSuccessStatusCode();
+        var finalAuth = await ReadAuthResponseAsync(verifyResponse);
+        Assert.False(string.IsNullOrWhiteSpace(finalAuth.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(finalAuth.DeviceToken));
+        Assert.Contains("AUTHCENTER", finalAuth.User.Applications);
+
+        var reuseResponse = await client.PostAsJsonAsync("/api/auth/mfa/verify", new VerifyMfaRequest
+        {
+            MfaPendingToken = pending.MfaPendingToken,
+            TotpCode = ComputeTotp(setup.SecretBase32)
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
+        var reuseBody = await reuseResponse.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("TOKEN_ALREADY_USED", reuseBody?.ErrorCode);
+
+        var trustedLoginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = email,
+            Password = password,
+            ApplicationCode = "AUTHCENTER",
+            DeviceToken = finalAuth.DeviceToken
+        });
+
+        trustedLoginResponse.EnsureSuccessStatusCode();
+        var trustedLogin = await ReadAuthResponseAsync(trustedLoginResponse);
+        Assert.False(string.IsNullOrWhiteSpace(trustedLogin.AccessToken));
+
+        var adminAuth = await LoginAsync(client, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.AccessToken);
+
+        var resetResponse = await client.DeleteAsync($"/api/users/{userId}/mfa");
+        resetResponse.EnsureSuccessStatusCode();
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var loginAfterReset = await LoginAsync(client, email, password);
+        Assert.False(string.IsNullOrWhiteSpace(loginAfterReset.AccessToken));
+    }
+
+    [Fact]
+    public async Task ForcedChangePassword_BlocksLoginAndAllowsChangeAndIssuesTokens()
+    {
+        using var client = _factory.CreateClient();
+        var email = $"forced-{Guid.NewGuid():N}@example.com";
+        const string oldPassword = "Forced12345";
+        const string newPassword = "Changed12345";
+        var (userId, _) = await CreateUserWithApplicationAccessAsync(email, oldPassword);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userAccessService = scope.ServiceProvider.GetRequiredService<IUserAccessService>();
+            var forceResult = await userAccessService.ForcePasswordChangeAsync(userId);
+            Assert.True(forceResult.IsSuccess, forceResult.Message);
+        }
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = email,
+            Password = oldPassword,
+            ApplicationCode = "AUTHCENTER"
+        });
+
+        loginResponse.EnsureSuccessStatusCode();
+        var pending = await ReadDataAsync<ForcedChangePendingResponse>(loginResponse);
+        Assert.True(pending.PasswordChangeRequired);
+        Assert.False(string.IsNullOrWhiteSpace(pending.ForcedChangePendingToken));
+
+        var changeResponse = await client.PostAsJsonAsync("/api/auth/forced-change-password", new ForcedChangePasswordRequest
+        {
+            ForcedChangePendingToken = pending.ForcedChangePendingToken,
+            NewPassword = newPassword
+        });
+
+        changeResponse.EnsureSuccessStatusCode();
+        var auth = await ReadAuthResponseAsync(changeResponse);
+        Assert.False(string.IsNullOrWhiteSpace(auth.AccessToken));
+
+        var reuseResponse = await client.PostAsJsonAsync("/api/auth/forced-change-password", new ForcedChangePasswordRequest
+        {
+            ForcedChangePendingToken = pending.ForcedChangePendingToken,
+            NewPassword = "Another12345"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
+
+        var newLogin = await LoginAsync(client, email, newPassword);
+        Assert.False(string.IsNullOrWhiteSpace(newLogin.AccessToken));
+    }
+
+    [Fact]
+    public async Task MicrosoftLogin_ReturnsInvalidTokenForInvalidInput()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/auth/microsoft", new MicrosoftLoginRequest
+        {
+            IdToken = "invalid-token",
+            ApplicationCode = "AUTHCENTER"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("INVALID_MICROSOFT_TOKEN", body?.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AppleLogin_ReturnsInvalidTokenForInvalidInput()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/auth/apple", new AppleLoginRequest
+        {
+            IdToken = "invalid-token",
+            ApplicationCode = "AUTHCENTER"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("INVALID_APPLE_TOKEN", body?.ErrorCode);
+    }
+
+    [Fact]
+    public async Task MagicLink_RequestWhenNotAllowed_ReturnsOkAndDoesNotCreateRefreshToken()
+    {
+        using var client = _factory.CreateClient();
+        var email = $"magic-disabled-{Guid.NewGuid():N}@example.com";
+        var (userId, _) = await CreateUserWithApplicationAccessAsync(email, "Magic12345");
+
+        var response = await client.PostAsJsonAsync("/api/auth/magic-link/request", new MagicLinkRequest
+        {
+            Email = email,
+            ApplicationCode = "AUTHCENTER"
+        });
+
+        response.EnsureSuccessStatusCode();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var tokenCount = await db.RefreshTokens.CountAsync(t => t.UserId == userId);
+
+        Assert.Equal(0, tokenCount);
+    }
+
+    [Fact]
+    public async Task MagicLink_TokenAlreadyUsed_Returns401()
+    {
+        using var client = _factory.CreateClient();
+        var appCode = $"MAGIC{Guid.NewGuid():N}"[..12].ToUpperInvariant();
+        await CreateRegistrationApplicationAsync(appCode, allowMagicLink: true);
+        var email = $"magic-{Guid.NewGuid():N}@example.com";
+        var (userId, _) = await CreateUserWithApplicationAccessAsync(email, "Magic12345", applicationCode: appCode);
+
+        string token;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+            token = tokenService.GenerateMagicLinkToken(userId, appCode);
+        }
+
+        var first = await client.PostAsJsonAsync("/api/auth/magic-link/verify", new VerifyMagicLinkRequest
+        {
+            Token = token,
+            ApplicationCode = appCode
+        });
+        first.EnsureSuccessStatusCode();
+        var auth = await ReadAuthResponseAsync(first);
+        Assert.Contains(appCode, auth.User.Applications);
+
+        var second = await client.PostAsJsonAsync("/api/auth/magic-link/verify", new VerifyMagicLinkRequest
+        {
+            Token = token,
+            ApplicationCode = appCode
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
+        var body = await second.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("TOKEN_ALREADY_USED", body?.ErrorCode);
+    }
+
+    [Fact]
+    public async Task EmailOtp_SetupAndEnable_ThenVerify()
+    {
+        using var client = _factory.CreateClient();
+        var email = $"emailotp-{Guid.NewGuid():N}@example.com";
+        const string password = "EmailOtp12345";
+        var (userId, _) = await CreateUserWithApplicationAccessAsync(email, password);
+
+        var auth = await LoginAsync(client, email, password);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+
+        var setupResponse = await client.PostAsync("/api/auth/mfa/email-otp/setup", null);
+        setupResponse.EnsureSuccessStatusCode();
+
+        string setupCode;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+            Assert.True(cache.TryGetValue($"emailotp_setup:{userId}", out string? cachedCode));
+            Assert.NotNull(cachedCode);
+            setupCode = cachedCode;
+        }
+
+        var enableResponse = await client.PostAsJsonAsync("/api/auth/mfa/email-otp/enable", new EnableEmailMfaRequest
+        {
+            Code = setupCode
+        });
+        enableResponse.EnsureSuccessStatusCode();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+            var credential = await db.UserMfaCredentials.SingleAsync(c => c.UserId == userId);
+            Assert.Equal(MfaMethod.EmailOtp, credential.Method);
+            Assert.True(credential.IsEnabled);
+        }
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = email,
+            Password = password,
+            ApplicationCode = "AUTHCENTER"
+        });
+        loginResponse.EnsureSuccessStatusCode();
+        var pending = await ReadDataAsync<MfaPendingResponse>(loginResponse);
+
+        var sendResponse = await client.PostAsJsonAsync("/api/auth/mfa/email-otp/send", new SendMfaEmailOtpRequest
+        {
+            MfaPendingToken = pending.MfaPendingToken
+        });
+        sendResponse.EnsureSuccessStatusCode();
+
+        string verifyCode;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+            var pendingResult = tokenService.ValidateMfaPendingToken(pending.MfaPendingToken);
+            Assert.NotNull(pendingResult);
+
+            var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
+            Assert.True(cache.TryGetValue($"emailotp_verify:{pendingResult.TokenId}", out string? cachedCode));
+            Assert.NotNull(cachedCode);
+            verifyCode = cachedCode;
+        }
+
+        var verifyResponse = await client.PostAsJsonAsync("/api/auth/mfa/verify", new VerifyMfaRequest
+        {
+            MfaPendingToken = pending.MfaPendingToken,
+            EmailOtpCode = verifyCode
+        });
+        verifyResponse.EnsureSuccessStatusCode();
+        var verifiedAuth = await ReadAuthResponseAsync(verifyResponse);
+        Assert.False(string.IsNullOrWhiteSpace(verifiedAuth.AccessToken));
+    }
+
     private static async Task<AuthResponse> LoginAsync(HttpClient client, string email, string password)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -264,16 +577,32 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         return body.Data;
     }
 
+    private static async Task<T> ReadDataAsync<T>(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<T>>();
+        Assert.NotNull(body);
+        Assert.True(body.Success);
+        Assert.NotNull(body.Data);
+        return body.Data;
+    }
+
+    private static string ComputeTotp(string secretBase32)
+    {
+        var totp = new Totp(Base32Encoding.ToBytes(secretBase32));
+        return totp.ComputeTotp(DateTime.UtcNow);
+    }
+
     private async Task<(Guid UserId, Guid ApplicationId)> CreateUserWithApplicationAccessAsync(
         string email,
         string password,
-        bool isActive = true)
+        bool isActive = true,
+        string applicationCode = "AUTHCENTER")
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        var app = await db.ApplicationSystems.SingleAsync(a => a.Code == "AUTHCENTER");
+        var app = await db.ApplicationSystems.SingleAsync(a => a.Code == applicationCode);
         var user = new ApplicationUser
         {
             Id = Guid.NewGuid(),
@@ -306,7 +635,8 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         string code,
         string? allowedDomains = null,
         bool requireEmailConfirmation = false,
-        ApplicationRegistrationMode registrationMode = ApplicationRegistrationMode.Open)
+        ApplicationRegistrationMode registrationMode = ApplicationRegistrationMode.Open,
+        bool allowMagicLink = false)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
@@ -330,6 +660,7 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
                 AllowGoogleLogin = true,
                 AllowPasswordLogin = true,
                 RequireEmailConfirmation = requireEmailConfirmation,
+                AllowMagicLink = allowMagicLink,
                 AllowedEmailDomains = allowedDomains,
                 CreatedAt = now
             }

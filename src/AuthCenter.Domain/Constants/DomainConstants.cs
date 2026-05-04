@@ -5,6 +5,9 @@ public static class DomainConstants
     public static class Providers
     {
         public const string Google = "Google";
+        public const string Microsoft = "Microsoft";
+        public const string GitHub = "GitHub";
+        public const string Apple = "Apple";
     }
 
     public static class SystemCodes
@@ -23,6 +26,8 @@ public static class DomainConstants
         public const string PermissionsRead = "AUTHCENTER_PERMISSIONS_READ";
         public const string PermissionsWrite = "AUTHCENTER_PERMISSIONS_WRITE";
         public const string AuditLogsRead = "AUTHCENTER_AUDIT_LOGS_READ";
+        public const string OAuthClientsRead = "AUTHCENTER_OAUTH_CLIENTS_READ";
+        public const string OAuthClientsWrite = "AUTHCENTER_OAUTH_CLIENTS_WRITE";
     }
 
     public static class Roles
@@ -35,5 +40,15 @@ public static class DomainConstants
     {
         public const string Permissions = "permissions";
         public const string Applications = "applications";
+    }
+
+    public static class OAuthScopes
+    {
+        public const string OpenId = "openid";
+        public const string Profile = "profile";
+        public const string Email = "email";
+        public const string OfflineAccess = "offline_access";
+
+        public static readonly IReadOnlyList<string> All = [OpenId, Profile, Email, OfflineAccess];
     }
 }

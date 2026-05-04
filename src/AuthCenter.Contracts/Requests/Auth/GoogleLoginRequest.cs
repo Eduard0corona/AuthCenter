@@ -4,4 +4,5 @@ public class GoogleLoginRequest
 {
     public string IdToken { get; init; } = string.Empty;
     public string ApplicationCode { get; init; } = string.Empty;
+    public string? DeviceToken { get; init; }
 }

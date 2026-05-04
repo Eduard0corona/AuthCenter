@@ -13,6 +13,9 @@ public class RefreshToken
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
 
+    public string? OAuthClientId { get; set; }
+    public string? GrantedScopes { get; set; }
+
     public bool IsActive => RevokedAt is null && DateTime.UtcNow < ExpiresAt;
 
     public ApplicationUser User { get; set; } = null!;

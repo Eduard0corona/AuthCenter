@@ -16,6 +16,10 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<ExternalIdentityProvider> ExternalIdentityProviders => Set<ExternalIdentityProvider>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<ApplicationRegistrationSettings> ApplicationRegistrationSettings => Set<ApplicationRegistrationSettings>();
+    public DbSet<UserMfaCredential> UserMfaCredentials => Set<UserMfaCredential>();
+    public DbSet<UserTrustedDevice> UserTrustedDevices => Set<UserTrustedDevice>();
+    public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
+    public DbSet<OAuthAuthorizationCode> OAuthAuthorizationCodes => Set<OAuthAuthorizationCode>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

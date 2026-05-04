@@ -215,5 +215,19 @@ public partial class Program
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         if (allowedOrigins.Length == 0)
             throw new InvalidOperationException("Cors:AllowedOrigins must contain at least one origin outside Development.");
+
+        var mfaKey = configuration["Mfa:EncryptionKey"];
+        if (!string.IsNullOrWhiteSpace(mfaKey) &&
+            mfaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Mfa:EncryptionKey must not use a placeholder value outside Development.");
+        }
+
+        var rsaKey = jwtSettings.RsaPrivateKeyPem;
+        if (!string.IsNullOrWhiteSpace(rsaKey) &&
+            rsaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Jwt:RsaPrivateKeyPem must not use a placeholder value outside Development.");
+        }
     }
 }
