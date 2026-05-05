@@ -27,7 +27,7 @@ jobs:
         run: dotnet build --configuration Release
 
       - name: dotnet publish
-        run: dotnet publish -c Release -o ${{env.DOTNET_ROOT}}/myapp
+        run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj -c Release -r linux-x64 --self-contained true -o ${{env.DOTNET_ROOT}}/myapp
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -38,13 +38,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    
+    permissions:
+      id-token: write   # Required for OIDC login to Azure
+      contents: read
+
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-      
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get secrets from Key Vault
+        uses: azure/get-keyvault-secrets@v1
+        with:
+          keyvault: 'authcenter-kv'   # <-- reemplaza con el nombre exacto de tu Key Vault
+          secrets: |
+            ConnectionStrings--DefaultConnection,
+            Jwt--Secret,
+            GoogleOAuth--ClientSecret
+        id: kvsecrets
+
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
