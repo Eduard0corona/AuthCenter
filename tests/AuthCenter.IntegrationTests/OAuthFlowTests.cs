@@ -320,7 +320,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         handler.InboundClaimTypeMap.Clear();
         var jwt = handler.ReadJwtToken(tokenBody.AccessToken);
         Assert.Equal(SecurityAlgorithms.RsaSha256, jwt.Header.Alg);
-        Assert.Equal("authcenter-key-1", jwt.Header.Kid);
+        Assert.False(string.IsNullOrWhiteSpace(jwt.Header.Kid));
 
         var jwks = await tokenClient.GetFromJsonAsync<JsonElement>("/.well-known/jwks.json");
         var jwk = jwks.GetProperty("keys").EnumerateArray().Single(key =>

@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,7 @@ public class TokenServiceTests : IDisposable
     private readonly TokenService _tokenService;
     private readonly JwtSettings _settings;
     private readonly RSA _validationRsa;
+    private readonly RsaSigningKeyRing _keyRing;
 
     public TokenServiceTests()
     {
@@ -28,10 +30,8 @@ public class TokenServiceTests : IDisposable
             MagicLinkTokenMinutes = 15,
             RsaPrivateKeyPem = _validationRsa.ExportPkcs8PrivateKeyPem()
         };
-        _tokenService = new TokenService(
-            Options.Create(_settings),
-            Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
-            new DateTimeProvider());
+        _keyRing = new RsaSigningKeyRing(Options.Create(_settings));
+        _tokenService = CreateTokenService(_settings, _keyRing);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class TokenServiceTests : IDisposable
         handler.InboundClaimTypeMap.Clear(); // prevent sub → NameIdentifier remapping
         var jwt = handler.ReadJwtToken(token);
         Assert.Equal(SecurityAlgorithms.RsaSha256, jwt.Header.Alg);
-        Assert.Equal(JwtSettings.RsaKeyId, jwt.Header.Kid);
+        Assert.Equal(_keyRing.SigningCredentials!.Key.KeyId, jwt.Header.Kid);
 
         var parameters = new TokenValidationParameters
         {
@@ -65,7 +65,7 @@ public class TokenServiceTests : IDisposable
             ValidateIssuerSigningKey = true,
             ValidIssuer = _settings.Issuer,
             ValidAudience = _settings.Audience,
-            IssuerSigningKey = new RsaSecurityKey(_validationRsa) { KeyId = JwtSettings.RsaKeyId },
+            IssuerSigningKeys = _keyRing.ValidationKeys,
             ClockSkew = TimeSpan.Zero,
             ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
         };
@@ -161,22 +161,30 @@ public class TokenServiceTests : IDisposable
 
     public void Dispose()
     {
-        _tokenService.Dispose();
+        _keyRing.Dispose();
         _validationRsa.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    private static TokenService CreateTokenServiceWithoutRsa()
+    private static TokenService CreateTokenService(JwtSettings settings, RsaSigningKeyRing keyRing)
     {
         return new TokenService(
-            Options.Create(new JwtSettings
-            {
-                Issuer = "TestIssuer",
-                Audience = "TestAudience",
-                SigningKey = "test-signing-key-that-is-long-enough-32chars"
-            }),
+            Options.Create(settings),
             Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
-            new DateTimeProvider());
+            new DateTimeProvider(),
+            keyRing);
+    }
+
+    private static TokenService CreateTokenServiceWithoutRsa()
+    {
+        var settings = new JwtSettings
+        {
+            Issuer = "TestIssuer",
+            Audience = "TestAudience",
+            SigningKey = "test-signing-key-that-is-long-enough-32chars"
+        };
+
+        return CreateTokenService(settings, new RsaSigningKeyRing(Options.Create(settings)));
     }
 
     private static ApplicationUser CreateUser()

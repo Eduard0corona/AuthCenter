@@ -23,9 +23,9 @@
       `appsettings.Development.json` is still readable in the git history and must not be used
       anywhere. Tests now use their own key (`tests/AuthCenter.IntegrationTests/TestRsaKey.cs`),
       which is public by design and equally must never be reused.
-- [ ] Support signing key rotation. The `kid` is the fixed constant `JwtSettings.RsaKeyId` and the
-      JWKS exposes a single key, so rotating today invalidates every token in flight. Publishing
-      several keys and signing with the newest would allow overlap.
+- [ ] Perform the first rotation once the deployment exists, following the procedure in the
+      README. Key rotation itself is implemented: `Jwt:AdditionalValidationKeysPem` keeps retired
+      keys valid and published while the active key signs.
 
 ## Operational setup
 

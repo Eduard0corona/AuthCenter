@@ -1,3 +1,4 @@
+using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.Extensions.Options;
@@ -23,7 +24,8 @@ public class RefreshTokenHashTests
         _tokenService = new TokenService(
             settings,
             Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
-            dateTimeProvider);
+            dateTimeProvider,
+            new RsaSigningKeyRing(settings));
     }
 
     [Fact]

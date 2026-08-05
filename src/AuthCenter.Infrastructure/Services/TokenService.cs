@@ -6,46 +6,35 @@ using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace AuthCenter.Infrastructure.Services;
 
-public class TokenService : ITokenService, IDisposable
+public class TokenService : ITokenService
 {
     private readonly JwtSettings _jwtSettings;
     private readonly MfaSettings _mfaSettings;
     private readonly IDateTimeProvider _dateTimeProvider;
-    private readonly RSA? _rsa;
+    private readonly RsaSigningKeyRing _keyRing;
 
-    public TokenService(IOptions<JwtSettings> jwtSettings, IOptions<MfaSettings> mfaSettings, IDateTimeProvider dateTimeProvider)
+    public TokenService(
+        IOptions<JwtSettings> jwtSettings,
+        IOptions<MfaSettings> mfaSettings,
+        IDateTimeProvider dateTimeProvider,
+        RsaSigningKeyRing keyRing)
     {
         _jwtSettings = jwtSettings.Value;
         _mfaSettings = mfaSettings.Value;
         _dateTimeProvider = dateTimeProvider;
-
-        if (!string.IsNullOrWhiteSpace(_jwtSettings.RsaPrivateKeyPem) &&
-            !_jwtSettings.RsaPrivateKeyPem.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
-        {
-            var rsa = RSA.Create();
-
-            try
-            {
-                rsa.ImportFromPem(_jwtSettings.RsaPrivateKeyPem);
-                _rsa = rsa;
-            }
-            catch
-            {
-                rsa.Dispose();
-                throw;
-            }
-        }
+        _keyRing = keyRing;
     }
 
     public int AccessTokenExpiryMinutes => _jwtSettings.AccessTokenMinutes;
     public int MagicLinkTokenMinutes => _jwtSettings.MagicLinkTokenMinutes;
-    public bool IsRsaConfigured => _rsa is not null;
+    public bool IsRsaConfigured => _keyRing.IsConfigured;
 
     public string GenerateAccessToken(
         ApplicationUser user,
@@ -111,7 +100,7 @@ public class TokenService : ITokenService, IDisposable
 
     public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes)
     {
-        if (_rsa is null) return null;
+        if (!_keyRing.IsConfigured) return null;
 
         var now = _dateTimeProvider.UtcNow;
         var claims = new List<Claim>
@@ -145,36 +134,9 @@ public class TokenService : ITokenService, IDisposable
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public string GetJwks()
-    {
-        if (_rsa is null)
-            return """{"keys":[]}""";
+    public string GetJwks() => _keyRing.Jwks;
 
-        var p = _rsa.ExportParameters(false);
-        var n = Base64UrlEncodeBytes(p.Modulus!);
-        var e = Base64UrlEncodeBytes(p.Exponent!);
-
-        return $$"""{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"{{JwtSettings.RsaKeyId}}","n":"{{n}}","e":"{{e}}"}]}""";
-    }
-
-    private static string Base64UrlEncodeBytes(byte[] input)
-        => Convert.ToBase64String(input).Replace('+', '-').Replace('/', '_').TrimEnd('=');
-
-    private SigningCredentials GetRsaSigningCredentials()
-    {
-        if (_rsa is null)
-        {
-            throw new InvalidOperationException(
-                "RSA signing is unavailable. Configure Jwt:RsaPrivateKeyPem with a valid RSA private key in PEM format.");
-        }
-
-        var rsaKey = new RsaSecurityKey(_rsa)
-        {
-            KeyId = JwtSettings.RsaKeyId,
-            CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false }
-        };
-        return new SigningCredentials(rsaKey, SecurityAlgorithms.RsaSha256);
-    }
+    private SigningCredentials GetRsaSigningCredentials() => _keyRing.RequireSigningCredentials();
 
     public (string token, string hash) GenerateRefreshToken()
     {
@@ -288,11 +250,5 @@ public class TokenService : ITokenService, IDisposable
         {
             return null;
         }
-    }
-
-    public void Dispose()
-    {
-        _rsa?.Dispose();
-        GC.SuppressFinalize(this);
     }
 }

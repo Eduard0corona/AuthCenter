@@ -69,7 +69,8 @@ Swagger UI: `https://localhost:7001/swagger`
 | `Jwt:Issuer` | JWT issuer claim |
 | `Jwt:Audience` | JWT audience claim |
 | `Jwt:SigningKey` | HMAC-SHA256 key for internal pending MFA, forced-password-change, and magic-link tokens (min 32 chars) |
-| `Jwt:RsaPrivateKeyPem` | RSA private key (at least 2048 bits) in PEM format used to sign access and ID tokens with RS256 (required in every environment) |
+| `Jwt:RsaPrivateKeyPem` | Active RSA private key (at least 2048 bits) in PEM format used to sign access and ID tokens with RS256 (required in every environment) |
+| `Jwt:AdditionalValidationKeysPem` | Array of PEM keys still accepted on validation and published in the JWKS, but no longer used for signing. See [Rotating the signing key](#rotating-the-signing-key) |
 | `Jwt:AccessTokenMinutes` | Access token lifetime (default 15) |
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
 | `Mfa:EncryptionKey` | Key used to encrypt TOTP secrets at rest (min 32 chars, required outside Development) |
@@ -94,6 +95,23 @@ For a fully conformant OIDC discovery document, set `Jwt:Issuer` to the public H
 service. The endpoint URLs published at `/.well-known/openid-configuration` are derived from the
 request, but the `issuer` value must match the `iss` claim of the tokens, so changing it
 invalidates tokens already in circulation.
+
+### Rotating the signing key
+
+Every key is identified in the JWKS by a `kid` derived from the key itself (an RFC 7638
+thumbprint), so a rotation is a three-step move that never invalidates tokens already issued:
+
+1. **Publish** the new key by adding it to `Jwt:AdditionalValidationKeysPem`. Relying parties that
+   refresh the JWKS pick it up while the old key keeps signing.
+2. **Promote** it: move the new key to `Jwt:RsaPrivateKeyPem` and put the old key's public PEM in
+   `Jwt:AdditionalValidationKeysPem`. New tokens are signed with the new key; tokens signed with
+   the old one are still accepted.
+3. **Retire** the old key by removing it from `Jwt:AdditionalValidationKeysPem`, once the longest
+   token lifetime you issue (`Jwt:AccessTokenMinutes`) has elapsed since step 2.
+
+Only the public half of an additional key is ever exposed, so step 2 can use the public PEM alone.
+Steps must be one deploy apart — collapsing them means clients holding a stale JWKS will reject
+tokens signed with a key they never saw.
 
 ### Deploying
 

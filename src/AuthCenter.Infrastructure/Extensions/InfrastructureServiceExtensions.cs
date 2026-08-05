@@ -1,12 +1,14 @@
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
+using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AuthCenter.Infrastructure.Extensions;
 
@@ -28,6 +30,8 @@ public static class InfrastructureServiceExtensions
         services.AddMemoryCache();
 
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
+        services.AddSingleton<IValidateOptions<JwtSettings>, JwtSettingsValidator>();
+        services.AddSingleton<RsaSigningKeyRing>();
         services.Configure<GoogleAuthSettings>(configuration.GetSection("Authentication:Google"));
         services.Configure<MicrosoftAuthSettings>(configuration.GetSection("Authentication:Microsoft"));
         services.Configure<GitHubAuthSettings>(configuration.GetSection("Authentication:GitHub"));
