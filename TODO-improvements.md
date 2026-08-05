@@ -8,38 +8,26 @@ doing first.
 
 ## Blocking a second instance
 
-- [ ] **top** — Move single-use security state out of `IMemoryCache`. Four anti-replay mechanisms
-      keep their state in process memory, so with more than one instance the protection disappears
-      silently (a consumed magic link or MFA pending token replayed against another instance is
-      accepted), and a restart clears it too:
-  - MFA pending token single-use — `AuthService.cs:474`, `AuthService.cs:535`
-  - Magic link single-use — `AuthService.cs:804`, `AuthService.cs:841`
-  - Email OTP codes — `TotpService.cs:253`, `TotpService.cs:319`
-  - OAuth interaction sessions — `OAuthAuthorizationService.cs:90`
+- [x] Moved single-use security state out of `IMemoryCache` into a `TransientStates` table behind
+      `ITransientStateStore`, so it is shared by every instance and survives a restart. A unique
+      index on `(Purpose, Key)` is what makes redemption atomic; the pre-check only keeps the
+      common path cheap. Covers the MFA pending token, the forced password change token, magic
+      links, both email OTP codes and OAuth interaction sessions. Expired rows are swept
+      opportunistically, at most once every five minutes per instance.
 
-  OAuth authorization codes already do this correctly: stored hashed in the database. These four
-  should follow the same pattern, or move to `IDistributedCache` backed by Redis.
-
-- [ ] **top** — Add `UseForwardedHeaders`. Every rate limit partitions on
-      `httpContext.Connection.RemoteIpAddress`, which behind App Service or any reverse proxy is
-      the balancer's address, not the client's. Two consequences: every user shares one rate limit
-      partition, so five requests can lock out everyone's login; and the `IpAddress` recorded in
-      the audit log is useless for investigating an incident. Note `UseHttpsRedirection` is
-      currently inert in the container (no HTTPS port configured, verified against the Compose
-      stack); configuring one before fixing forwarded headers would cause a redirect loop.
+- [x] Added `UseForwardedHeaders` ahead of the rest of the pipeline, so rate limiting and the
+      audit log see the caller rather than the balancer. Note `UseHttpsRedirection` is inert in the
+      container (no HTTPS port configured, verified against the Compose stack); with forwarded
+      headers now honoured, configuring one no longer risks a redirect loop.
 
 - [ ] Rate limiters are in-memory, so limits multiply by instance count. Needs a distributed
       limiter once there is more than one instance.
 
 ## Security
 
-- [ ] No rate limiting on `/oauth/token` (`OAuthController.cs:59`). There is no global limiter
-      either — only named policies on specific `AuthController` endpoints. This is where
-      `client_secret` and refresh tokens are validated, so it is the natural target for brute
-      force. User login is protected and machine login is not.
-- [ ] `client_secret` comparison is not constant-time — `OAuthAuthorizationService.cs:164`, `:258`,
-      `:296` use `string.Equals`. Should be `CryptographicOperations.FixedTimeEquals`. Low severity
-      in practice since hashes are compared, but free to fix.
+- [x] Rate limited `/oauth/token`, deliberately looser than the interactive endpoints because a
+      machine client legitimately exchanges tokens in bursts.
+- [x] `client_secret` is now compared with `CryptographicOperations.FixedTimeEquals`.
 - [ ] Access tokens cannot be revoked. Revoking a session only kills the refresh token; the access
       token stays valid for up to 15 minutes. This is inherent to stateless JWTs and is probably
       the right trade-off, but `DELETE /api/auth/sessions` implies an immediacy it does not
@@ -51,29 +39,24 @@ doing first.
 
 ## Performance and resilience
 
-- [ ] No `EnableRetryOnFailure` on the SQL Server provider
-      (`InfrastructureServiceExtensions.cs:17-26`). Azure SQL drops connections routinely
-      (throttling, failover) and without a retry strategy that surfaces as sporadic 500s. Best
-      value-per-line fix in this list.
+- [x] Enabled `EnableRetryOnFailure` with a 30s command timeout on both the scoped context and the
+      context factory.
 - [ ] Nothing prunes the append-only tables. There is no `BackgroundService` in the project, so
       `RefreshTokens`, `OAuthAuthorizationCodes`, `UserTrustedDevices` and `AuditLogs` grow without
       bound; revoked tokens and expired codes are never deleted. `RefreshTokens` is the one that
-      degrades first under real traffic.
+      degrades first under real traffic. (`TransientStates` is exempt: it sweeps itself.)
 - [ ] User search causes a table scan. `UserAccessService.cs:48` uses `Contains`, which becomes
       `LIKE '%x%'` — not sargable, so the `IX_AspNetUsers_FullName` index cannot be used. Fine at
       small scale. `StartsWith` would use the index if prefix search is acceptable; otherwise this
       needs full-text search.
 - [ ] Serilog writes to a file in production (`appsettings.json:46-53`). In a container those logs
       are ephemeral and add disk I/O per request. Console only is the usual container setup.
-- [ ] `/health` mixes liveness and readiness — it includes the SQL Server check, so a database
-      blip restarts the application if the platform uses it as a liveness probe. Split into
-      `/health/live` (no dependencies) and `/health/ready` (with SQL).
+- [x] Split the health endpoint into `/health/live`, which carries no dependencies, and
+      `/health/ready`, which reports SQL Server. `/health` is unchanged.
 
 ## Correctness
 
-- [ ] `Jwt:RefreshTokenDays` is never read. It exists in `JwtSettings`, in both appsettings files
-      and in the README, but `RefreshTokenService.cs:28` hardcodes `AddDays(30)`. Changing the
-      setting does nothing, which is worse than not having it.
+- [x] `Jwt:RefreshTokenDays` is now honoured; `RefreshTokenService` used to hardcode 30 days.
 
 ## Structure
 

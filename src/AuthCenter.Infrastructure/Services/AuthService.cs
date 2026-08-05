@@ -33,7 +33,7 @@ public class AuthService : IAuthService
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailService _emailService;
     private readonly IMfaService _mfaService;
-    private readonly IMemoryCache _memoryCache;
+    private readonly ITransientStateStore _transientState;
     private readonly MfaSettings _mfaSettings;
     private readonly AuthCenterDbContext _db;
     private readonly ILogger<AuthService> _logger;
@@ -53,7 +53,7 @@ public class AuthService : IAuthService
         IDateTimeProvider dateTimeProvider,
         IEmailService emailService,
         IMfaService mfaService,
-        IMemoryCache memoryCache,
+        ITransientStateStore transientState,
         IOptions<MfaSettings> mfaSettings,
         AuthCenterDbContext db,
         ILogger<AuthService> logger)
@@ -72,7 +72,7 @@ public class AuthService : IAuthService
         _dateTimeProvider = dateTimeProvider;
         _emailService = emailService;
         _mfaService = mfaService;
-        _memoryCache = memoryCache;
+        _transientState = transientState;
         _mfaSettings = mfaSettings.Value;
         _db = db;
         _logger = logger;
@@ -470,11 +470,14 @@ public class AuthService : IAuthService
         if (pending is null)
             return OperationResult<AuthResponse>.Failure("INVALID_MFA_TOKEN", "MFA token is invalid or expired.");
 
-        var cacheKey = GetPendingCacheKey("mfa", pending.TokenId);
-        if (_memoryCache.TryGetValue(cacheKey, out _))
-            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
+        var consumed = await _transientState.TryConsumeAsync(
+            SingleUsePurposes.Mfa,
+            pending.TokenId,
+            _dateTimeProvider.UtcNow.AddSeconds(_mfaSettings.MfaTokenExpirySeconds),
+            ct);
 
-        _memoryCache.Set(cacheKey, true, TimeSpan.FromSeconds(_mfaSettings.MfaTokenExpirySeconds));
+        if (!consumed)
+            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
 
         var user = await _userManager.FindByIdAsync(pending.UserId.ToString());
         if (user is null || !user.IsActive || user.DeletedAt is not null)
@@ -497,11 +500,13 @@ public class AuthService : IAuthService
 
         if (!verified && !string.IsNullOrWhiteSpace(request.EmailOtpCode))
         {
-            var otpCacheKey = $"emailotp_verify:{pending.TokenId}";
-            if (_memoryCache.TryGetValue(otpCacheKey, out string? storedOtp) &&
-                storedOtp == request.EmailOtpCode.Trim())
+            var storedOtp = await _transientState.GetAsync(
+                MfaStatePurposes.EmailOtpVerify, pending.TokenId, ct);
+
+            // Only cleared on a match, so a wrong guess cannot invalidate the real code.
+            if (storedOtp is not null && storedOtp == request.EmailOtpCode.Trim())
             {
-                _memoryCache.Remove(otpCacheKey);
+                await _transientState.RemoveAsync(MfaStatePurposes.EmailOtpVerify, pending.TokenId, ct);
                 verified = true;
             }
         }
@@ -531,11 +536,14 @@ public class AuthService : IAuthService
         if (pending is null)
             return OperationResult<AuthResponse>.Failure("INVALID_FORCED_CHANGE_TOKEN", "Password change token is invalid or expired.");
 
-        var cacheKey = GetPendingCacheKey("forced_change", pending.TokenId);
-        if (_memoryCache.TryGetValue(cacheKey, out _))
-            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "Password change token has already been used.");
+        var consumed = await _transientState.TryConsumeAsync(
+            SingleUsePurposes.ForcedChange,
+            pending.TokenId,
+            _dateTimeProvider.UtcNow.AddSeconds(_mfaSettings.MfaTokenExpirySeconds),
+            ct);
 
-        _memoryCache.Set(cacheKey, true, TimeSpan.FromSeconds(_mfaSettings.MfaTokenExpirySeconds));
+        if (!consumed)
+            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "Password change token has already been used.");
 
         var user = await _userManager.FindByIdAsync(pending.UserId.ToString());
         if (user is null || !user.IsActive || user.DeletedAt is not null)
@@ -800,11 +808,14 @@ public class AuthService : IAuthService
         if (pending is null || !string.Equals(pending.ApplicationCode, request.ApplicationCode, StringComparison.Ordinal))
             return OperationResult<AuthResponse>.Failure("INVALID_MAGIC_LINK_TOKEN", "Magic link is invalid or expired.");
 
-        var cacheKey = GetPendingCacheKey("magic_link", pending.TokenId);
-        if (_memoryCache.TryGetValue(cacheKey, out _))
-            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "Magic link has already been used.");
+        var consumed = await _transientState.TryConsumeAsync(
+            SingleUsePurposes.MagicLink,
+            pending.TokenId,
+            _dateTimeProvider.UtcNow.AddMinutes(_tokenService.MagicLinkTokenMinutes),
+            ct);
 
-        _memoryCache.Set(cacheKey, true, TimeSpan.FromMinutes(_tokenService.MagicLinkTokenMinutes));
+        if (!consumed)
+            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "Magic link has already been used.");
 
         var user = await _userManager.FindByIdAsync(pending.UserId.ToString());
         if (user is null || !user.IsActive || user.DeletedAt is not null)
@@ -837,8 +848,7 @@ public class AuthService : IAuthService
         if (pending is null)
             return OperationResult.Failure("INVALID_MFA_TOKEN", "MFA token is invalid or expired.");
 
-        var usedKey = GetPendingCacheKey("mfa", pending.TokenId);
-        if (_memoryCache.TryGetValue(usedKey, out _))
+        if (await _transientState.IsConsumedAsync(SingleUsePurposes.Mfa, pending.TokenId, ct))
             return OperationResult.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
 
         var sent = await _mfaService.SendMfaEmailOtpAsync(pending.UserId, pending.TokenId, ct);
@@ -947,8 +957,12 @@ public class AuthService : IAuthService
         return rawToken;
     }
 
-    private static string GetPendingCacheKey(string purpose, string tokenId) =>
-        $"{purpose}:{tokenId}";
+    private static class SingleUsePurposes
+    {
+        public const string Mfa = "mfa";
+        public const string ForcedChange = "forced_change";
+        public const string MagicLink = "magic_link";
+    }
 
     private static string? DeriveDeviceName(string? userAgent)
     {

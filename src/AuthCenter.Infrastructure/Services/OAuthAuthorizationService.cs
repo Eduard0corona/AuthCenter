@@ -20,22 +20,22 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 {
     private readonly AuthCenterDbContext _db;
     private readonly ITokenService _tokenService;
-    private readonly IMemoryCache _cache;
+    private readonly ITransientStateStore _transientState;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly UserManager<ApplicationUser> _userManager;
 
-    private const string SessionPrefix = "oauth_session:";
+    private const string SessionPrefix = "oauth_session";
 
     public OAuthAuthorizationService(
         AuthCenterDbContext db,
         ITokenService tokenService,
-        IMemoryCache cache,
+        ITransientStateStore transientState,
         IDateTimeProvider dateTimeProvider,
         UserManager<ApplicationUser> userManager)
     {
         _db = db;
         _tokenService = tokenService;
-        _cache = cache;
+        _transientState = transientState;
         _dateTimeProvider = dateTimeProvider;
         _userManager = userManager;
     }
@@ -87,7 +87,12 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             CreatedAt = _dateTimeProvider.UtcNow
         };
 
-        _cache.Set($"{SessionPrefix}{interactionId}", session, TimeSpan.FromMinutes(10));
+        await _transientState.SetAsync(
+            SessionPrefix,
+            interactionId,
+            JsonSerializer.Serialize(session),
+            _dateTimeProvider.UtcNow.AddMinutes(10),
+            ct);
 
         var separator = client.LoginUrl.Contains('?') ? '&' : '?';
         var redirectUrl = $"{client.LoginUrl}{separator}interaction_id={interactionId}";
@@ -99,11 +104,17 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 
     public async Task<OperationResult<string>> CompleteAuthorizationAsync(CompleteAuthorizationRequest request, Guid userId, CancellationToken ct = default)
     {
-        var cacheKey = $"{SessionPrefix}{request.InteractionId}";
-        if (!_cache.TryGetValue(cacheKey, out OAuthAuthorizationSession? session) || session is null)
+        if (string.IsNullOrWhiteSpace(request.InteractionId))
             return OperationResult<string>.Failure("INVALID_INTERACTION", "Interaction not found or expired. Start a new authorization request.");
 
-        _cache.Remove(cacheKey);
+        // Taken rather than read: an interaction is good for exactly one completion.
+        var storedSession = await _transientState.TakeAsync(SessionPrefix, request.InteractionId, ct);
+        if (storedSession is null)
+            return OperationResult<string>.Failure("INVALID_INTERACTION", "Interaction not found or expired. Start a new authorization request.");
+
+        var session = JsonSerializer.Deserialize<OAuthAuthorizationSession>(storedSession);
+        if (session is null)
+            return OperationResult<string>.Failure("INVALID_INTERACTION", "Interaction not found or expired. Start a new authorization request.");
 
         if (!request.Consent)
             return OperationResult<string>.Failure("ACCESS_DENIED", "User denied consent.");

@@ -20,6 +20,7 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<UserTrustedDevice> UserTrustedDevices => Set<UserTrustedDevice>();
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
     public DbSet<OAuthAuthorizationCode> OAuthAuthorizationCodes => Set<OAuthAuthorizationCode>();
+    public DbSet<TransientState> TransientStates => Set<TransientState>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

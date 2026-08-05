@@ -61,6 +61,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<ITransientStateStore, TransientStateStore>();
         services.AddScoped<IGoogleAuthService, GoogleAuthService>();
         services.AddScoped<IMicrosoftAuthService, MicrosoftAuthService>();
         services.AddScoped<IGitHubAuthService, GitHubAuthService>();

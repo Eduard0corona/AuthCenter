@@ -11,9 +11,9 @@ using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
+using AuthCenter.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using OtpNet;
 
@@ -496,10 +496,10 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         string setupCode;
         using (var scope = _factory.Services.CreateScope())
         {
-            var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
-            Assert.True(cache.TryGetValue($"emailotp_setup:{userId}", out string? cachedCode));
-            Assert.NotNull(cachedCode);
-            setupCode = cachedCode;
+            var state = scope.ServiceProvider.GetRequiredService<ITransientStateStore>();
+            var storedCode = await state.GetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString());
+            Assert.NotNull(storedCode);
+            setupCode = storedCode;
         }
 
         var enableResponse = await client.PostAsJsonAsync("/api/auth/mfa/email-otp/enable", new EnableEmailMfaRequest
@@ -539,10 +539,10 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             var pendingResult = tokenService.ValidateMfaPendingToken(pending.MfaPendingToken);
             Assert.NotNull(pendingResult);
 
-            var cache = scope.ServiceProvider.GetRequiredService<IMemoryCache>();
-            Assert.True(cache.TryGetValue($"emailotp_verify:{pendingResult.TokenId}", out string? cachedCode));
-            Assert.NotNull(cachedCode);
-            verifyCode = cachedCode;
+            var state = scope.ServiceProvider.GetRequiredService<ITransientStateStore>();
+            var storedCode = await state.GetAsync(MfaStatePurposes.EmailOtpVerify, pendingResult.TokenId);
+            Assert.NotNull(storedCode);
+            verifyCode = storedCode;
         }
 
         var verifyResponse = await client.PostAsJsonAsync("/api/auth/mfa/verify", new VerifyMfaRequest

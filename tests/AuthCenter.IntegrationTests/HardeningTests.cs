@@ -72,6 +72,27 @@ public class HardeningTests : IClassFixture<AuthCenterWebApplicationFactory>
             $"Expected a {refreshTokenDays} day lifetime but the token lasts {lifetime.TotalDays:F2} days.");
     }
 
+    [Fact]
+    public async Task SingleUseMarkers_ArePersistedWhereEveryInstanceCanSeeThem()
+    {
+        using var client = _factory.CreateClient();
+        var auth = await LoginAsync(client);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+
+        // Enrolling in email OTP parks a code that a later request has to read back. If that lived
+        // in process memory, a second instance would never find it.
+        var setupResponse = await client.PostAsync("/api/auth/mfa/email-otp/setup", null);
+        setupResponse.EnsureSuccessStatusCode();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var stored = await db.TransientStates.AsNoTracking().ToListAsync();
+
+        var entry = Assert.Single(stored, s => s.Purpose == "emailotp_setup");
+        Assert.False(string.IsNullOrWhiteSpace(entry.Value));
+        Assert.True(entry.ExpiresAt > entry.CreatedAt);
+    }
+
     private static async Task<AuthResponse> LoginAsync(HttpClient client)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest

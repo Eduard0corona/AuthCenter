@@ -25,7 +25,7 @@ public class TotpService : IMfaService
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IAuditService _auditService;
     private readonly IEmailService _emailService;
-    private readonly IMemoryCache _memoryCache;
+    private readonly ITransientStateStore _transientState;
 
     public TotpService(
         AuthCenterDbContext db,
@@ -34,7 +34,7 @@ public class TotpService : IMfaService
         IDateTimeProvider dateTimeProvider,
         IAuditService auditService,
         IEmailService emailService,
-        IMemoryCache memoryCache)
+        ITransientStateStore transientState)
     {
         _db = db;
         _userManager = userManager;
@@ -42,7 +42,7 @@ public class TotpService : IMfaService
         _dateTimeProvider = dateTimeProvider;
         _auditService = auditService;
         _emailService = emailService;
-        _memoryCache = memoryCache;
+        _transientState = transientState;
     }
 
     public async Task<OperationResult<MfaSetupResponse>> SetupTotpAsync(Guid userId, CancellationToken ct = default)
@@ -168,10 +168,10 @@ public class TotpService : IMfaService
 
         if (!verified && !string.IsNullOrWhiteSpace(request.EmailOtpCode) && credential.Method == MfaMethod.EmailOtp)
         {
-            var cacheKey = $"emailotp_setup:{userId}";
-            if (_memoryCache.TryGetValue(cacheKey, out string? storedCode) && storedCode == request.EmailOtpCode.Trim())
+            var storedCode = await _transientState.GetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), ct);
+            if (storedCode is not null && storedCode == request.EmailOtpCode.Trim())
             {
-                _memoryCache.Remove(cacheKey);
+                await _transientState.RemoveAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), ct);
                 verified = true;
             }
         }
@@ -250,7 +250,12 @@ public class TotpService : IMfaService
             return OperationResult.Failure("MFA_ALREADY_ENABLED", "MFA is already enabled.");
 
         var code = GenerateNumericCode();
-        _memoryCache.Set($"emailotp_setup:{userId}", code, TimeSpan.FromMinutes(10));
+        await _transientState.SetAsync(
+            MfaStatePurposes.EmailOtpSetup,
+            userId.ToString(),
+            code,
+            _dateTimeProvider.UtcNow.AddMinutes(10),
+            ct);
 
         await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
         await _auditService.LogAsync("MFA_EMAIL_OTP_SETUP_SENT", userId, ct: ct);
@@ -260,14 +265,14 @@ public class TotpService : IMfaService
 
     public async Task<OperationResult> EnableEmailOtpAsync(Guid userId, EnableEmailMfaRequest request, CancellationToken ct = default)
     {
-        var cacheKey = $"emailotp_setup:{userId}";
-        if (!_memoryCache.TryGetValue(cacheKey, out string? storedCode))
+        var storedCode = await _transientState.GetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), ct);
+        if (storedCode is null)
             return OperationResult.Failure("SETUP_NOT_INITIATED", "No pending email OTP setup. Call /mfa/email-otp/setup first.");
 
         if (storedCode != request.Code.Trim())
             return OperationResult.Failure("INVALID_CODE", "The verification code is incorrect.");
 
-        _memoryCache.Remove(cacheKey);
+        await _transientState.RemoveAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), ct);
 
         var existing = await _db.UserMfaCredentials.FirstOrDefaultAsync(m => m.UserId == userId, ct);
         if (existing?.IsEnabled == true)
@@ -316,7 +321,12 @@ public class TotpService : IMfaService
             return false;
 
         var code = GenerateNumericCode();
-        _memoryCache.Set($"emailotp_verify:{pendingTokenJti}", code, TimeSpan.FromSeconds(_settings.MfaTokenExpirySeconds));
+        await _transientState.SetAsync(
+            MfaStatePurposes.EmailOtpVerify,
+            pendingTokenJti,
+            code,
+            _dateTimeProvider.UtcNow.AddSeconds(_settings.MfaTokenExpirySeconds),
+            ct);
 
         await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
         await _auditService.LogAsync("MFA_EMAIL_OTP_SENT", userId, ct: ct);
