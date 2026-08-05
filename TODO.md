@@ -1,27 +1,45 @@
 # TODO
 
-## Local runtime validation
+## Deployment (blocked on infrastructure)
 
-- [ ] Configure real local user-secrets:
+- [ ] Recreate the Azure Web App. `authcentral.azurewebsites.net` and its SCM endpoint no longer
+      resolve, so every run of the deploy workflow fails with `ENOTFOUND`. The publish profile in
+      `AZUREAPPSERVICE_PUBLISHPROFILE_...` has to be regenerated for the new resource — or the
+      workflow removed if the target is dropped.
+- [ ] Configure the deployed app settings before the first successful deploy. The API now fails
+      fast without them:
   - `ConnectionStrings:DefaultConnection`
-  - `Jwt:SigningKey`
-  - `Seed:AdminEmail`
-  - `Seed:AdminPassword`
-  - `Seed:AdminFullName`
-- [ ] Run the API locally against SQL Server LocalDB:
-  - Apply migrations.
-  - Confirm the seed creates `AUTHCENTER`, default roles, default permissions, and the admin user.
-  - Open Swagger at `https://localhost:7157/swagger`.
+  - `Jwt:RsaPrivateKeyPem` (new RSA key — see below)
+  - `Jwt:SigningKey` (min 64 chars)
+  - `Mfa:EncryptionKey` (min 32 chars)
+  - `Cors:AllowedOrigins`
+- [ ] Bootstrap the deployed database: run once with `Database:MigrateOnStartup` and
+      `Database:SeedOnStartup` set to `true` plus the `Seed:*` values, then switch both off.
+- [ ] Narrow `AllowedHosts` from `*` to the real public hostnames once they exist.
+
+## Security
+
+- [ ] Rotate the RSA signing key. The key previously committed in
+      `appsettings.Development.json` is still readable in the git history and must not be used
+      anywhere. Tests now use their own key (`tests/AuthCenter.IntegrationTests/TestRsaKey.cs`),
+      which is public by design and equally must never be reused.
+- [ ] Support signing key rotation. The `kid` is the fixed constant `JwtSettings.RsaKeyId` and the
+      JWKS exposes a single key, so rotating today invalidates every token in flight. Publishing
+      several keys and signing with the newest would allow overlap.
+
+## Operational setup
+
+- [ ] Add Docker Compose for the API and SQL Server.
 - [ ] Run a real auth smoke test against LocalDB:
   - `POST /api/auth/login`
   - `GET /api/auth/me`
   - `GET /api/users`
   - `POST /api/auth/refresh-token`
 
-## Operational setup
+## Test coverage gaps
 
-- [ ] Add Docker Compose for the API and SQL Server.
-- [ ] Prepare deployment configuration:
-  - Choose hosting target.
-  - Define production environment variables/secrets.
-  - Review production CORS and health-check exposure.
+- [ ] MFA (TOTP enrollment, email OTP, backup codes, trusted devices).
+- [ ] Magic-link login.
+- [ ] Social login (Microsoft, GitHub, Apple).
+- [ ] Sessions and account management (email change, account deletion).
+- [ ] Roles, permissions, and audit log controllers.

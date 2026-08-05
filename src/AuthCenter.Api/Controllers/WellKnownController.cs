@@ -21,14 +21,18 @@ public class WellKnownController : ControllerBase
     [HttpGet("openid-configuration")]
     public IActionResult OpenIdConfiguration()
     {
+        // The issuer claim must keep matching the "iss" of the tokens we sign, but the endpoint
+        // URLs have to be absolute and reachable, so they are built from the request base address
+        // instead of from the issuer (which is not necessarily a URL).
         var issuer = _jwtSettings.Issuer;
+        var baseUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}".TrimEnd('/');
         var discovery = new
         {
             issuer,
-            authorization_endpoint = $"{issuer}/oauth/authorize",
-            token_endpoint = $"{issuer}/oauth/token",
-            userinfo_endpoint = $"{issuer}/oauth/userinfo",
-            jwks_uri = $"{issuer}/.well-known/jwks.json",
+            authorization_endpoint = $"{baseUrl}/oauth/authorize",
+            token_endpoint = $"{baseUrl}/oauth/token",
+            userinfo_endpoint = $"{baseUrl}/oauth/userinfo",
+            jwks_uri = $"{baseUrl}/.well-known/jwks.json",
             scopes_supported = new[] { "openid", "profile", "email", "offline_access" },
             response_types_supported = new[] { "code" },
             grant_types_supported = new[] { "authorization_code", "client_credentials", "refresh_token" },

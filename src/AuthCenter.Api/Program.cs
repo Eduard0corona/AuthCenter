@@ -43,11 +43,6 @@ try
     builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
     // JWT Authentication
-    var jwtSettings = builder.Configuration.GetSection("Jwt").Get<JwtSettings>()
-        ?? throw new InvalidOperationException("Jwt configuration is required.");
-
-    ValidateStartupConfiguration(builder.Environment, builder.Configuration, jwtSettings);
-
     builder.Services.AddOptions<JwtSettings>()
         .Validate(
             settings => IsValidRsaPrivateKey(settings.RsaPrivateKeyPem),
@@ -59,7 +54,8 @@ try
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
         options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     })
-    .AddJwtBearer();
+    .AddJwtBearer()
+    .AddJwtBearer(AuthenticationSchemes.OAuthBearer);
 
     builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
         .Configure<IOptions<JwtSettings>>((options, jwtOptions) =>
@@ -73,6 +69,27 @@ try
                 ValidateIssuerSigningKey = true,
                 ValidIssuer = settings.Issuer,
                 ValidAudience = settings.Audience,
+                IssuerSigningKey = CreateRsaValidationKey(settings),
+                ClockSkew = TimeSpan.Zero,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+            };
+        });
+
+    // OAuth access tokens are audience-scoped to the client that requested them, so the audience
+    // cannot be pinned to a single value. They are still bound to this authorization server by
+    // issuer and signature, and endpoints using this scheme additionally require the client_id
+    // claim that only the token endpoint emits.
+    builder.Services.AddOptions<JwtBearerOptions>(AuthenticationSchemes.OAuthBearer)
+        .Configure<IOptions<JwtSettings>>((options, jwtOptions) =>
+        {
+            var settings = jwtOptions.Value;
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = settings.Issuer,
                 IssuerSigningKey = CreateRsaValidationKey(settings),
                 ClockSkew = TimeSpan.Zero,
                 ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
@@ -147,18 +164,39 @@ try
 
     var app = builder.Build();
 
-    // Migrate DB in Development
-    if (app.Environment.IsDevelopment())
+    // Validated after the host is built so that every configuration source is in play, including
+    // ones contributed by the host itself.
+    var jwtSettings = app.Configuration.GetSection("Jwt").Get<JwtSettings>()
+        ?? throw new InvalidOperationException("Jwt configuration is required.");
+
+    ValidateStartupConfiguration(app.Environment, app.Configuration, jwtSettings);
+
+    // Database bootstrap. Defaults to on in Development; any other environment must opt in
+    // explicitly through Database:MigrateOnStartup / Database:SeedOnStartup so that a deployed
+    // instance can be initialized once without auto-migrating on every restart.
+    var migrateOnStartup = app.Configuration.GetValue("Database:MigrateOnStartup", app.Environment.IsDevelopment());
+    var seedOnStartup = app.Configuration.GetValue("Database:SeedOnStartup", app.Environment.IsDevelopment());
+
+    if (migrateOnStartup || seedOnStartup)
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
-        await db.Database.MigrateAsync();
-
-        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-        var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        await AuthCenterSeeder.SeedAsync(db, userManager, roleManager, config, logger);
+
+        if (migrateOnStartup)
+        {
+            logger.LogInformation("Applying database migrations on startup");
+            await db.Database.MigrateAsync();
+        }
+
+        if (seedOnStartup)
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+            var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+            logger.LogInformation("Seeding baseline application data on startup");
+            await AuthCenterSeeder.SeedAsync(db, userManager, roleManager, config, logger);
+        }
     }
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
@@ -278,11 +316,14 @@ public partial class Program
         if (allowedOrigins.Length == 0)
             throw new InvalidOperationException("Cors:AllowedOrigins must contain at least one origin outside Development.");
 
+        // An empty key silently disables MFA instead of failing, so it is rejected here rather
+        // than only checking for the placeholder.
         var mfaKey = configuration["Mfa:EncryptionKey"];
-        if (!string.IsNullOrWhiteSpace(mfaKey) &&
+        if (string.IsNullOrWhiteSpace(mfaKey) ||
+            mfaKey.Length < 32 ||
             mfaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Mfa:EncryptionKey must not use a placeholder value outside Development.");
+            throw new InvalidOperationException("Mfa:EncryptionKey must be at least 32 characters and not use a placeholder value outside Development.");
         }
     }
 }

@@ -26,6 +26,9 @@ jobs:
       - name: Build with dotnet
         run: dotnet build --configuration Release
 
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
       - name: dotnet publish
         run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj -c Release -r linux-x64 --self-contained true -o ${{env.DOTNET_ROOT}}/myapp
 

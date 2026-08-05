@@ -1,3 +1,4 @@
+using AuthCenter.Api.Authorization;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
@@ -89,10 +90,14 @@ public class OAuthController : ControllerBase
         return Ok(result.Data!);
     }
 
-    [Authorize]
+    [Authorize(AuthenticationSchemes = AuthenticationSchemes.OAuthBearer)]
     [HttpGet("userinfo")]
     public async Task<IActionResult> UserInfo(CancellationToken ct)
     {
+        // Only tokens minted by the token endpoint carry client_id; this keeps first-party login
+        // tokens, which are not audience-scoped to a client, out of the OAuth userinfo endpoint.
+        if (User.FindFirst("client_id") is null) return Unauthorized();
+
         var userId = _currentUserService.UserId;
         if (userId is null) return Unauthorized();
 

@@ -395,6 +395,93 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
     }
 
     [Fact]
+    public async Task UserInfo_WithOAuthAccessToken_ReturnsClaimsForGrantedScopes()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var clientId = $"ui-{Guid.NewGuid():N}"[..20];
+        await CreatePublicOAuthClientAsync(adminClient, clientId);
+
+        var (verifier, challenge) = GeneratePkce();
+        var code = await GetAuthorizationCodeAsync(adminClient, adminToken, clientId, challenge);
+
+        using var tokenClient = _factory.CreateClient();
+        var tokenResponse = await tokenClient.PostAsync("/oauth/token", BuildTokenContent(clientId, code, verifier));
+        Assert.Equal(HttpStatusCode.OK, tokenResponse.StatusCode);
+        var tokens = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>();
+
+        using var userInfoClient = _factory.CreateClient();
+        userInfoClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
+
+        var userInfoResponse = await userInfoClient.GetAsync("/oauth/userinfo");
+        Assert.Equal(HttpStatusCode.OK, userInfoResponse.StatusCode);
+
+        // OIDC userinfo returns the claims document directly, not the ApiResponse envelope.
+        var userInfo = await userInfoResponse.Content.ReadFromJsonAsync<OAuthUserInfoResponse>();
+        Assert.NotNull(userInfo);
+        Assert.False(string.IsNullOrWhiteSpace(userInfo.Sub));
+        Assert.Equal(AuthCenterWebApplicationFactory.AdminEmail, userInfo.Email);
+        // The client was authorized for "openid email offline_access" but not "profile".
+        Assert.Null(userInfo.Name);
+    }
+
+    [Fact]
+    public async Task UserInfo_WithFirstPartyLoginToken_IsRejected()
+    {
+        using var client = _factory.CreateClient();
+        var loginToken = await GetAdminTokenAsync(client);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginToken);
+
+        var response = await client.GetAsync("/oauth/userinfo");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UserInfo_WithClientCredentialsToken_IsRejected()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var clientId = $"uicc-{Guid.NewGuid():N}"[..20];
+        var createResponse = await adminClient.PostAsJsonAsync("/api/oauth/clients", new CreateOAuthClientRequest
+        {
+            ClientId = clientId,
+            DisplayName = "Machine Client",
+            ClientType = (int)OAuthClientType.Confidential,
+            RedirectUris = [],
+            AllowedScopes = ["email"],
+            GrantTypes = ["client_credentials"],
+            LoginUrl = "https://internal.service/",
+            RequirePkce = false
+        });
+        createResponse.EnsureSuccessStatusCode();
+        var created = await ReadDataAsync<OAuthClientCreatedResponse>(createResponse);
+
+        using var tokenClient = _factory.CreateClient();
+        var tokenResponse = await tokenClient.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = clientId,
+            ["client_secret"] = created.ClientSecret!,
+            ["scope"] = "email"
+        }));
+        tokenResponse.EnsureSuccessStatusCode();
+        var tokens = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>();
+
+        using var userInfoClient = _factory.CreateClient();
+        userInfoClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
+
+        // There is no end user behind a client_credentials token, so there is nothing to return.
+        var userInfoResponse = await userInfoClient.GetAsync("/oauth/userinfo");
+        Assert.Equal(HttpStatusCode.Unauthorized, userInfoResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task WellKnown_DiscoveryEndpoint_ReturnsValidDocument()
     {
         using var client = _factory.CreateClient();
@@ -406,6 +493,23 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.Contains("/oauth/authorize", body.GetProperty("authorization_endpoint").GetString());
         Assert.Contains("/oauth/token", body.GetProperty("token_endpoint").GetString());
         Assert.Contains("jwks.json", body.GetProperty("jwks_uri").GetString());
+    }
+
+    [Theory]
+    [InlineData("authorization_endpoint")]
+    [InlineData("token_endpoint")]
+    [InlineData("userinfo_endpoint")]
+    [InlineData("jwks_uri")]
+    public async Task WellKnown_DiscoveryEndpoint_PublishesAbsoluteEndpointUrls(string property)
+    {
+        using var client = _factory.CreateClient();
+        var body = await client.GetFromJsonAsync<JsonElement>("/.well-known/openid-configuration");
+
+        var endpoint = body.GetProperty(property).GetString();
+        Assert.True(
+            Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp),
+            $"{property} must be an absolute http(s) URL but was '{endpoint}'.");
     }
 
     [Fact]

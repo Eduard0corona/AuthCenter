@@ -18,8 +18,9 @@ public static class AuthCenterSeeder
         IConfiguration configuration,
         ILogger logger)
     {
-        await db.Database.EnsureCreatedAsync();
-
+        // The schema is expected to exist already: relational databases are created by migrations,
+        // and the in-memory provider used by tests materializes it on demand. Calling
+        // EnsureCreated here would create a relational schema with no migration history.
         var appSystem = await db.ApplicationSystems
             .Include(a => a.RegistrationSettings)
             .FirstOrDefaultAsync(a => a.Code == DomainConstants.SystemCodes.AuthCenter);

@@ -72,18 +72,36 @@ Swagger UI: `https://localhost:7001/swagger`
 | `Jwt:RsaPrivateKeyPem` | RSA private key (at least 2048 bits) in PEM format used to sign access and ID tokens with RS256 (required in every environment) |
 | `Jwt:AccessTokenMinutes` | Access token lifetime (default 15) |
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
+| `Mfa:EncryptionKey` | Key used to encrypt TOTP secrets at rest (min 32 chars, required outside Development) |
 | `Authentication:Google:ClientId` | Google OAuth Client ID |
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
+| `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
+| `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
+| `Database:SeedOnStartup` | Seed the `AUTHCENTER` application, roles, permissions, and admin user at startup (default: on only in Development) |
 | `Seed:AdminEmail` | Initial admin user email |
 | `Seed:AdminPassword` | Initial admin user password |
 | `Seed:AdminFullName` | Initial admin user full name |
 
-The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, invalid, or still uses a placeholder. Outside `Development` and `Testing`, it also validates that:
+The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, invalid, or still uses a placeholder. Outside `Development` and `Testing`, it also fails when:
 
 - `ConnectionStrings:DefaultConnection` is missing.
 - `Jwt:SigningKey` is empty, shorter than 64 characters, or still uses the placeholder.
+- `Mfa:EncryptionKey` is empty, shorter than 32 characters, or still uses the placeholder.
 - `Authentication:Google:ClientId` still uses the placeholder value.
 - `Cors:AllowedOrigins` is empty.
+
+For a fully conformant OIDC discovery document, set `Jwt:Issuer` to the public HTTPS URL of the
+service. The endpoint URLs published at `/.well-known/openid-configuration` are derived from the
+request, but the `issuer` value must match the `iss` claim of the tokens, so changing it
+invalidates tokens already in circulation.
+
+### Deploying
+
+The database is not created or seeded automatically outside `Development`. To initialize a
+deployed environment, run it once with `Database:MigrateOnStartup` and `Database:SeedOnStartup`
+set to `true` along with the `Seed:*` values, then turn both back off so that later restarts do
+not re-run the bootstrap. Alternatively, apply the migrations out of band with
+`dotnet ef database update`.
 
 ## Key Endpoints
 
@@ -102,6 +120,70 @@ The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, 
 | POST | `/api/auth/resend-email-confirmation` | Resend email confirmation |
 | POST | `/api/auth/forgot-password` | Send password reset token |
 | POST | `/api/auth/reset-password` | Reset password or accept invitation |
+| POST | `/api/auth/change-password` | Change the current user's password |
+| POST | `/api/auth/forced-change-password` | Complete a forced password change |
+
+### Social and passwordless login
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/microsoft` | Login with Microsoft ID Token |
+| POST | `/api/auth/github` | Login with GitHub OAuth code |
+| POST | `/api/auth/apple` | Login with Apple ID Token |
+| POST | `/api/auth/magic-link/request` | Send a magic login link by email |
+| POST | `/api/auth/magic-link/verify` | Complete a magic-link login |
+| GET | `/api/auth/external-providers` | List linked external providers |
+| DELETE | `/api/auth/external-providers/{providerId}` | Unlink an external provider |
+
+### Multi-factor authentication
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/auth/mfa/status` | Current MFA status |
+| POST | `/api/auth/mfa/setup` | Start TOTP enrollment (returns QR payload) |
+| POST | `/api/auth/mfa/enable` | Confirm and enable TOTP |
+| DELETE | `/api/auth/mfa` | Disable MFA |
+| POST | `/api/auth/mfa/verify` | Complete a login pending MFA |
+| POST | `/api/auth/mfa/backup-codes` | Regenerate backup codes |
+| POST | `/api/auth/mfa/email-otp/setup` | Start email OTP enrollment |
+| POST | `/api/auth/mfa/email-otp/enable` | Confirm and enable email OTP |
+| POST | `/api/auth/mfa/email-otp/send` | Send an email OTP for a pending login |
+
+### Sessions, devices, and account
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/auth/sessions` | List active sessions |
+| DELETE | `/api/auth/sessions/{tokenId}` | Revoke one session |
+| DELETE | `/api/auth/sessions` | Revoke every other session |
+| GET | `/api/auth/trusted-devices` | List trusted devices |
+| DELETE | `/api/auth/trusted-devices/{deviceId}` | Remove one trusted device |
+| DELETE | `/api/auth/trusted-devices` | Remove every trusted device |
+| POST | `/api/auth/email-change/request` | Request an email change |
+| POST | `/api/auth/email-change/confirm` | Confirm an email change |
+| DELETE | `/api/auth/account` | Delete the current user's account |
+
+### OAuth 2.0 / OpenID Connect provider
+
+AuthCenter acts as an authorization server: authorization code with PKCE, client credentials, and
+refresh token grants. Tokens are signed with RS256 and verifiable through the published JWKS.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/.well-known/openid-configuration` | Discovery document |
+| GET | `/.well-known/jwks.json` | Public signing keys |
+| GET | `/oauth/authorize` | Start an authorization request |
+| POST | `/oauth/authorize/complete` | Grant consent and issue the code |
+| POST | `/oauth/token` | Exchange code / refresh token / client credentials |
+| GET | `/oauth/userinfo` | OIDC claims for the access token's subject |
+| GET | `/api/oauth/clients` | List registered clients |
+| POST | `/api/oauth/clients` | Register a client |
+| PUT | `/api/oauth/clients/{clientId}` | Update a client |
+| POST | `/api/oauth/clients/{clientId}/rotate-secret` | Rotate the client secret |
+| DELETE | `/api/oauth/clients/{clientId}` | Deactivate a client |
+
+`/oauth/userinfo` accepts only access tokens issued by `/oauth/token`; first-party login tokens are
+rejected because they are not scoped to an OAuth client.
 
 ### Applications
 
