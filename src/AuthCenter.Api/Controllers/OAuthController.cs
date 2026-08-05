@@ -1,4 +1,5 @@
 using AuthCenter.Api.Authorization;
+using AuthCenter.Api.Extensions;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
@@ -6,6 +7,7 @@ using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AuthCenter.Api.Controllers;
 
@@ -58,6 +60,7 @@ public class OAuthController : ControllerBase
     }
 
     [HttpPost("token")]
+    [EnableRateLimiting(RateLimitingExtensions.OAuthToken)]
     [Consumes("application/x-www-form-urlencoded")]
     public async Task<IActionResult> Token(CancellationToken ct)
     {

@@ -24,6 +24,7 @@ public static class RateLimitingExtensions
     public const string MagicLinkVerify = "auth-magic-link-verify";
     public const string SendMfaEmailOtp = "auth-send-mfa-email-otp";
     public const string MfaEmailOtpEnable = "auth-mfa-email-otp-enable";
+    public const string OAuthToken = "oauth-token";
 
     public static IServiceCollection AddAuthRateLimiting(this IServiceCollection services)
     {
@@ -246,6 +247,20 @@ public static class RateLimitingExtensions
                     {
                         PermitLimit = 3,
                         Window = TimeSpan.FromHours(1),
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                        QueueLimit = 0
+                    }));
+
+            // The token endpoint validates client secrets and refresh tokens, so it needs a limit
+            // for the same reason the login endpoint does. Kept looser than the interactive ones
+            // because a single machine client legitimately exchanges tokens in bursts.
+            options.AddPolicy(OAuthToken, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 60,
+                        Window = TimeSpan.FromMinutes(1),
                         QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                         QueueLimit = 0
                     }));

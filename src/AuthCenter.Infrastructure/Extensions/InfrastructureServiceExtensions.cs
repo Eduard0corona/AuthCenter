@@ -16,15 +16,11 @@ public static class InfrastructureServiceExtensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<AuthCenterDbContext>(options =>
-            options.UseSqlServer(
-                configuration.GetConnectionString("DefaultConnection"),
-                sql => sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName)));
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        services.AddDbContextFactory<AuthCenterDbContext>(options =>
-            options.UseSqlServer(
-                configuration.GetConnectionString("DefaultConnection"),
-                sql => sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName)),
+        services.AddDbContext<AuthCenterDbContext>(options => ConfigureSqlServer(options, connectionString));
+        services.AddDbContextFactory<AuthCenterDbContext>(
+            options => ConfigureSqlServer(options, connectionString),
             ServiceLifetime.Scoped);
 
         services.AddMemoryCache();
@@ -81,5 +77,22 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IOAuthAuthorizationService, OAuthAuthorizationService>();
 
         return services;
+    }
+
+    private static void ConfigureSqlServer(DbContextOptionsBuilder options, string? connectionString)
+    {
+        options.UseSqlServer(connectionString, sql =>
+        {
+            sql.MigrationsAssembly(typeof(AuthCenterDbContext).Assembly.FullName);
+
+            // Azure SQL drops connections routinely for throttling and failover. Without a retry
+            // strategy those transient faults surface to callers as 500s.
+            sql.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null);
+
+            sql.CommandTimeout(30);
+        });
     }
 }

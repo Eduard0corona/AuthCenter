@@ -1,5 +1,8 @@
 # TODO
 
+Operational and deployment work. Code-level performance, security and scalability findings live in
+[TODO-improvements.md](TODO-improvements.md).
+
 ## Deployment (blocked on infrastructure)
 
 - [ ] Recreate the Azure Web App. `authcentral.azurewebsites.net` and its SCM endpoint no longer

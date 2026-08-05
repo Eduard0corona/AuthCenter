@@ -12,6 +12,8 @@ using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -154,10 +156,28 @@ try
         });
     });
 
-    // Health Checks
+    // Every rate limit partitions on the client address and every audit entry records it, so
+    // behind a reverse proxy the forwarded headers have to be honoured or both end up seeing the
+    // balancer instead of the caller — collapsing all callers into a single rate limit partition.
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+        // The proxies in front of the app are not known at build time, and the platform ones sit
+        // on addresses that vary. Restrict this to the real proxy addresses if they become known.
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+
+        var forwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit");
+        if (forwardLimit is not null)
+            options.ForwardLimit = forwardLimit;
+    });
+
+    // Health Checks. Liveness carries no dependencies so a database blip does not get the
+    // container restarted; readiness is the one that reports whether SQL Server is reachable.
     var connStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
     builder.Services.AddHealthChecks()
-        .AddSqlServer(connStr, name: "sql-server", tags: ["db", "sql"]);
+        .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"]);
 
     var app = builder.Build();
 
@@ -196,6 +216,10 @@ try
         }
     }
 
+    // Must run before anything that reads the client address or the scheme: rate limiting,
+    // request logging and HTTPS redirection all depend on it.
+    app.UseForwardedHeaders();
+
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     app.Use(async (ctx, next) =>
@@ -223,6 +247,8 @@ try
     app.UseAuthorization();
     app.MapControllers();
     app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+    app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 
     await app.RunAsync();
 }

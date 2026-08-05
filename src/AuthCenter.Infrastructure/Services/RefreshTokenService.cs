@@ -1,7 +1,9 @@
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
+using AuthCenter.Infrastructure.Settings;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AuthCenter.Infrastructure.Services;
 
@@ -9,11 +11,16 @@ public class RefreshTokenService : IRefreshTokenService
 {
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly JwtSettings _jwtSettings;
 
-    public RefreshTokenService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider)
+    public RefreshTokenService(
+        AuthCenterDbContext db,
+        IDateTimeProvider dateTimeProvider,
+        IOptions<JwtSettings> jwtSettings)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
+        _jwtSettings = jwtSettings.Value;
     }
 
     public async Task<RefreshToken> CreateAsync(Guid userId, string applicationCode, string tokenHash, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -25,7 +32,7 @@ public class RefreshTokenService : IRefreshTokenService
             ApplicationCode = applicationCode,
             TokenHash = tokenHash,
             CreatedAt = _dateTimeProvider.UtcNow,
-            ExpiresAt = _dateTimeProvider.UtcNow.AddDays(30),
+            ExpiresAt = _dateTimeProvider.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
             IpAddress = ipAddress,
             UserAgent = userAgent
         };

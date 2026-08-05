@@ -160,8 +160,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             if (string.IsNullOrWhiteSpace(request.ClientSecret))
                 return OperationResult<OAuthTokenResponse>.Failure("INVALID_CLIENT_CREDENTIALS", "client_secret is required for confidential clients.");
 
-            var hashedProvided = HashSecret(request.ClientSecret);
-            if (!string.Equals(hashedProvided, client.HashedClientSecret, StringComparison.Ordinal))
+            if (!SecretMatches(request.ClientSecret, client.HashedClientSecret))
                 return OperationResult<OAuthTokenResponse>.Failure("INVALID_CLIENT_CREDENTIALS", "Invalid client_secret.");
         }
 
@@ -254,8 +253,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (!grantTypes.Contains("client_credentials"))
             return OperationResult<OAuthTokenResponse>.Failure("UNAUTHORIZED_CLIENT", "This client is not authorized for client_credentials grant.");
 
-        if (string.IsNullOrWhiteSpace(request.ClientSecret) ||
-            !string.Equals(HashSecret(request.ClientSecret), client.HashedClientSecret, StringComparison.Ordinal))
+        if (!SecretMatches(request.ClientSecret, client.HashedClientSecret))
         {
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_CLIENT_CREDENTIALS", "Invalid client_id or client_secret.");
         }
@@ -292,11 +290,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 
         if (client.ClientType == OAuthClientType.Confidential)
         {
-            if (string.IsNullOrWhiteSpace(request.ClientSecret) ||
-                !string.Equals(HashSecret(request.ClientSecret), client.HashedClientSecret, StringComparison.Ordinal))
-            {
+            if (!SecretMatches(request.ClientSecret, client.HashedClientSecret))
                 return OperationResult<OAuthTokenResponse>.Failure("INVALID_CLIENT_CREDENTIALS", "Invalid client_secret.");
-            }
         }
 
         var tokenHash = _tokenService.HashToken(request.RefreshToken);
@@ -384,6 +379,29 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(secret));
         return Convert.ToBase64String(bytes);
+    }
+
+    /// <summary>
+    /// Compares in constant time so the answer does not leak through how long it took to reach it.
+    /// </summary>
+    private static bool SecretMatches(string? providedSecret, string? storedHash)
+    {
+        if (string.IsNullOrWhiteSpace(providedSecret) || string.IsNullOrWhiteSpace(storedHash))
+            return false;
+
+        var provided = SHA256.HashData(Encoding.UTF8.GetBytes(providedSecret));
+
+        byte[] stored;
+        try
+        {
+            stored = Convert.FromBase64String(storedHash);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(provided, stored);
     }
 
     private static string Base64UrlEncode(byte[] input)
