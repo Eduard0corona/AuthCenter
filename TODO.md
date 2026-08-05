@@ -34,14 +34,16 @@
       smoke test (`login` → `me` → `users` → `refresh-token`, including refresh reuse rejection)
       passes against the running stack.
 
-## Test coverage gaps
+## Test coverage
 
-Login, refresh rotation, permissions, registration, invitations, TOTP MFA with trusted devices,
-email OTP, magic links, forced password change, the full OAuth/OIDC surface and key rotation are
-covered. Still untested:
+Every controller now has integration coverage: login and refresh rotation, permissions,
+registration, invitations, TOTP MFA with trusted devices, email OTP, magic links, forced password
+change, the full OAuth/OIDC surface, key rotation, account self-service (sessions, trusted
+devices, linked providers, email change, deletion), roles and permissions, and GitHub login
+against a stubbed provider API.
 
-- [ ] Session endpoints (`/api/auth/sessions`) and trusted-device listing/removal.
-- [ ] External provider listing and unlinking.
-- [ ] Email change and account deletion.
-- [ ] GitHub login; Microsoft and Apple only have negative cases.
-- [ ] Roles and permissions controllers.
+Remaining gaps are the ones that cannot be reached without a real provider:
+
+- [ ] Microsoft and Apple login only have negative cases. Both validate a signed ID token, so a
+      positive test needs either a stubbed JWKS endpoint or a fake token signed by a key the
+      service is configured to trust.
