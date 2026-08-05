@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.vscode/
+.git/
+.github/
+logs/
+**/*.log
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+.env
+docs/
+*.md

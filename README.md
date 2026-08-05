@@ -61,6 +61,21 @@ dotnet run --project src/AuthCenter.Api
 
 Swagger UI: `https://localhost:7001/swagger`
 
+### Running with Docker Compose
+
+Brings up SQL Server and the API without installing either locally. The API waits for SQL Server
+to accept logins, then migrates and seeds on first start.
+
+```bash
+cp .env.example .env
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048   # paste into JWT_RSA_PRIVATE_KEY_PEM
+docker compose up --build
+```
+
+API at `http://localhost:8080`, Swagger at `http://localhost:8080/swagger`, health at
+`http://localhost:8080/health`. The stack runs in the `Development` environment; `.env` is
+git-ignored and its values are for local use only.
+
 ## Configuration Reference
 
 | Key | Description |

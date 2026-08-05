@@ -1,4 +1,6 @@
 using System;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +8,12 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AuthCenter.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
+    // EF only discovers a migration that carries both attributes, and this one had neither: it is
+    // the only migration without a Designer file, which is where the others declare them. It was
+    // therefore skipped silently, and on a fresh database the next migration failed trying to
+    // alter a RefreshTokens table that had never been created.
+    [DbContext(typeof(AuthCenterDbContext))]
+    [Migration("20250502000000_InitialIdentitySchema")]
     public partial class InitialIdentitySchema : Migration
     {
         /// <inheritdoc />

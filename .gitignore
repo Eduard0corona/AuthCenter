@@ -29,6 +29,8 @@ logs/
 **/appsettings.Local.json
 **/appsettings.*.Local.json
 secrets.json
+.env
+*.pem
 
 ## User secrets
 %APPDATA%\Microsoft\UserSecrets

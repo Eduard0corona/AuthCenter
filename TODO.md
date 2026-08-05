@@ -29,17 +29,19 @@
 
 ## Operational setup
 
-- [ ] Add Docker Compose for the API and SQL Server.
-- [ ] Run a real auth smoke test against LocalDB:
-  - `POST /api/auth/login`
-  - `GET /api/auth/me`
-  - `GET /api/users`
-  - `POST /api/auth/refresh-token`
+- [x] Docker Compose for the API and SQL Server. Verified end to end on a clean volume: all seven
+      migrations apply, the seed creates `AUTHCENTER`, both roles and the admin user, and the auth
+      smoke test (`login` → `me` → `users` → `refresh-token`, including refresh reuse rejection)
+      passes against the running stack.
 
 ## Test coverage gaps
 
-- [ ] MFA (TOTP enrollment, email OTP, backup codes, trusted devices).
-- [ ] Magic-link login.
-- [ ] Social login (Microsoft, GitHub, Apple).
-- [ ] Sessions and account management (email change, account deletion).
-- [ ] Roles, permissions, and audit log controllers.
+Login, refresh rotation, permissions, registration, invitations, TOTP MFA with trusted devices,
+email OTP, magic links, forced password change, the full OAuth/OIDC surface and key rotation are
+covered. Still untested:
+
+- [ ] Session endpoints (`/api/auth/sessions`) and trusted-device listing/removal.
+- [ ] External provider listing and unlinking.
+- [ ] Email change and account deletion.
+- [ ] GitHub login; Microsoft and Apple only have negative cases.
+- [ ] Roles and permissions controllers.
