@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -11,6 +12,7 @@ using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 
 namespace AuthCenter.IntegrationTests;
@@ -278,6 +280,75 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.Null(tokenBody.RefreshToken);
         Assert.Null(tokenBody.IdToken);
         Assert.Contains("email", tokenBody.Scope);
+    }
+
+    [Fact]
+    public async Task OAuthAccessToken_IsRs256AndValidatesAgainstPublishedJwks()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var clientId = $"rsa-{Guid.NewGuid():N}"[..20];
+        var createResponse = await adminClient.PostAsJsonAsync("/api/oauth/clients", new CreateOAuthClientRequest
+        {
+            ClientId = clientId,
+            DisplayName = "RSA Validation Client",
+            ClientType = (int)OAuthClientType.Confidential,
+            RedirectUris = [],
+            AllowedScopes = ["email"],
+            GrantTypes = ["client_credentials"],
+            LoginUrl = "https://internal.service/",
+            RequirePkce = false
+        });
+        createResponse.EnsureSuccessStatusCode();
+        var created = await ReadDataAsync<OAuthClientCreatedResponse>(createResponse);
+
+        using var tokenClient = _factory.CreateClient();
+        var tokenResponse = await tokenClient.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = clientId,
+            ["client_secret"] = created.ClientSecret!,
+            ["scope"] = "email"
+        }));
+        tokenResponse.EnsureSuccessStatusCode();
+        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>();
+        Assert.NotNull(tokenBody);
+
+        var handler = new JwtSecurityTokenHandler();
+        handler.InboundClaimTypeMap.Clear();
+        var jwt = handler.ReadJwtToken(tokenBody.AccessToken);
+        Assert.Equal(SecurityAlgorithms.RsaSha256, jwt.Header.Alg);
+        Assert.Equal("authcenter-key-1", jwt.Header.Kid);
+
+        var jwks = await tokenClient.GetFromJsonAsync<JsonElement>("/.well-known/jwks.json");
+        var jwk = jwks.GetProperty("keys").EnumerateArray().Single(key =>
+            key.GetProperty("kid").GetString() == jwt.Header.Kid);
+
+        using var rsa = RSA.Create();
+        rsa.ImportParameters(new RSAParameters
+        {
+            Modulus = Base64UrlEncoder.DecodeBytes(jwk.GetProperty("n").GetString()!),
+            Exponent = Base64UrlEncoder.DecodeBytes(jwk.GetProperty("e").GetString()!)
+        });
+
+        var discovery = await tokenClient.GetFromJsonAsync<JsonElement>("/.well-known/openid-configuration");
+        var principal = handler.ValidateToken(tokenBody.AccessToken, new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = discovery.GetProperty("issuer").GetString(),
+            ValidAudience = clientId,
+            IssuerSigningKey = new RsaSecurityKey(rsa) { KeyId = jwt.Header.Kid },
+            ClockSkew = TimeSpan.Zero,
+            ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+        }, out _);
+
+        Assert.Equal(clientId, principal.FindFirst("client_id")?.Value);
+        Assert.Equal("email", principal.FindFirst("scope")?.Value);
     }
 
     [Fact]

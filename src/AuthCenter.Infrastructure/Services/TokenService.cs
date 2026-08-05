@@ -12,7 +12,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AuthCenter.Infrastructure.Services;
 
-public class TokenService : ITokenService
+public class TokenService : ITokenService, IDisposable
 {
     private readonly JwtSettings _jwtSettings;
     private readonly MfaSettings _mfaSettings;
@@ -28,8 +28,18 @@ public class TokenService : ITokenService
         if (!string.IsNullOrWhiteSpace(_jwtSettings.RsaPrivateKeyPem) &&
             !_jwtSettings.RsaPrivateKeyPem.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
         {
-            _rsa = RSA.Create();
-            _rsa.ImportFromPem(_jwtSettings.RsaPrivateKeyPem);
+            var rsa = RSA.Create();
+
+            try
+            {
+                rsa.ImportFromPem(_jwtSettings.RsaPrivateKeyPem);
+                _rsa = rsa;
+            }
+            catch
+            {
+                rsa.Dispose();
+                throw;
+            }
         }
     }
 
@@ -43,6 +53,8 @@ public class TokenService : ITokenService
         IList<string> permissions,
         IList<string> applications)
     {
+        var creds = GetRsaSigningCredentials();
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
@@ -60,9 +72,6 @@ public class TokenService : ITokenService
         foreach (var app in applications)
             claims.Add(new Claim(DomainConstants.Claims.Applications, app));
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
             audience: _jwtSettings.Audience,
@@ -75,6 +84,8 @@ public class TokenService : ITokenService
 
     public string GenerateOAuthAccessToken(ApplicationUser? user, string clientId, IList<string> scopes, int lifetimeSeconds)
     {
+        var creds = GetRsaSigningCredentials();
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
@@ -87,9 +98,6 @@ public class TokenService : ITokenService
             claims.Add(new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()));
             claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email!));
         }
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SigningKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
@@ -125,8 +133,7 @@ public class TokenService : ITokenService
         if (scopes.Contains(DomainConstants.OAuthScopes.Profile))
             claims.Add(new Claim(JwtRegisteredClaimNames.Name, user.FullName));
 
-        var rsaKey = new RsaSecurityKey(_rsa) { KeyId = "authcenter-key-1" };
-        var creds = new SigningCredentials(rsaKey, SecurityAlgorithms.RsaSha256);
+        var creds = GetRsaSigningCredentials();
 
         var token = new JwtSecurityToken(
             issuer: _jwtSettings.Issuer,
@@ -147,11 +154,27 @@ public class TokenService : ITokenService
         var n = Base64UrlEncodeBytes(p.Modulus!);
         var e = Base64UrlEncodeBytes(p.Exponent!);
 
-        return $$"""{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"authcenter-key-1","n":"{{n}}","e":"{{e}}"}]}""";
+        return $$"""{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"{{JwtSettings.RsaKeyId}}","n":"{{n}}","e":"{{e}}"}]}""";
     }
 
     private static string Base64UrlEncodeBytes(byte[] input)
         => Convert.ToBase64String(input).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+    private SigningCredentials GetRsaSigningCredentials()
+    {
+        if (_rsa is null)
+        {
+            throw new InvalidOperationException(
+                "RSA signing is unavailable. Configure Jwt:RsaPrivateKeyPem with a valid RSA private key in PEM format.");
+        }
+
+        var rsaKey = new RsaSecurityKey(_rsa)
+        {
+            KeyId = JwtSettings.RsaKeyId,
+            CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false }
+        };
+        return new SigningCredentials(rsaKey, SecurityAlgorithms.RsaSha256);
+    }
 
     public (string token, string hash) GenerateRefreshToken()
     {
@@ -265,5 +288,11 @@ public class TokenService : ITokenService
         {
             return null;
         }
+    }
+
+    public void Dispose()
+    {
+        _rsa?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

@@ -1,4 +1,4 @@
-using System.Text;
+using System.Security.Cryptography;
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Api.Middleware;
@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -46,26 +47,37 @@ try
         ?? throw new InvalidOperationException("Jwt configuration is required.");
 
     ValidateStartupConfiguration(builder.Environment, builder.Configuration, jwtSettings);
+
+    builder.Services.AddOptions<JwtSettings>()
+        .Validate(
+            settings => IsValidRsaPrivateKey(settings.RsaPrivateKeyPem),
+            "Jwt:RsaPrivateKeyPem must be configured with a valid RSA private key of at least 2048 bits in PEM format and must not use a placeholder value.")
+        .ValidateOnStart();
+
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
         options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     })
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
+    .AddJwtBearer();
+
+    builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+        .Configure<IOptions<JwtSettings>>((options, jwtOptions) =>
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSettings.Issuer,
-            ValidAudience = jwtSettings.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SigningKey)),
-            ClockSkew = TimeSpan.Zero,
-            ValidAlgorithms = [SecurityAlgorithms.HmacSha256]
-        };
-    });
+            var settings = jwtOptions.Value;
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = settings.Issuer,
+                ValidAudience = settings.Audience,
+                IssuerSigningKey = CreateRsaValidationKey(settings),
+                ClockSkew = TimeSpan.Zero,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+            };
+        });
 
     // Authorization — dynamic permission policies
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -182,6 +194,7 @@ try
 catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "Application terminated unexpectedly");
+    throw;
 }
 finally
 {
@@ -190,6 +203,55 @@ finally
 
 public partial class Program
 {
+    private static bool IsValidRsaPrivateKey(string rsaPrivateKeyPem)
+    {
+        if (string.IsNullOrWhiteSpace(rsaPrivateKeyPem) ||
+            rsaPrivateKeyPem.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(rsaPrivateKeyPem);
+            _ = rsa.ExportParameters(true);
+            return rsa.KeySize >= 2048;
+        }
+        catch (Exception exception) when (exception is ArgumentException or CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    private static RsaSecurityKey CreateRsaValidationKey(JwtSettings jwtSettings)
+    {
+        if (string.IsNullOrWhiteSpace(jwtSettings.RsaPrivateKeyPem) ||
+            jwtSettings.RsaPrivateKeyPem.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Jwt:RsaPrivateKeyPem must be configured with a valid RSA private key in PEM format and must not use a placeholder value.");
+        }
+
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(jwtSettings.RsaPrivateKeyPem);
+
+            if (rsa.KeySize < 2048)
+                throw new CryptographicException("The RSA key must be at least 2048 bits.");
+
+            _ = rsa.ExportParameters(true);
+            return new RsaSecurityKey(rsa.ExportParameters(false)) { KeyId = JwtSettings.RsaKeyId };
+        }
+        catch (Exception exception) when (exception is ArgumentException or CryptographicException)
+        {
+            throw new InvalidOperationException(
+                "Jwt:RsaPrivateKeyPem must contain a valid RSA private key of at least 2048 bits in PEM format.",
+                exception);
+        }
+    }
+
     private static void ValidateStartupConfiguration(IHostEnvironment environment, IConfiguration configuration, JwtSettings jwtSettings)
     {
         if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
@@ -221,13 +283,6 @@ public partial class Program
             mfaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Mfa:EncryptionKey must not use a placeholder value outside Development.");
-        }
-
-        var rsaKey = jwtSettings.RsaPrivateKeyPem;
-        if (!string.IsNullOrWhiteSpace(rsaKey) &&
-            rsaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Jwt:RsaPrivateKeyPem must not use a placeholder value outside Development.");
         }
     }
 }

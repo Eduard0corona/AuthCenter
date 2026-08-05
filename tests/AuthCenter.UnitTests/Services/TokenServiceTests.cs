@@ -1,5 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Text;
+using System.Security.Cryptography;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
@@ -9,13 +9,15 @@ using Xunit;
 
 namespace AuthCenter.UnitTests.Services;
 
-public class TokenServiceTests
+public class TokenServiceTests : IDisposable
 {
     private readonly TokenService _tokenService;
     private readonly JwtSettings _settings;
+    private readonly RSA _validationRsa;
 
     public TokenServiceTests()
     {
+        _validationRsa = RSA.Create(2048);
         _settings = new JwtSettings
         {
             Issuer = "TestIssuer",
@@ -23,7 +25,8 @@ public class TokenServiceTests
             SigningKey = "test-signing-key-that-is-long-enough-32chars",
             AccessTokenMinutes = 15,
             RefreshTokenDays = 30,
-            MagicLinkTokenMinutes = 15
+            MagicLinkTokenMinutes = 15,
+            RsaPrivateKeyPem = _validationRsa.ExportPkcs8PrivateKeyPem()
         };
         _tokenService = new TokenService(
             Options.Create(_settings),
@@ -50,6 +53,10 @@ public class TokenServiceTests
 
         var handler = new JwtSecurityTokenHandler();
         handler.InboundClaimTypeMap.Clear(); // prevent sub → NameIdentifier remapping
+        var jwt = handler.ReadJwtToken(token);
+        Assert.Equal(SecurityAlgorithms.RsaSha256, jwt.Header.Alg);
+        Assert.Equal(JwtSettings.RsaKeyId, jwt.Header.Kid);
+
         var parameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -58,8 +65,9 @@ public class TokenServiceTests
             ValidateIssuerSigningKey = true,
             ValidIssuer = _settings.Issuer,
             ValidAudience = _settings.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.SigningKey)),
-            ClockSkew = TimeSpan.Zero
+            IssuerSigningKey = new RsaSecurityKey(_validationRsa) { KeyId = JwtSettings.RsaKeyId },
+            ClockSkew = TimeSpan.Zero,
+            ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
         };
 
         var principal = handler.ValidateToken(token, parameters, out _);
@@ -73,6 +81,29 @@ public class TokenServiceTests
     public void AccessTokenExpiryMinutes_ReturnsConfiguredValue()
     {
         Assert.Equal(15, _tokenService.AccessTokenExpiryMinutes);
+    }
+
+    [Fact]
+    public void GenerateAccessToken_WithoutRsa_ThrowsExplicitly()
+    {
+        var tokenService = CreateTokenServiceWithoutRsa();
+        var user = CreateUser();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            tokenService.GenerateAccessToken(user, [], [], []));
+
+        Assert.Contains("Jwt:RsaPrivateKeyPem", exception.Message);
+    }
+
+    [Fact]
+    public void GenerateOAuthAccessToken_WithoutRsa_ThrowsExplicitly()
+    {
+        var tokenService = CreateTokenServiceWithoutRsa();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            tokenService.GenerateOAuthAccessToken(null, "test-client", ["email"], 300));
+
+        Assert.Contains("Jwt:RsaPrivateKeyPem", exception.Message);
     }
 
     [Fact]
@@ -126,5 +157,38 @@ public class TokenServiceTests
         var result = _tokenService.ValidateMagicLinkToken(token);
 
         Assert.Null(result);
+    }
+
+    public void Dispose()
+    {
+        _tokenService.Dispose();
+        _validationRsa.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private static TokenService CreateTokenServiceWithoutRsa()
+    {
+        return new TokenService(
+            Options.Create(new JwtSettings
+            {
+                Issuer = "TestIssuer",
+                Audience = "TestAudience",
+                SigningKey = "test-signing-key-that-is-long-enough-32chars"
+            }),
+            Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
+            new DateTimeProvider());
+    }
+
+    private static ApplicationUser CreateUser()
+    {
+        return new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Test User",
+            Email = "test@example.com",
+            UserName = "test@example.com",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
     }
 }

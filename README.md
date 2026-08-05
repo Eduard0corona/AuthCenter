@@ -26,12 +26,14 @@ See [docs/architecture.md](docs/architecture.md) for full details.
 
 ### 1. Initialize user secrets and configure local settings
 
-```bash
+```powershell
 cd src/AuthCenter.Api
 
 dotnet user-secrets init
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=(localdb)\\mssqllocaldb;Database=AuthCenter;Trusted_Connection=True;"
 dotnet user-secrets set "Jwt:SigningKey" "your-very-long-secret-key-min-32-chars"
+$rsaPrivateKeyPem = Get-Content "C:\path\authcenter-private-key.pem" -Raw
+dotnet user-secrets set "Jwt:RsaPrivateKeyPem" "$rsaPrivateKeyPem"
 dotnet user-secrets set "Seed:AdminEmail" "admin@example.com"
 dotnet user-secrets set "Seed:AdminPassword" "Admin@12345"
 dotnet user-secrets set "Seed:AdminFullName" "System Administrator"
@@ -66,7 +68,8 @@ Swagger UI: `https://localhost:7001/swagger`
 | `ConnectionStrings:DefaultConnection` | SQL Server connection string |
 | `Jwt:Issuer` | JWT issuer claim |
 | `Jwt:Audience` | JWT audience claim |
-| `Jwt:SigningKey` | HMAC-SHA256 signing key (min 32 chars) |
+| `Jwt:SigningKey` | HMAC-SHA256 key for internal pending MFA, forced-password-change, and magic-link tokens (min 32 chars) |
+| `Jwt:RsaPrivateKeyPem` | RSA private key (at least 2048 bits) in PEM format used to sign access and ID tokens with RS256 (required in every environment) |
 | `Jwt:AccessTokenMinutes` | Access token lifetime (default 15) |
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
 | `Authentication:Google:ClientId` | Google OAuth Client ID |
@@ -75,10 +78,10 @@ Swagger UI: `https://localhost:7001/swagger`
 | `Seed:AdminPassword` | Initial admin user password |
 | `Seed:AdminFullName` | Initial admin user full name |
 
-Outside `Development` and `Testing`, the API validates startup configuration and fails fast when:
+The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, invalid, or still uses a placeholder. Outside `Development` and `Testing`, it also validates that:
 
 - `ConnectionStrings:DefaultConnection` is missing.
-- `Jwt:SigningKey` is empty, shorter than 32 characters, or still uses the placeholder.
+- `Jwt:SigningKey` is empty, shorter than 64 characters, or still uses the placeholder.
 - `Authentication:Google:ClientId` still uses the placeholder value.
 - `Cors:AllowedOrigins` is empty.
 
