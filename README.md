@@ -297,4 +297,8 @@ dotnet test
 
 ## Repository Notes
 
-The repository ignores generated `bin/` and `obj/` directories, logs, local appsettings files, and local assistant/tooling state. Keep runtime secrets in user-secrets locally and environment variables or a secret store in deployed environments.
+The repository ignores generated `bin/` and `obj/` directories, logs, local appsettings files,
+private-key/certificate formats, publish profiles, and local assistant/tooling state. Keep runtime
+secrets in user-secrets locally and in a managed secret store in deployed environments. GitHub
+Actions receives Azure identity values and its CI database password through repository secrets;
+the App Service name and slot are repository variables. CI scans the tracked tree with Gitleaks.

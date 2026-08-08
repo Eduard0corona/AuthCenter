@@ -16,14 +16,14 @@ public class RefreshTokenHashTests
         {
             Issuer = "TestIssuer",
             Audience = "TestAudience",
-            SigningKey = "test-signing-key-that-is-long-enough-32chars",
+            SigningKey = TestSecretGenerator.CreateKey(),
             AccessTokenMinutes = 15,
             RefreshTokenDays = 30
         });
         var dateTimeProvider = new DateTimeProvider();
         _tokenService = new TokenService(
             settings,
-            Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
+            Options.Create(new MfaSettings { EncryptionKey = TestSecretGenerator.CreateKey(), MfaTokenExpirySeconds = 300 }),
             dateTimeProvider,
             new RsaSigningKeyRing(settings));
     }

@@ -55,6 +55,9 @@ automatizada o una comprobación equivalente.
 - [x] Migrar solución, imágenes y CI de .NET 9 fuera de soporte a .NET 10 LTS y actualizar todos los paquetes directos disponibles.
 - [x] Endurecer GitHub Actions con permisos mínimos, timeouts, concurrencia, auditoría de dependencias y acciones fijadas por SHA.
 - [x] Sustituir el perfil de publicación permanente de Azure por federación OIDC, limitar la identidad a `Website Contributor` sobre el App Service y corregir el artefacto de despliegue para el runtime Windows de `authcenter`.
+- [x] Externalizar nombre y slot del App Service en variables de GitHub, retirar contraseñas de CI del YAML y ampliar la exclusión de certificados, llaves y perfiles de publicación.
+- [x] Generar en tiempo de ejecución todas las llaves y credenciales de pruebas; el árbol actual no contiene material criptográfico privado funcional.
+- [x] Añadir Gitleaks verificado por SHA-256 al CI para bloquear nuevos secretos; Secret Scanning nativo no está disponible en el plan actual del repositorio privado.
 
 ## Pruebas y verificación
 

@@ -17,7 +17,9 @@ namespace AuthCenter.IntegrationTests;
 public class AuthCenterWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const string AdminEmail = "admin.integration@example.com";
-    public const string AdminPassword = "Admin12345";
+    public static string AdminPassword { get; } = TestSecretGenerator.CreatePassword();
+
+    private static readonly string MfaEncryptionKey = TestSecretGenerator.CreateKey();
 
     private readonly InMemoryDatabaseRoot _databaseRoot = new();
     private readonly string _databaseName = "AuthCenterTest_" + Guid.NewGuid();
@@ -33,7 +35,7 @@ public class AuthCenterWebApplicationFactory : WebApplicationFactory<Program>
                 ["Seed:AdminEmail"] = AdminEmail,
                 ["Seed:AdminPassword"] = AdminPassword,
                 ["Seed:AdminFullName"] = "Integration Admin",
-                ["Mfa:EncryptionKey"] = "integration-test-mfa-encryption-key-32chars",
+                ["Mfa:EncryptionKey"] = MfaEncryptionKey,
                 ["Mfa:TotpIssuer"] = "AuthCenter",
                 ["Mfa:MfaTokenExpirySeconds"] = "300",
                 ["Jwt:RsaPrivateKeyPem"] = TestRsaKey.PrivateKeyPem
