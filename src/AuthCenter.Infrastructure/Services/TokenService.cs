@@ -40,7 +40,8 @@ public class TokenService : ITokenService
         ApplicationUser user,
         IList<string> roles,
         IList<string> permissions,
-        IList<string> applications)
+        IList<string> applications,
+        Guid? sessionId = null)
     {
         var creds = GetRsaSigningCredentials();
 
@@ -51,6 +52,9 @@ public class TokenService : ITokenService
             new(JwtRegisteredClaimNames.Name, user.FullName),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
+
+        if (sessionId.HasValue)
+            claims.Add(new Claim(JwtRegisteredClaimNames.Sid, sessionId.Value.ToString()));
 
         foreach (var role in roles)
             claims.Add(new Claim(ClaimTypes.Role, role));

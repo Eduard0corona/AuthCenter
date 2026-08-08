@@ -11,21 +11,22 @@ public class WellKnownController : ControllerBase
 {
     private readonly JwtSettings _jwtSettings;
     private readonly ITokenService _tokenService;
+    private readonly string _publicOrigin;
 
-    public WellKnownController(IOptions<JwtSettings> jwtSettings, ITokenService tokenService)
+    public WellKnownController(IOptions<JwtSettings> jwtSettings, ITokenService tokenService, IConfiguration configuration)
     {
         _jwtSettings = jwtSettings.Value;
         _tokenService = tokenService;
+        _publicOrigin = configuration["Oidc:PublicOrigin"]?.TrimEnd('/') ?? string.Empty;
     }
 
     [HttpGet("openid-configuration")]
     public IActionResult OpenIdConfiguration()
     {
-        // The issuer claim must keep matching the "iss" of the tokens we sign, but the endpoint
-        // URLs have to be absolute and reachable, so they are built from the request base address
-        // instead of from the issuer (which is not necessarily a URL).
         var issuer = _jwtSettings.Issuer;
-        var baseUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}".TrimEnd('/');
+        var baseUrl = _publicOrigin;
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            return Problem("OIDC public origin is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
         var discovery = new
         {
             issuer,

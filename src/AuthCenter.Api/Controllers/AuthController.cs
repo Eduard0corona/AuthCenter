@@ -19,6 +19,7 @@ public class AuthController : ControllerBase
     private readonly ICurrentUserService _currentUserService;
     private readonly IAccountManagementService _accountManagementService;
     private readonly IMfaService _mfaService;
+    private readonly IExternalIdentityLinkService _externalIdentityLinkService;
     private readonly MfaSettings _mfaSettings;
 
     public AuthController(
@@ -26,12 +27,14 @@ public class AuthController : ControllerBase
         ICurrentUserService currentUserService,
         IAccountManagementService accountManagementService,
         IMfaService mfaService,
+        IExternalIdentityLinkService externalIdentityLinkService,
         IOptions<MfaSettings> mfaSettings)
     {
         _authService = authService;
         _currentUserService = currentUserService;
         _accountManagementService = accountManagementService;
         _mfaService = mfaService;
+        _externalIdentityLinkService = externalIdentityLinkService;
         _mfaSettings = mfaSettings.Value;
     }
 
@@ -473,6 +476,21 @@ public class AuthController : ControllerBase
         if (!result.IsSuccess)
             return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok("All sessions revoked."));
+    }
+
+    [Authorize]
+    [HttpPost("external-providers/link")]
+    public async Task<IActionResult> LinkExternalProvider(
+        [FromBody] LinkExternalProviderRequest request,
+        CancellationToken ct)
+    {
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+
+        var result = await _externalIdentityLinkService.LinkAsync(userId.Value, request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse.Ok())
+            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
     [Authorize]

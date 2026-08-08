@@ -36,6 +36,10 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY in .env}
       Jwt__RsaPrivateKeyPem: ${JWT_RSA_PRIVATE_KEY_PEM:?set JWT_RSA_PRIVATE_KEY_PEM in .env}
       Mfa__EncryptionKey: ${MFA_ENCRYPTION_KEY:?set MFA_ENCRYPTION_KEY in .env}
+      ActionLinks__DefaultBaseUrl: ${ACTION_LINKS_BASE_URL:-http://localhost:3000}
+      Oidc__PublicOrigin: ${OIDC_PUBLIC_ORIGIN:-http://localhost:8080}
+      ForwardedHeaders__Enabled: "false"
+      DataProtection__ApplicationName: "AuthCenter.Compose"
       Cors__AllowedOrigins__0: "http://localhost:3000"
       Cors__AllowedOrigins__1: "http://localhost:5173"
       Seed__AdminEmail: ${SEED_ADMIN_EMAIL:-admin@example.com}
@@ -44,7 +48,7 @@ services:
       Database__MigrateOnStartup: "true"
       Database__SeedOnStartup: "true"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/live || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

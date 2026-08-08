@@ -76,7 +76,8 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
         // A stolen token being replayed is treated as a compromised account, not as one bad
         // session, so the sessions that were still valid go down with it.
         Assert.Equal(HttpStatusCode.Unauthorized, (await RefreshAsync(untouched.RefreshToken)).StatusCode);
-        Assert.Empty(await ReadDataAsync<List<SessionDto>>(await client.GetAsync("/api/auth/sessions")));
+        // Reuse detection revokes the session backing the current access token as well.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/sessions")).StatusCode);
     }
 
     [Fact]
@@ -91,8 +92,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
         Authorize(client, second.AccessToken);
         Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync("/api/auth/sessions")).StatusCode);
 
-        var sessions = await ReadDataAsync<List<SessionDto>>(await client.GetAsync("/api/auth/sessions"));
-        Assert.Empty(sessions);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/sessions")).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await RefreshAsync(first.RefreshToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await RefreshAsync(second.RefreshToken)).StatusCode);
@@ -593,7 +593,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
-        return await db.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
+        return await db.Users.IgnoreQueryFilters().AsNoTracking().SingleAsync(u => u.Id == userId);
     }
 
     /// <summary>

@@ -62,6 +62,7 @@ public class AuditService : IAuditService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist audit log for action {Action}", action);
+            throw;
         }
     }
 

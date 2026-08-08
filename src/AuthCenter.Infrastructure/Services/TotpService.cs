@@ -144,7 +144,15 @@ public class TotpService : IMfaService
 
         credential.HashedBackupCodes = JsonSerializer.Serialize(hashes);
         credential.UpdatedAt = _dateTimeProvider.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request consumed the same code first.
+            return false;
+        }
 
         await _auditService.LogAsync("MFA_BACKUP_CODE_USED", userId, ct: ct);
         if (hashes.Count == 0)
@@ -358,32 +366,67 @@ public class TotpService : IMfaService
 
     private string Encrypt(string plaintext)
     {
-        using var aes = Aes.Create();
-        aes.Key = GetEncryptionKey();
-        aes.GenerateIV();
-
-        using var encryptor = aes.CreateEncryptor();
+        var key = GetEncryptionKey(_settings.EncryptionKey);
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var tag = new byte[16];
         var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
-        var cipherBytes = encryptor.TransformFinalBlock(plaintextBytes, 0, plaintextBytes.Length);
-        var result = new byte[aes.IV.Length + cipherBytes.Length];
-        Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
-        Buffer.BlockCopy(cipherBytes, 0, result, aes.IV.Length, cipherBytes.Length);
-        return Convert.ToBase64String(result);
+        var cipherBytes = new byte[plaintextBytes.Length];
+
+        using var aes = new AesGcm(key, tag.Length);
+        aes.Encrypt(nonce, plaintextBytes, cipherBytes, tag);
+
+        var payload = new byte[nonce.Length + tag.Length + cipherBytes.Length];
+        Buffer.BlockCopy(nonce, 0, payload, 0, nonce.Length);
+        Buffer.BlockCopy(tag, 0, payload, nonce.Length, tag.Length);
+        Buffer.BlockCopy(cipherBytes, 0, payload, nonce.Length + tag.Length, cipherBytes.Length);
+        return $"v2.{GetKeyId(key)}.{Convert.ToBase64String(payload)}";
     }
 
     private string Decrypt(string ciphertext)
     {
-        var payload = Convert.FromBase64String(ciphertext);
-        var iv = payload[..16];
-        var cipherBytes = payload[16..];
+        var keys = GetEncryptionKeys();
+        if (ciphertext.StartsWith("v2.", StringComparison.Ordinal))
+        {
+            var parts = ciphertext.Split('.', 3);
+            if (parts.Length != 3)
+                throw new CryptographicException("Invalid encrypted MFA secret format.");
 
-        using var aes = Aes.Create();
-        aes.Key = GetEncryptionKey();
-        aes.IV = iv;
+            var key = keys.FirstOrDefault(candidate => GetKeyId(candidate) == parts[1])
+                ?? throw new CryptographicException("The MFA secret encryption key is unavailable.");
+            var payload = Convert.FromBase64String(parts[2]);
+            if (payload.Length < 29)
+                throw new CryptographicException("Invalid encrypted MFA secret payload.");
 
-        using var decryptor = aes.CreateDecryptor();
-        var plaintextBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
-        return Encoding.UTF8.GetString(plaintextBytes);
+            var nonce = payload[..12];
+            var tag = payload[12..28];
+            var cipherBytes = payload[28..];
+            var plaintext = new byte[cipherBytes.Length];
+            using var aes = new AesGcm(key, tag.Length);
+            aes.Decrypt(nonce, cipherBytes, tag, plaintext);
+            return Encoding.UTF8.GetString(plaintext);
+        }
+
+        // Transitional reader for the former AES-CBC format. New writes always use authenticated
+        // v2 envelopes, while previous keys allow rolling rotation without locking users out.
+        var legacyPayload = Convert.FromBase64String(ciphertext);
+        foreach (var key in keys)
+        {
+            try
+            {
+                using var aes = Aes.Create();
+                aes.Key = key;
+                aes.IV = legacyPayload[..16];
+                using var decryptor = aes.CreateDecryptor();
+                var plaintext = decryptor.TransformFinalBlock(legacyPayload, 16, legacyPayload.Length - 16);
+                return Encoding.UTF8.GetString(plaintext);
+            }
+            catch (CryptographicException)
+            {
+                // Try the next configured key.
+            }
+        }
+
+        throw new CryptographicException("Unable to decrypt the MFA secret.");
     }
 
     private string HashBackupCode(string code) =>
@@ -422,6 +465,16 @@ public class TotpService : IMfaService
     private bool HasEncryptionKey() =>
         !string.IsNullOrWhiteSpace(_settings.EncryptionKey);
 
-    private byte[] GetEncryptionKey() =>
-        SHA256.HashData(Encoding.UTF8.GetBytes(_settings.EncryptionKey));
+    private IReadOnlyList<byte[]> GetEncryptionKeys() =>
+        new[] { _settings.EncryptionKey }
+            .Concat(_settings.PreviousEncryptionKeys)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(GetEncryptionKey)
+            .ToArray();
+
+    private static byte[] GetEncryptionKey(string key) =>
+        SHA256.HashData(Encoding.UTF8.GetBytes(key));
+
+    private static string GetKeyId(byte[] key) =>
+        Convert.ToHexString(SHA256.HashData(key)[..8]).ToLowerInvariant();
 }

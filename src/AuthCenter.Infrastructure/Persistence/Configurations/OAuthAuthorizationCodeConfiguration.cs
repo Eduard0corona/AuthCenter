@@ -17,6 +17,7 @@ public class OAuthAuthorizationCodeConfiguration : IEntityTypeConfiguration<OAut
         builder.Property(c => c.Nonce).HasMaxLength(256);
         builder.Property(c => c.CreatedAt).IsRequired();
         builder.Property(c => c.ExpiresAt).IsRequired();
+        builder.Property(c => c.IsUsed).IsConcurrencyToken();
 
         builder.HasIndex(c => c.CodeHash).IsUnique();
         builder.HasIndex(c => c.OAuthClientId);

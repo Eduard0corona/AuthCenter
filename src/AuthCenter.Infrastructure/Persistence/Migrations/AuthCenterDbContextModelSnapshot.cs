@@ -17,10 +17,29 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.4")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FriendlyName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Xml")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DataProtectionKeys");
+                });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
                 {
@@ -79,6 +98,28 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("ApplicationRegistrationSettings");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.DistributedRateLimitBucket", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("PermitCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("WindowStartedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("DistributedRateLimitBuckets");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -98,6 +139,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -366,6 +412,48 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("ExternalIdentityProviders");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProtectedPayload")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt", "NextAttemptAt", "LockedUntil");
+
+                    b.ToTable("OutboxMessages");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthAuthorizationCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -392,6 +480,7 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("IsUsed")
+                        .IsConcurrencyToken()
                         .HasColumnType("bit");
 
                     b.Property<string>("Nonce")
@@ -566,6 +655,7 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(512)");
 
                     b.Property<DateTime?>("RevokedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("datetime2");
 
                     b.Property<string>("TokenHash")
@@ -695,6 +785,7 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(512)");
 
                     b.Property<string>("HashedBackupCodes")
+                        .IsConcurrencyToken()
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 

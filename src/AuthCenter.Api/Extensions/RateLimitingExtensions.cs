@@ -5,6 +5,8 @@ namespace AuthCenter.Api.Extensions;
 
 public static class RateLimitingExtensions
 {
+    public readonly record struct PolicyLimit(int PermitLimit, TimeSpan Window);
+
     public const string Login = "auth-login";
     public const string Register = "auth-register";
     public const string Refresh = "auth-refresh";
@@ -25,6 +27,34 @@ public static class RateLimitingExtensions
     public const string SendMfaEmailOtp = "auth-send-mfa-email-otp";
     public const string MfaEmailOtpEnable = "auth-mfa-email-otp-enable";
     public const string OAuthToken = "oauth-token";
+
+    private static readonly IReadOnlyDictionary<string, PolicyLimit> PolicyLimits =
+        new Dictionary<string, PolicyLimit>(StringComparer.Ordinal)
+        {
+            [Login] = new(5, TimeSpan.FromMinutes(1)),
+            [Register] = new(3, TimeSpan.FromMinutes(1)),
+            [Refresh] = new(10, TimeSpan.FromMinutes(1)),
+            [ForgotPassword] = new(3, TimeSpan.FromMinutes(5)),
+            [Google] = new(5, TimeSpan.FromMinutes(1)),
+            [Microsoft] = new(5, TimeSpan.FromMinutes(1)),
+            [GitHub] = new(5, TimeSpan.FromMinutes(1)),
+            [Apple] = new(5, TimeSpan.FromMinutes(1)),
+            [ResetPassword] = new(3, TimeSpan.FromMinutes(5)),
+            [ConfirmEmail] = new(5, TimeSpan.FromHours(1)),
+            [ResendEmailConfirmation] = new(3, TimeSpan.FromMinutes(10)),
+            [ChangePassword] = new(5, TimeSpan.FromMinutes(1)),
+            [EmailChangeRequest] = new(3, TimeSpan.FromHours(1)),
+            [MfaVerify] = new(5, TimeSpan.FromMinutes(1)),
+            [ForcedChangePassword] = new(5, TimeSpan.FromMinutes(1)),
+            [MagicLinkRequest] = new(3, TimeSpan.FromMinutes(10)),
+            [MagicLinkVerify] = new(10, TimeSpan.FromMinutes(1)),
+            [SendMfaEmailOtp] = new(3, TimeSpan.FromMinutes(5)),
+            [MfaEmailOtpEnable] = new(5, TimeSpan.FromMinutes(1)),
+            [OAuthToken] = new(60, TimeSpan.FromMinutes(1))
+        };
+
+    public static bool TryGetPolicy(string name, out PolicyLimit policy) =>
+        PolicyLimits.TryGetValue(name, out policy);
 
     public static IServiceCollection AddAuthRateLimiting(this IServiceCollection services)
     {

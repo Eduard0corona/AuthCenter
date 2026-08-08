@@ -51,8 +51,23 @@ public class MicrosoftAuthService : IMicrosoftAuthService
 
             var principal = handler.ValidateToken(idToken, parameters, out _);
 
-            var email = principal.FindFirst("email")?.Value
-                ?? principal.FindFirst("preferred_username")?.Value;
+            var tenantId = principal.FindFirst("tid")?.Value;
+            var issuer = principal.FindFirst(JwtRegisteredClaimNames.Iss)?.Value;
+            if (IsMultiTenant())
+            {
+                if (!Guid.TryParse(tenantId, out _) ||
+                    !string.Equals(
+                        issuer,
+                        $"https://login.microsoftonline.com/{tenantId}/v2.0",
+                        StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+
+            // preferred_username is mutable and may not even be an email address. It is suitable
+            // for display hints, not as an account-linking identifier.
+            var email = principal.FindFirst("email")?.Value;
             var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
 
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(subject))
@@ -60,7 +75,7 @@ public class MicrosoftAuthService : IMicrosoftAuthService
 
             return new ExternalTokenPayload
             {
-                Subject = subject,
+                Subject = IsMultiTenant() ? $"{tenantId}:{subject}" : subject,
                 Email = email,
                 Name = principal.FindFirst("name")?.Value,
                 PictureUrl = null

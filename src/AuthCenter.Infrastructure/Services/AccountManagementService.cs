@@ -1,5 +1,6 @@
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
@@ -15,6 +16,7 @@ public class AccountManagementService : IAccountManagementService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IEmailService _emailService;
+    private readonly IActionLinkService _actionLinkService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IAuditService _auditService;
 
@@ -23,6 +25,7 @@ public class AccountManagementService : IAccountManagementService
         UserManager<ApplicationUser> userManager,
         IRefreshTokenService refreshTokenService,
         IEmailService emailService,
+        IActionLinkService actionLinkService,
         IDateTimeProvider dateTimeProvider,
         IAuditService auditService)
     {
@@ -30,6 +33,7 @@ public class AccountManagementService : IAccountManagementService
         _userManager = userManager;
         _refreshTokenService = refreshTokenService;
         _emailService = emailService;
+        _actionLinkService = actionLinkService;
         _dateTimeProvider = dateTimeProvider;
         _auditService = auditService;
     }
@@ -150,7 +154,8 @@ public class AccountManagementService : IAccountManagementService
             return OperationResult.Failure("EMAIL_TAKEN", "This email is already in use.");
 
         var token = await _userManager.GenerateChangeEmailTokenAsync(user, newEmail);
-        await _emailService.SendEmailChangeConfirmationAsync(newEmail, user.FullName, token, request.CallbackBaseUrl, ct);
+        var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailChange);
+        await _emailService.SendEmailChangeConfirmationAsync(newEmail, user.FullName, token, actionUrl, ct);
 
         await _auditService.LogAsync("REQUEST_EMAIL_CHANGE", userId: userId, ct: ct);
         return OperationResult.Success();

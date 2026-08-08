@@ -11,7 +11,7 @@ public class UserMfaCredentialConfiguration : IEntityTypeConfiguration<UserMfaCr
         builder.HasKey(m => m.Id);
         builder.HasIndex(m => m.UserId).IsUnique();
         builder.Property(m => m.EncryptedTotpSecret).HasMaxLength(512).IsRequired();
-        builder.Property(m => m.HashedBackupCodes).HasMaxLength(2048);
+        builder.Property(m => m.HashedBackupCodes).HasMaxLength(2048).IsConcurrencyToken();
         builder.Property(m => m.CreatedAt).IsRequired();
     }
 }

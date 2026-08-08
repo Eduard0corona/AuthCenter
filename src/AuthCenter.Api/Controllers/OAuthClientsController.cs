@@ -1,5 +1,6 @@
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
+using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
@@ -21,9 +22,9 @@ public class OAuthClientsController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = DomainConstants.Permissions.OAuthClientsRead)]
-    public async Task<IActionResult> GetAll(CancellationToken ct)
+    public async Task<IActionResult> GetAll([FromQuery] PaginationQuery pagination, CancellationToken ct)
     {
-        var clients = await _oAuthClientService.GetAllAsync(ct);
+        var clients = await _oAuthClientService.GetAllAsync(pagination, ct);
         return Ok(ApiResponse<object>.Ok(clients));
     }
 

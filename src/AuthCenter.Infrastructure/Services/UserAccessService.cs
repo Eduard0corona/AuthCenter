@@ -1,6 +1,7 @@
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Common.Exceptions;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
@@ -18,17 +19,23 @@ public class UserAccessService : IUserAccessService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailService _emailService;
+    private readonly IActionLinkService _actionLinkService;
+    private readonly IRefreshTokenService _refreshTokens;
 
     public UserAccessService(
         AuthCenterDbContext db,
         UserManager<ApplicationUser> userManager,
         IDateTimeProvider dateTimeProvider,
-        IEmailService emailService)
+        IEmailService emailService,
+        IActionLinkService actionLinkService,
+        IRefreshTokenService refreshTokens)
     {
         _db = db;
         _userManager = userManager;
         _dateTimeProvider = dateTimeProvider;
         _emailService = emailService;
+        _actionLinkService = actionLinkService;
+        _refreshTokens = refreshTokens;
     }
 
     public async Task<PagedResult<UserDto>> GetAllUsersAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -45,7 +52,9 @@ public class UserAccessService : IUserAccessService
         if (!string.IsNullOrWhiteSpace(pagination.Search))
         {
             var search = pagination.Search.Trim();
-            query = query.Where(u => u.FullName.Contains(search) || (u.Email != null && u.Email.Contains(search)));
+            var normalizedSearch = search.ToUpperInvariant();
+            query = query.Where(u => u.FullName.StartsWith(search) ||
+                (u.NormalizedEmail != null && u.NormalizedEmail.StartsWith(normalizedSearch)));
         }
 
         if (pagination.ApplicationSystemId.HasValue)
@@ -71,14 +80,13 @@ public class UserAccessService : IUserAccessService
         var userIds = users.Select(u => u.Id).ToList();
         var rolesByUser = await _db.UserRoles
             .Where(ur => userIds.Contains(ur.UserId))
-            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
-            .Where(x => x.RoleName != null)
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.DisplayName })
             .AsNoTracking()
             .ToListAsync(ct);
 
         var roleMap = rolesByUser
             .GroupBy(x => x.UserId)
-            .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName!).ToList());
+            .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName).ToList());
 
         var dtos = users
             .Select(u => MapToDto(u, roleMap.TryGetValue(u.Id, out var r) ? r : []))
@@ -111,34 +119,46 @@ public class UserAccessService : IUserAccessService
             }
         }
 
-        var now = _dateTimeProvider.UtcNow;
-        var user = new ApplicationUser
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            Id = Guid.NewGuid(),
-            FullName = request.FullName,
-            Email = request.Email,
-            UserName = request.Email,
-            EmailConfirmed = true,
-            HasLocalPassword = !string.IsNullOrWhiteSpace(request.Password),
-            IsActive = true,
-            CreatedAt = now
-        };
+            _db.ChangeTracker.Clear();
+            var now = _dateTimeProvider.UtcNow;
+            var user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                FullName = request.FullName,
+                Email = request.Email,
+                UserName = request.Email,
+                EmailConfirmed = true,
+                HasLocalPassword = !string.IsNullOrWhiteSpace(request.Password),
+                IsActive = true,
+                CreatedAt = now
+            };
 
-        var result = string.IsNullOrWhiteSpace(request.Password)
-            ? await _userManager.CreateAsync(user)
-            : await _userManager.CreateAsync(user, request.Password);
+            await using var transaction = _db.Database.IsRelational()
+                ? await _db.Database.BeginTransactionAsync(ct)
+                : null;
 
-        if (!result.Succeeded)
-            return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+            var result = string.IsNullOrWhiteSpace(request.Password)
+                ? await _userManager.CreateAsync(user)
+                : await _userManager.CreateAsync(user, request.Password);
 
-        if (request.GrantApplicationAccess)
-            await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
+            if (!result.Succeeded)
+                return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(error => error.Description)));
 
-        var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
-        if (!roleResult.IsSuccess)
-            return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
+            if (request.GrantApplicationAccess)
+                await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
 
-        return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+            var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
+            if (!roleResult.IsSuccess)
+                return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
+
+            var response = OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return response;
+        });
     }
 
     public async Task<OperationResult<UserDto>> InviteUserAsync(InviteUserRequest request, CancellationToken ct = default)
@@ -153,38 +173,50 @@ public class UserAccessService : IUserAccessService
         if (!IsEmailDomainAllowed(request.Email, app.RegistrationSettings?.AllowedEmailDomains))
             return OperationResult<UserDto>.Failure("EMAIL_DOMAIN_NOT_ALLOWED", "Email domain is not allowed for this application.");
 
-        var user = await _userManager.FindByEmailAsync(request.Email);
-        var now = _dateTimeProvider.UtcNow;
-
-        if (user is null)
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            user = new ApplicationUser
+            _db.ChangeTracker.Clear();
+            var user = await _userManager.FindByEmailAsync(request.Email);
+            var now = _dateTimeProvider.UtcNow;
+            await using var transaction = _db.Database.IsRelational()
+                ? await _db.Database.BeginTransactionAsync(ct)
+                : null;
+
+            if (user is null)
             {
-                Id = Guid.NewGuid(),
-                FullName = request.FullName,
-                Email = request.Email,
-                UserName = request.Email,
-                EmailConfirmed = true,
-                HasLocalPassword = false,
-                IsActive = true,
-                CreatedAt = now
-            };
+                user = new ApplicationUser
+                {
+                    Id = Guid.NewGuid(),
+                    FullName = request.FullName,
+                    Email = request.Email,
+                    UserName = request.Email,
+                    EmailConfirmed = true,
+                    HasLocalPassword = false,
+                    IsActive = true,
+                    CreatedAt = now
+                };
 
-            var createResult = await _userManager.CreateAsync(user);
-            if (!createResult.Succeeded)
-                return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", createResult.Errors.Select(e => e.Description)));
-        }
+                var createResult = await _userManager.CreateAsync(user);
+                if (!createResult.Succeeded)
+                    return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", createResult.Errors.Select(error => error.Description)));
+            }
 
-        await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
+            await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
 
-        var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
-        if (!roleResult.IsSuccess)
-            return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
+            var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
+            if (!roleResult.IsSuccess)
+                return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
 
-        var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-        await _emailService.SendInvitationAsync(user.Email!, user.FullName, app.Name, token, request.CallbackBaseUrl, ct);
+            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+            var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.Invitation, app.Code);
+            await _emailService.SendInvitationAsync(user.Email!, user.FullName, app.Name, token, actionUrl, ct);
 
-        return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+            var response = OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return response;
+        });
     }
 
     public async Task<OperationResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default)
@@ -216,8 +248,7 @@ public class UserAccessService : IUserAccessService
 
         var roles = await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
-            .Where(n => n != null)
+            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.DisplayName)
             .ToListAsync(ct);
 
         return MapToDto(user, roles);
@@ -276,6 +307,11 @@ public class UserAccessService : IUserAccessService
         access.IsActive = false;
         access.RevokedAt = _dateTimeProvider.UtcNow;
         await _db.SaveChangesAsync(ct);
+        var applicationCode = await _db.ApplicationSystems
+            .Where(application => application.Id == applicationSystemId)
+            .Select(application => application.Code)
+            .SingleAsync(ct);
+        await _refreshTokens.RevokeAllForUserAsync(userId, applicationCode, ct);
         return OperationResult.Success();
     }
 
@@ -298,6 +334,8 @@ public class UserAccessService : IUserAccessService
             var errors = result.Errors.Select(e => e.Description).ToList();
             return OperationResult.Failure("ROLE_ASSIGN_FAILED", string.Join(", ", errors));
         }
+
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
 
         return OperationResult.Success();
     }
@@ -322,6 +360,9 @@ public class UserAccessService : IUserAccessService
             return OperationResult.Failure("ROLE_REMOVE_FAILED", string.Join(", ", errors));
         }
 
+
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+
         return OperationResult.Success();
     }
 
@@ -333,6 +374,7 @@ public class UserAccessService : IUserAccessService
         user.IsActive = true;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         return OperationResult.Success();
     }
 
@@ -344,6 +386,7 @@ public class UserAccessService : IUserAccessService
         user.IsActive = false;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         return OperationResult.Success();
     }
 
@@ -399,6 +442,7 @@ public class UserAccessService : IUserAccessService
         user.NormalizedUserName = anonymizedEmail.ToUpperInvariant();
 
         await _userManager.UpdateAsync(user);
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         return OperationResult.Success();
     }
 

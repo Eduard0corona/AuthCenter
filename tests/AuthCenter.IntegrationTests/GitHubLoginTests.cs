@@ -30,6 +30,22 @@ public class GitHubLoginTests
         await AllowGitHubLoginAsync(factory);
         var userId = await CreateUserAsync(factory, email);
 
+        var localLogin = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Email = email,
+            Password = "GitHubUser12345",
+            ApplicationCode = "AUTHCENTER"
+        });
+        var localAuth = await ReadDataAsync<AuthResponse>(localLogin);
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", localAuth.AccessToken);
+        var linkResponse = await client.PostAsJsonAsync("/api/auth/external-providers/link", new LinkExternalProviderRequest
+        {
+            Provider = "GitHub",
+            Credential = "stubbed-access-token"
+        });
+        Assert.Equal(HttpStatusCode.OK, linkResponse.StatusCode);
+        client.DefaultRequestHeaders.Authorization = null;
+
         var response = await client.PostAsJsonAsync("/api/auth/github", new GitHubLoginRequest
         {
             AccessToken = "stubbed-access-token",
@@ -65,8 +81,8 @@ public class GitHubLoginTests
             ApplicationCode = "AUTHCENTER"
         });
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(email, (await ReadDataAsync<AuthResponse>(response)).User.Email);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("EXTERNAL_ACCOUNT_LINK_REQUIRED", await ReadErrorCodeAsync(response));
     }
 
     [Fact]

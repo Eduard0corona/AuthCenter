@@ -48,8 +48,12 @@ public class AppleAuthService : IAppleAuthService
 
             var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
             var email = principal.FindFirst("email")?.Value;
+            var emailVerified = principal.FindFirst("email_verified")?.Value;
 
-            if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(email))
+            if (string.IsNullOrWhiteSpace(subject) ||
+                string.IsNullOrWhiteSpace(email) ||
+                !bool.TryParse(emailVerified, out var isEmailVerified) ||
+                !isEmailVerified)
                 return null;
 
             return new ExternalTokenPayload
