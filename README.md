@@ -18,7 +18,7 @@ See [docs/architecture.md](docs/architecture.md) for full details.
 
 ## Requirements
 
-- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10)
 - SQL Server (LocalDB, Express, or full)
 - (Optional) Google OAuth 2.0 Client ID for Google login
 

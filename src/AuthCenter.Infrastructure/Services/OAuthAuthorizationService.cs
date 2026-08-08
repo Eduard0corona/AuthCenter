@@ -13,6 +13,8 @@ using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
+using AuthCenter.Infrastructure.Settings;
 
 namespace AuthCenter.Infrastructure.Services;
 
@@ -23,6 +25,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
     private readonly ITransientStateStore _transientState;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly JwtSettings _jwtSettings;
 
     private const string SessionPrefix = "oauth_session";
 
@@ -31,13 +34,15 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         ITokenService tokenService,
         ITransientStateStore transientState,
         IDateTimeProvider dateTimeProvider,
-        UserManager<ApplicationUser> userManager)
+        UserManager<ApplicationUser> userManager,
+        IOptions<JwtSettings> jwtSettings)
     {
         _db = db;
         _tokenService = tokenService;
         _transientState = transientState;
         _dateTimeProvider = dateTimeProvider;
         _userManager = userManager;
+        _jwtSettings = jwtSettings.Value;
     }
 
     public async Task<OperationResult<string>> InitiateAuthorizationAsync(AuthorizeRequest request, CancellationToken ct = default)
@@ -204,7 +209,14 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         }
 
         authCode.IsUsed = true;
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return OperationResult<OAuthTokenResponse>.Failure("CODE_ALREADY_USED", "Authorization code has already been used.");
+        }
 
         var user = await _userManager.FindByIdAsync(authCode.UserId.ToString());
         if (user is null)
@@ -232,7 +244,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
                 TokenHash = rtHash,
                 OAuthClientId = client.ClientId,
                 GrantedScopes = string.Join(" ", scopes),
-                ExpiresAt = _dateTimeProvider.UtcNow.AddDays(30),
+                ExpiresAt = _dateTimeProvider.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
                 CreatedAt = _dateTimeProvider.UtcNow
             });
             await _db.SaveChangesAsync(ct);
@@ -313,6 +325,9 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (storedToken is null || !storedToken.IsActive)
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "Refresh token is invalid, expired, or revoked.");
 
+        if (!storedToken.User.IsActive || storedToken.User.DeletedAt is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "User account is inactive.");
+
         storedToken.RevokedAt = _dateTimeProvider.UtcNow;
 
         var scopes = (storedToken.GrantedScopes ?? string.Empty)
@@ -340,11 +355,18 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             TokenHash = newRtHash,
             OAuthClientId = client.ClientId,
             GrantedScopes = storedToken.GrantedScopes,
-            ExpiresAt = _dateTimeProvider.UtcNow.AddDays(30),
+            ExpiresAt = _dateTimeProvider.UtcNow.AddDays(_jwtSettings.RefreshTokenDays),
             CreatedAt = _dateTimeProvider.UtcNow
         });
 
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "Refresh token was already used by another request.");
+        }
 
         return OperationResult<OAuthTokenResponse>.Success(new OAuthTokenResponse
         {
@@ -359,7 +381,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
     public async Task<OperationResult<OAuthUserInfoResponse>> GetUserInfoAsync(Guid userId, IList<string> scopes, CancellationToken ct = default)
     {
         var user = await _userManager.FindByIdAsync(userId.ToString());
-        if (user is null)
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
             return OperationResult<OAuthUserInfoResponse>.Failure("NOT_FOUND", "User not found.");
 
         var response = new OAuthUserInfoResponse

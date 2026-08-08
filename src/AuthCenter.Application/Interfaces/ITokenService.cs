@@ -9,7 +9,8 @@ public interface ITokenService
         ApplicationUser user,
         IList<string> roles,
         IList<string> permissions,
-        IList<string> applications);
+        IList<string> applications,
+        Guid? sessionId = null);
 
     (string token, string hash) GenerateRefreshToken();
 

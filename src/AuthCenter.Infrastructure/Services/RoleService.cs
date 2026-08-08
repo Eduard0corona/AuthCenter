@@ -31,7 +31,7 @@ public class RoleService : IRoleService
             .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
             .AsNoTracking()
-            .OrderBy(r => r.Name);
+            .OrderBy(r => r.DisplayName);
 
         var totalCount = await query.CountAsync(ct);
         var roles = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
@@ -51,14 +51,22 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult<RoleDto>> CreateAsync(CreateRoleRequest request, CancellationToken ct = default)
     {
-        if (await _db.Roles.AnyAsync(r => r.NormalizedName == request.Name.ToUpperInvariant(), ct))
+        if (await _db.Roles.AnyAsync(r => r.ApplicationSystemId == request.ApplicationSystemId && r.DisplayName == request.Name, ct))
             return OperationResult<RoleDto>.Failure("ROLE_EXISTS", $"Role '{request.Name}' already exists.");
+
+        var applicationCode = request.ApplicationSystemId.HasValue
+            ? await _db.ApplicationSystems.Where(app => app.Id == request.ApplicationSystemId).Select(app => app.Code).SingleOrDefaultAsync(ct)
+            : "GLOBAL";
+        if (applicationCode is null)
+            return OperationResult<RoleDto>.Failure("APP_NOT_FOUND", "Application not found.");
+        var storageName = $"{applicationCode}:{request.Name}";
 
         var role = new ApplicationRole
         {
             Id = Guid.NewGuid(),
-            Name = request.Name,
-            NormalizedName = request.Name.ToUpperInvariant(),
+            Name = storageName,
+            NormalizedName = storageName.ToUpperInvariant(),
+            DisplayName = request.Name,
             Description = request.Description,
             ApplicationSystemId = request.ApplicationSystemId,
             IsSystemRole = request.IsSystemRole,
@@ -87,8 +95,12 @@ public class RoleService : IRoleService
         if (role is null)
             return OperationResult<RoleDto>.Failure("ROLE_NOT_FOUND", "Role not found.");
 
-        role.Name = request.Name;
-        role.NormalizedName = request.Name.ToUpperInvariant();
+        var applicationCode = role.ApplicationSystemId.HasValue
+            ? await _db.ApplicationSystems.Where(app => app.Id == role.ApplicationSystemId).Select(app => app.Code).SingleAsync(ct)
+            : "GLOBAL";
+        role.DisplayName = request.Name;
+        role.Name = $"{applicationCode}:{request.Name}";
+        role.NormalizedName = role.Name.ToUpperInvariant();
         role.Description = request.Description;
 
         var result = await _roleManager.UpdateAsync(role);
@@ -193,8 +205,8 @@ public class RoleService : IRoleService
         await _db.UserRoles
             .Where(ur => ur.UserId == userId)
             .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
-            .Where(r => r.IsActive && r.Name != null)
-            .Select(r => r.Name!)
+            .Where(r => r.IsActive)
+            .Select(r => r.DisplayName)
             .ToListAsync(ct);
 
     public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
@@ -203,15 +215,14 @@ public class RoleService : IRoleService
             .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
             .Where(r =>
                 r.IsActive &&
-                r.Name != null &&
                 (!r.ApplicationSystemId.HasValue || r.ApplicationSystemId == applicationSystemId))
-            .Select(r => r.Name!)
+            .Select(r => r.DisplayName)
             .ToListAsync(ct);
 
     private static RoleDto MapToDto(ApplicationRole role) => new()
     {
         Id = role.Id,
-        Name = role.Name ?? string.Empty,
+        Name = role.DisplayName,
         Description = role.Description,
         ApplicationSystemId = role.ApplicationSystemId,
         IsSystemRole = role.IsSystemRole,

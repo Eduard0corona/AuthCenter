@@ -62,13 +62,60 @@ public class RefreshTokenService : IRefreshTokenService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task<bool> TryRotateAsync(
+        RefreshToken token,
+        Guid replacementTokenId,
+        string replacementTokenHash,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var now = _dateTimeProvider.UtcNow;
+        token.RevokedAt = now;
+        token.ReplacedByTokenHash = replacementTokenHash;
+
+        _db.RefreshTokens.Add(new RefreshToken
+        {
+            Id = replacementTokenId,
+            UserId = token.UserId,
+            ApplicationCode = token.ApplicationCode,
+            TokenHash = replacementTokenHash,
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(_jwtSettings.RefreshTokenDays),
+            IpAddress = ipAddress,
+            UserAgent = userAgent
+        });
+
+        try
+        {
+            // EF wraps the update and insert in one transaction. RevokedAt is a concurrency token,
+            // so only the request that observes the active token can commit a replacement.
+            await _db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            foreach (var entry in _db.ChangeTracker.Entries<RefreshToken>().ToList())
+                entry.State = EntityState.Detached;
+            return false;
+        }
+    }
+
     public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)
     {
+        var now = _dateTimeProvider.UtcNow;
+        if (_db.Database.IsRelational())
+        {
+            await _db.RefreshTokens
+                .Where(rt => rt.UserId == userId && rt.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(rt => rt.RevokedAt, now), ct);
+            return;
+        }
+
         var tokens = await _db.RefreshTokens
             .Where(rt => rt.UserId == userId && rt.RevokedAt == null)
             .ToListAsync(ct);
 
-        var now = _dateTimeProvider.UtcNow;
         foreach (var token in tokens)
             token.RevokedAt = now;
 
@@ -77,11 +124,19 @@ public class RefreshTokenService : IRefreshTokenService
 
     public async Task RevokeAllForUserAsync(Guid userId, string applicationCode, CancellationToken ct = default)
     {
+        var now = _dateTimeProvider.UtcNow;
+        if (_db.Database.IsRelational())
+        {
+            await _db.RefreshTokens
+                .Where(rt => rt.UserId == userId && rt.ApplicationCode == applicationCode && rt.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(rt => rt.RevokedAt, now), ct);
+            return;
+        }
+
         var tokens = await _db.RefreshTokens
             .Where(rt => rt.UserId == userId && rt.ApplicationCode == applicationCode && rt.RevokedAt == null)
             .ToListAsync(ct);
 
-        var now = _dateTimeProvider.UtcNow;
         foreach (var token in tokens)
             token.RevokedAt = now;
 

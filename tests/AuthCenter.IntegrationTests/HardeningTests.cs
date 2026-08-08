@@ -36,13 +36,13 @@ public class HardeningTests : IClassFixture<AuthCenterWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ReadinessProbe_IsExposed()
+    public async Task ReadinessProbe_IsHiddenWithoutAManagementHost()
     {
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync("/health/ready");
 
-        Assert.NotEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]

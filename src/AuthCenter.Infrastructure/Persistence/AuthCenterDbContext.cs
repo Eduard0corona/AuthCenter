@@ -1,10 +1,11 @@
 using AuthCenter.Domain.Entities;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthCenter.Infrastructure.Persistence;
 
-public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>
+public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>, IDataProtectionKeyContext
 {
     public AuthCenterDbContext(DbContextOptions<AuthCenterDbContext> options) : base(options) { }
 
@@ -21,10 +22,14 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
     public DbSet<OAuthAuthorizationCode> OAuthAuthorizationCodes => Set<OAuthAuthorizationCode>();
     public DbSet<TransientState> TransientStates => Set<TransientState>();
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+    public DbSet<DistributedRateLimitBucket> DistributedRateLimitBuckets => Set<DistributedRateLimitBucket>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
         builder.ApplyConfigurationsFromAssembly(typeof(AuthCenterDbContext).Assembly);
+        builder.Entity<ApplicationUser>().HasQueryFilter(user => user.DeletedAt == null);
     }
 }

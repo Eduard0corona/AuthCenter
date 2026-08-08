@@ -18,7 +18,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Serilog;
 
 Log.Logger = new LoggerConfiguration()
@@ -47,6 +47,7 @@ try
     // JWT Authentication. The key ring is validated here so that a bad key fails startup rather
     // than the first request that needs to sign or verify a token.
     builder.Services.AddOptions<JwtSettings>().ValidateOnStart();
+    builder.Services.AddOptions<MfaSettings>().ValidateOnStart();
 
     builder.Services.AddAuthentication(options =>
     {
@@ -71,6 +72,36 @@ try
                 IssuerSigningKeys = keyRing.ValidationKeys,
                 ClockSkew = TimeSpan.Zero,
                 ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+            };
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = async context =>
+                {
+                    var subject = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                        ?? context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                    var session = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sid)?.Value
+                        ?? context.Principal?.FindFirst("sid")?.Value;
+
+                    if (!Guid.TryParse(subject, out var userId) || !Guid.TryParse(session, out var sessionId))
+                    {
+                        context.Fail("The access token is not bound to an active session.");
+                        return;
+                    }
+
+                    var db = context.HttpContext.RequestServices.GetRequiredService<AuthCenterDbContext>();
+                    var now = DateTime.UtcNow;
+                    var active = await db.RefreshTokens
+                        .AsNoTracking()
+                        .AnyAsync(token => token.Id == sessionId
+                            && token.UserId == userId
+                            && token.RevokedAt == null
+                            && token.ExpiresAt > now
+                            && token.User.IsActive,
+                            context.HttpContext.RequestAborted);
+
+                    if (!active)
+                        context.Fail("The session has been revoked or is inactive.");
+                }
             };
         });
 
@@ -101,8 +132,13 @@ try
     builder.Services.AddAuthorization();
 
     // Rate Limiting
-    if (!builder.Environment.IsEnvironment("Testing"))
+    var distributedRateLimiting = builder.Configuration.GetValue<bool>("RateLimiting:DistributedEnabled")
+        && !builder.Environment.IsDevelopment()
+        && !builder.Environment.IsEnvironment("Testing");
+    if (!distributedRateLimiting && !builder.Environment.IsEnvironment("Testing"))
         builder.Services.AddAuthRateLimiting();
+    if (distributedRateLimiting)
+        builder.Services.AddScoped<DistributedRateLimitStore>();
 
     // Controllers
     builder.Services.AddControllers();
@@ -144,13 +180,10 @@ try
             Type = SecuritySchemeType.ApiKey,
             Scheme = "Bearer"
         });
-        c.AddSecurityRequirement(new OpenApiSecurityRequirement
+        c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
         {
             {
-                new OpenApiSecurityScheme
-                {
-                    Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
-                },
+                new OpenApiSecuritySchemeReference("Bearer", document),
                 []
             }
         });
@@ -159,18 +192,30 @@ try
     // Every rate limit partitions on the client address and every audit entry records it, so
     // behind a reverse proxy the forwarded headers have to be honoured or both end up seeing the
     // balancer instead of the caller — collapsing all callers into a single rate limit partition.
+    var forwardedHeadersEnabled = builder.Configuration.GetValue<bool>("ForwardedHeaders:Enabled");
     builder.Services.Configure<ForwardedHeadersOptions>(options =>
     {
+        if (!forwardedHeadersEnabled)
+        {
+            options.ForwardedHeaders = ForwardedHeaders.None;
+            return;
+        }
+
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit") ?? 1;
 
-        // The proxies in front of the app are not known at build time, and the platform ones sit
-        // on addresses that vary. Restrict this to the real proxy addresses if they become known.
-        options.KnownNetworks.Clear();
+        var configuredProxies = builder.Configuration
+            .GetSection("ForwardedHeaders:KnownProxies")
+            .Get<string[]>() ?? [];
+
         options.KnownProxies.Clear();
+        foreach (var configuredProxy in configuredProxies)
+        {
+            if (!System.Net.IPAddress.TryParse(configuredProxy, out var proxyAddress))
+                throw new InvalidOperationException($"ForwardedHeaders:KnownProxies contains invalid address '{configuredProxy}'.");
 
-        var forwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit");
-        if (forwardLimit is not null)
-            options.ForwardLimit = forwardLimit;
+            options.KnownProxies.Add(proxyAddress);
+        }
     });
 
     // Health Checks. Liveness carries no dependencies so a database blip does not get the
@@ -199,26 +244,51 @@ try
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-        if (migrateOnStartup)
+        var lockAcquired = false;
+        if (db.Database.IsRelational())
         {
-            logger.LogInformation("Applying database migrations on startup");
-            await db.Database.MigrateAsync();
+            await db.Database.OpenConnectionAsync();
+            await using var acquireCommand = db.Database.GetDbConnection().CreateCommand();
+            acquireCommand.CommandText = "DECLARE @result int; EXEC @result = sp_getapplock @Resource = 'AuthCenter.DatabaseBootstrap', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 60000; SELECT @result;";
+            var result = Convert.ToInt32(await acquireCommand.ExecuteScalarAsync());
+            if (result < 0)
+                throw new InvalidOperationException($"Could not acquire the database bootstrap lock (sp_getapplock result {result}).");
+            lockAcquired = true;
         }
 
-        if (seedOnStartup)
+        try
         {
-            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-            var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-            logger.LogInformation("Seeding baseline application data on startup");
-            await AuthCenterSeeder.SeedAsync(db, userManager, roleManager, config, logger);
+            if (migrateOnStartup)
+            {
+                logger.LogInformation("Applying database migrations on startup");
+                await db.Database.MigrateAsync();
+            }
+
+            if (seedOnStartup)
+            {
+                var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+                var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+                logger.LogInformation("Seeding baseline application data on startup");
+                await AuthCenterSeeder.SeedAsync(db, userManager, roleManager, config, logger);
+            }
+        }
+        finally
+        {
+            if (lockAcquired)
+            {
+                await using var releaseCommand = db.Database.GetDbConnection().CreateCommand();
+                releaseCommand.CommandText = "EXEC sp_releaseapplock @Resource = 'AuthCenter.DatabaseBootstrap', @LockOwner = 'Session';";
+                await releaseCommand.ExecuteNonQueryAsync();
+                await db.Database.CloseConnectionAsync();
+            }
         }
     }
 
     // Must run before anything that reads the client address or the scheme: rate limiting,
     // request logging and HTTPS redirection all depend on it.
-    app.UseForwardedHeaders();
+    if (forwardedHeadersEnabled)
+        app.UseForwardedHeaders();
 
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
@@ -227,12 +297,21 @@ try
         ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
         ctx.Response.Headers.Append("X-Frame-Options", "DENY");
         ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+        if (ctx.Request.Path.StartsWithSegments("/api/auth") ||
+            ctx.Request.Path.StartsWithSegments("/oauth/token"))
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            ctx.Response.Headers.Pragma = "no-cache";
+        }
         await next();
     });
 
     app.UseSerilogRequestLogging();
 
-    if (!app.Environment.IsEnvironment("Testing"))
+    app.UseRouting();
+    if (distributedRateLimiting)
+        app.UseMiddleware<DistributedRateLimitMiddleware>();
+    else if (!app.Environment.IsEnvironment("Testing"))
         app.UseRateLimiter();
 
     if (app.Environment.IsDevelopment())
@@ -246,9 +325,13 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
-    app.MapHealthChecks("/health");
     app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
-    app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+    var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
+    if (!string.IsNullOrWhiteSpace(readinessHost))
+    {
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") })
+            .RequireHost(readinessHost);
+    }
 
     await app.RunAsync();
 }
@@ -272,6 +355,20 @@ public partial class Program
         if (string.IsNullOrWhiteSpace(configuration.GetConnectionString("DefaultConnection")))
             throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured outside Development.");
 
+        if (!configuration.GetValue<bool>("RateLimiting:DistributedEnabled"))
+            throw new InvalidOperationException("RateLimiting:DistributedEnabled must be true outside Development and Testing.");
+
+        if (!Uri.TryCreate(jwtSettings.Issuer, UriKind.Absolute, out var issuerUri) || issuerUri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("Jwt:Issuer must be an absolute HTTPS URL outside Development.");
+
+        var publicOrigin = configuration["Oidc:PublicOrigin"];
+        if (!Uri.TryCreate(publicOrigin, UriKind.Absolute, out var publicOriginUri) ||
+            publicOriginUri.Scheme != Uri.UriSchemeHttps ||
+            publicOrigin!.Contains("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Oidc:PublicOrigin must be a configured HTTPS URL outside Development.");
+        }
+
         if (string.IsNullOrWhiteSpace(jwtSettings.SigningKey) ||
             jwtSettings.SigningKey.Length < 64 ||
             jwtSettings.SigningKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
@@ -289,6 +386,35 @@ public partial class Program
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         if (allowedOrigins.Length == 0)
             throw new InvalidOperationException("Cors:AllowedOrigins must contain at least one origin outside Development.");
+
+        var allowedHosts = configuration["AllowedHosts"];
+        if (string.IsNullOrWhiteSpace(allowedHosts) || allowedHosts == "*")
+            throw new InvalidOperationException("AllowedHosts must list the public hostnames outside Development.");
+
+        if (configuration.GetValue<bool>("ForwardedHeaders:Enabled"))
+        {
+            var knownProxies = configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+            if (knownProxies.Length == 0)
+                throw new InvalidOperationException("At least one ForwardedHeaders:KnownProxies address is required when forwarded headers are enabled.");
+        }
+
+        var actionLinkBaseUrl = configuration["ActionLinks:DefaultBaseUrl"];
+        if (!Uri.TryCreate(actionLinkBaseUrl, UriKind.Absolute, out var actionLinkUri) ||
+            actionLinkUri.Scheme != Uri.UriSchemeHttps ||
+            actionLinkBaseUrl!.Contains("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("ActionLinks:DefaultBaseUrl must be a configured HTTPS URL outside Development.");
+        }
+
+        var dataProtectionApplicationName = configuration["DataProtection:ApplicationName"];
+        var dataProtectionCertificate = configuration["DataProtection:KeyEncryptionCertificateBase64"];
+        if (string.IsNullOrWhiteSpace(dataProtectionApplicationName))
+            throw new InvalidOperationException("DataProtection:ApplicationName is required outside Development.");
+        if (string.IsNullOrWhiteSpace(dataProtectionCertificate) ||
+            dataProtectionCertificate.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("DataProtection keys must be protected with a configured PKCS#12 certificate outside Development.");
+        }
 
         // An empty key silently disables MFA instead of failing, so it is rejected here rather
         // than only checking for the placeholder.

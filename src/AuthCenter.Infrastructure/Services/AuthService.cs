@@ -20,6 +20,7 @@ namespace AuthCenter.Infrastructure.Services;
 public class AuthService : IAuthService
 {
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenService _refreshTokenService;
     private readonly IAuditService _auditService;
@@ -32,14 +33,17 @@ public class AuthService : IAuthService
     private readonly IAppleAuthService _appleAuthService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IEmailService _emailService;
+    private readonly IActionLinkService _actionLinkService;
     private readonly IMfaService _mfaService;
     private readonly ITransientStateStore _transientState;
     private readonly MfaSettings _mfaSettings;
     private readonly AuthCenterDbContext _db;
     private readonly ILogger<AuthService> _logger;
+    private readonly IAuthenticationSessionIssuer _sessionIssuer;
 
     public AuthService(
         UserManager<ApplicationUser> userManager,
+        SignInManager<ApplicationUser> signInManager,
         ITokenService tokenService,
         IRefreshTokenService refreshTokenService,
         IAuditService auditService,
@@ -52,13 +56,16 @@ public class AuthService : IAuthService
         IAppleAuthService appleAuthService,
         IDateTimeProvider dateTimeProvider,
         IEmailService emailService,
+        IActionLinkService actionLinkService,
         IMfaService mfaService,
         ITransientStateStore transientState,
         IOptions<MfaSettings> mfaSettings,
         AuthCenterDbContext db,
-        ILogger<AuthService> logger)
+        ILogger<AuthService> logger,
+        IAuthenticationSessionIssuer sessionIssuer)
     {
         _userManager = userManager;
+        _signInManager = signInManager;
         _tokenService = tokenService;
         _refreshTokenService = refreshTokenService;
         _auditService = auditService;
@@ -71,11 +78,13 @@ public class AuthService : IAuthService
         _appleAuthService = appleAuthService;
         _dateTimeProvider = dateTimeProvider;
         _emailService = emailService;
+        _actionLinkService = actionLinkService;
         _mfaService = mfaService;
         _transientState = transientState;
         _mfaSettings = mfaSettings.Value;
         _db = db;
         _logger = logger;
+        _sessionIssuer = sessionIssuer;
     }
 
     public async Task<OperationResult<AuthResponse>> RegisterAsync(RegisterRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -104,50 +113,76 @@ public class AuthService : IAuthService
         if (existing is not null)
             return OperationResult<AuthResponse>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
 
-        var now = _dateTimeProvider.UtcNow;
-        var user = new ApplicationUser
+        var strategy = _db.Database.CreateExecutionStrategy();
+        var outcome = await strategy.ExecuteAsync(async () =>
         {
-            Id = Guid.NewGuid(),
-            FullName = request.FullName,
-            Email = request.Email,
-            UserName = request.Email,
-            EmailConfirmed = !settings.RequireEmailConfirmation,
-            IsExternalUser = false,
-            HasLocalPassword = true,
-            IsActive = true,
-            CreatedAt = now
-        };
+            _db.ChangeTracker.Clear();
+            var now = _dateTimeProvider.UtcNow;
+            var user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                FullName = request.FullName,
+                Email = request.Email,
+                UserName = request.Email,
+                EmailConfirmed = !settings.RequireEmailConfirmation,
+                IsExternalUser = false,
+                HasLocalPassword = true,
+                IsActive = true,
+                CreatedAt = now
+            };
 
-        var createResult = await _userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
-        {
-            var errors = createResult.Errors.Select(e => e.Description).ToList();
-            return OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors), errors);
-        }
+            await using var transaction = _db.Database.IsRelational()
+                ? await _db.Database.BeginTransactionAsync(ct)
+                : null;
 
-        bool accessIsActive = settings.RegistrationMode == ApplicationRegistrationMode.Open;
-        await _userAccessService.GrantAccessAsync(user.Id, appSystem.Id, accessIsActive, ct);
+            var createResult = await _userManager.CreateAsync(user, request.Password);
+            if (!createResult.Succeeded)
+            {
+                var errors = createResult.Errors.Select(error => error.Description).ToList();
+                return (Result: OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors), errors), User: (ApplicationUser?)null);
+            }
 
-        if (settings.DefaultRoleId.HasValue)
-        {
-            var role = await _db.Roles.FindAsync([settings.DefaultRoleId.Value], ct);
-            if (role?.Name is not null)
-                await _userManager.AddToRoleAsync(user, role.Name);
-        }
+            var accessIsActive = settings.RegistrationMode == ApplicationRegistrationMode.Open;
+            await _userAccessService.GrantAccessAsync(user.Id, appSystem.Id, accessIsActive, ct);
 
-        await _auditService.LogAsync("USER_REGISTERED", user.Id, appSystem.Code, nameof(ApplicationUser), user.Id.ToString(), ipAddress, userAgent, ct: ct);
+            if (settings.DefaultRoleId.HasValue)
+            {
+                var role = await _db.Roles.FindAsync([settings.DefaultRoleId.Value], ct);
+                if (role?.Name is not null)
+                {
+                    var roleResult = await _userManager.AddToRoleAsync(user, role.Name);
+                    if (!roleResult.Succeeded)
+                        return (Result: OperationResult<AuthResponse>.Failure("ROLE_ASSIGN_FAILED", string.Join("; ", roleResult.Errors.Select(error => error.Description))), User: (ApplicationUser?)null);
+                }
+            }
 
-        if (settings.RequireEmailConfirmation)
-        {
-            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-            await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, null, ct);
-            return OperationResult<AuthResponse>.Failure("EMAIL_CONFIRMATION_REQUIRED", "Please confirm your email before signing in.");
-        }
+            OperationResult<AuthResponse> result;
+            if (settings.RequireEmailConfirmation)
+            {
+                var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailConfirmation, appSystem.Code);
+                await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, actionUrl, ct);
+                result = OperationResult<AuthResponse>.Failure("EMAIL_CONFIRMATION_REQUIRED", "Please confirm your email before signing in.");
+            }
+            else if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
+            {
+                result = OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
+            }
+            else
+            {
+                result = await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
+                if (!result.IsSuccess)
+                    return (Result: result, User: (ApplicationUser?)null);
+            }
 
-        if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
-            return OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return (Result: result, User: (ApplicationUser?)user);
+        });
 
-        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
+        if (outcome.User is not null)
+            await _auditService.LogAsync("USER_REGISTERED", outcome.User.Id, appSystem.Code, nameof(ApplicationUser), outcome.User.Id.ToString(), ipAddress, userAgent, ct: ct);
+        return outcome.Result;
     }
 
     public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -160,10 +195,19 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("INVALID_CREDENTIALS", "Invalid email or password.");
         }
 
-        var passwordValid = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!passwordValid)
+        var passwordResult = await _signInManager.CheckPasswordSignInAsync(
+            user,
+            request.Password,
+            lockoutOnFailure: true);
+
+        if (passwordResult.IsLockedOut)
         {
-            await _userManager.AccessFailedAsync(user);
+            await _auditService.LogAsync("LOGIN_LOCKED_OUT", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
+            return OperationResult<AuthResponse>.Failure("ACCOUNT_LOCKED", "Account temporarily locked due to repeated failed sign-in attempts.");
+        }
+
+        if (!passwordResult.Succeeded)
+        {
             await _auditService.LogAsync("LOGIN_FAILED", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, new { reason = "InvalidPassword" }, ct);
             return OperationResult<AuthResponse>.Failure("INVALID_CREDENTIALS", "Invalid email or password.");
         }
@@ -341,72 +385,69 @@ public class AuthService : IAuthService
 
             if (user is not null)
             {
-                _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = user.Id,
-                    Provider = provider,
-                    ProviderUserId = payload.Subject,
-                    Email = payload.Email,
-                    DisplayName = payload.Name,
-                    PictureUrl = payload.PictureUrl,
-                    LinkedAt = now,
-                    LastUsedAt = now,
-                    IsActive = true
-                });
-                await _db.SaveChangesAsync(ct);
-
-                var hasExistingAccess = await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct);
-                if (!hasExistingAccess)
-                {
-                    await GrantExternalUserAccessAsync(user, appSystem.Id, settings, ct);
-
-                    if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
-                        return OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
-                }
+                // Matching an email is not proof that the external identity controls the existing
+                // AuthCenter account. Linking is an authenticated, explicit account-management flow.
+                return OperationResult<AuthResponse>.Failure(
+                    "EXTERNAL_ACCOUNT_LINK_REQUIRED",
+                    "Sign in with an existing method and explicitly link this external provider.");
             }
             else
             {
                 if (settings.RegistrationMode is ApplicationRegistrationMode.Closed or ApplicationRegistrationMode.InviteOnly)
                     return OperationResult<AuthResponse>.Failure("REGISTRATION_CLOSED", "Self-registration is not allowed for this application.");
 
-                user = new ApplicationUser
+                var strategy = _db.Database.CreateExecutionStrategy();
+                var creation = await strategy.ExecuteAsync(async () =>
                 {
-                    Id = Guid.NewGuid(),
-                    FullName = payload.Name ?? payload.Email,
-                    Email = payload.Email,
-                    UserName = payload.Email,
-                    PictureUrl = payload.PictureUrl,
-                    IsExternalUser = true,
-                    HasLocalPassword = false,
-                    IsActive = true,
-                    CreatedAt = now,
-                    EmailConfirmed = true
-                };
+                    _db.ChangeTracker.Clear();
+                    await using var transaction = _db.Database.IsRelational()
+                        ? await _db.Database.BeginTransactionAsync(ct)
+                        : null;
+                    var newUser = new ApplicationUser
+                    {
+                        Id = Guid.NewGuid(),
+                        FullName = payload.Name ?? payload.Email,
+                        Email = payload.Email,
+                        UserName = payload.Email,
+                        PictureUrl = payload.PictureUrl,
+                        IsExternalUser = true,
+                        HasLocalPassword = false,
+                        IsActive = true,
+                        CreatedAt = now,
+                        EmailConfirmed = true
+                    };
 
-                var createResult = await _userManager.CreateAsync(user);
-                if (!createResult.Succeeded)
-                {
-                    var errors = createResult.Errors.Select(e => e.Description).ToList();
-                    return OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors));
-                }
+                    var createResult = await _userManager.CreateAsync(newUser);
+                    if (!createResult.Succeeded)
+                    {
+                        var errors = createResult.Errors.Select(error => error.Description).ToList();
+                        return (User: (ApplicationUser?)null, Error: OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors)));
+                    }
 
-                _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = user.Id,
-                    Provider = provider,
-                    ProviderUserId = payload.Subject,
-                    Email = payload.Email,
-                    DisplayName = payload.Name,
-                    PictureUrl = payload.PictureUrl,
-                    LinkedAt = now,
-                    LastUsedAt = now,
-                    IsActive = true
+                    _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = newUser.Id,
+                        Provider = provider,
+                        ProviderUserId = payload.Subject,
+                        Email = payload.Email,
+                        DisplayName = payload.Name,
+                        PictureUrl = payload.PictureUrl,
+                        LinkedAt = now,
+                        LastUsedAt = now,
+                        IsActive = true
+                    });
+
+                    await GrantExternalUserAccessAsync(newUser, appSystem.Id, settings, ct);
+                    await _db.SaveChangesAsync(ct);
+                    if (transaction is not null)
+                        await transaction.CommitAsync(ct);
+                    return (User: (ApplicationUser?)newUser, Error: (OperationResult<AuthResponse>?)null);
                 });
 
-                await GrantExternalUserAccessAsync(user, appSystem.Id, settings, ct);
-                await _db.SaveChangesAsync(ct);
+                if (creation.Error is not null)
+                    return creation.Error;
+                user = creation.User!;
                 await _auditService.LogAsync(registeredAuditAction, user.Id, appSystem.Code, nameof(ApplicationUser), user.Id.ToString(), ipAddress, userAgent, ct: ct);
 
                 if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
@@ -617,8 +658,20 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
 
         var (newToken, newHash) = _tokenService.GenerateRefreshToken();
-        await _refreshTokenService.RevokeAsync(storedToken, newHash, ct);
-        await _refreshTokenService.CreateAsync(storedToken.UserId, appSystem.Code, newHash, ipAddress, userAgent, ct);
+        var replacementTokenId = Guid.NewGuid();
+        var rotated = await _refreshTokenService.TryRotateAsync(
+            storedToken,
+            replacementTokenId,
+            newHash,
+            ipAddress,
+            userAgent,
+            ct);
+        if (!rotated)
+        {
+            await _refreshTokenService.RevokeAllForUserAsync(storedToken.UserId, storedToken.ApplicationCode, ct);
+            await _auditService.LogAsync("REFRESH_TOKEN_CONCURRENT_REUSE_DETECTED", storedToken.UserId, storedToken.ApplicationCode, ipAddress: ipAddress, userAgent: userAgent, ct: ct);
+            return OperationResult<AuthResponse>.Failure("TOKEN_REUSE_DETECTED", "Refresh token was already used by another request.");
+        }
 
         var user = storedToken.User;
         user.LastLoginAt = _dateTimeProvider.UtcNow;
@@ -629,7 +682,7 @@ public class AuthService : IAuthService
         var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, appSystem.Id, ct);
         var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, appSystem.Id, ct);
 
-        var accessToken = _tokenService.GenerateAccessToken(user, roles, permissions, apps);
+        var accessToken = _tokenService.GenerateAccessToken(user, roles, permissions, apps, replacementTokenId);
 
         await _auditService.LogAsync("TOKEN_REFRESHED", user.Id, null, null, null, ipAddress, userAgent, ct: ct);
 
@@ -708,7 +761,8 @@ public class AuthService : IAuthService
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
 
-        await _emailService.SendPasswordResetAsync(user.Email!, user.FullName, token, request.CallbackBaseUrl, ct);
+        var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.PasswordReset, request.ApplicationCode);
+        await _emailService.SendPasswordResetAsync(user.Email!, user.FullName, token, actionUrl, ct);
         await _auditService.LogAsync("FORGOT_PASSWORD_SENT", user.Id, request.ApplicationCode, null, null, ipAddress, null, ct: ct);
 
         return OperationResult.Success();
@@ -766,7 +820,8 @@ public class AuthService : IAuthService
             return OperationResult.Success();
 
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-        await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, request.CallbackBaseUrl, ct);
+        var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailConfirmation, request.ApplicationCode);
+        await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, actionUrl, ct);
         await _auditService.LogAsync("EMAIL_CONFIRMATION_RESENT", user.Id, request.ApplicationCode, ipAddress: ipAddress, ct: ct);
         return OperationResult.Success();
     }
@@ -796,7 +851,8 @@ public class AuthService : IAuthService
         }
 
         var token = _tokenService.GenerateMagicLinkToken(user.Id, appSystem.Code);
-        await _emailService.SendMagicLinkAsync(user.Email!, user.FullName, token, request.CallbackBaseUrl, ct);
+        var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.MagicLink, request.ApplicationCode);
+        await _emailService.SendMagicLinkAsync(user.Email!, user.FullName, token, actionUrl, ct);
         await _auditService.LogAsync("MAGIC_LINK_SENT", user.Id, appSystem.Code, null, null, ipAddress, null, ct: ct);
 
         return OperationResult.Success();
@@ -910,31 +966,7 @@ public class AuthService : IAuthService
 
     private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, string? deviceToken, CancellationToken ct)
     {
-        var apps = new List<string> { appCode };
-        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, appSystemId, ct);
-        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, appSystemId, ct);
-
-        var accessToken = _tokenService.GenerateAccessToken(user, roles, permissions, apps);
-        var (rawRefresh, refreshHash) = _tokenService.GenerateRefreshToken();
-        await _refreshTokenService.CreateAsync(user.Id, appCode, refreshHash, ipAddress, userAgent, ct);
-
-        return OperationResult<AuthResponse>.Success(new AuthResponse
-        {
-            AccessToken = accessToken,
-            RefreshToken = rawRefresh,
-            ExpiresIn = _tokenService.AccessTokenExpiryMinutes * 60,
-            User = new AuthenticatedUserDto
-            {
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email!,
-                PictureUrl = user.PictureUrl,
-                Applications = apps.ToList(),
-                Roles = roles.ToList(),
-                Permissions = permissions.ToList()
-            },
-            DeviceToken = deviceToken
-        });
+        return await _sessionIssuer.IssueAsync(user, appSystemId, appCode, ipAddress, userAgent, deviceToken, ct);
     }
 
     private async Task<string> CreateTrustedDeviceAsync(Guid userId, string? userAgent, CancellationToken ct)

@@ -9,6 +9,13 @@ public interface IRefreshTokenService
     Task<RefreshToken?> FindByIdAsync(Guid tokenId, CancellationToken ct = default);
     Task<IReadOnlyList<RefreshToken>> GetActiveSessionsAsync(Guid userId, CancellationToken ct = default);
     Task RevokeAsync(RefreshToken token, string? replacedByHash, CancellationToken ct = default);
+    Task<bool> TryRotateAsync(
+        RefreshToken token,
+        Guid replacementTokenId,
+        string replacementTokenHash,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default);
     Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default);
     Task RevokeAllForUserAsync(Guid userId, string applicationCode, CancellationToken ct = default);
 }

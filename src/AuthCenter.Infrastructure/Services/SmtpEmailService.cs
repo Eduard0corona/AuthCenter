@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using System.Text.Encodings.Web;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
@@ -55,12 +56,14 @@ public class SmtpEmailService : IEmailService
 
     public async Task SendMfaEmailOtpAsync(string toEmail, string toName, string code, CancellationToken ct = default)
     {
+        var safeName = HtmlEncoder.Default.Encode(toName);
+        var safeCode = HtmlEncoder.Default.Encode(code);
         var body = $"""
         <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
           <h2>Your sign-in code</h2>
-          <p>Hello <strong>{toName}</strong>,</p>
+          <p>Hello <strong>{safeName}</strong>,</p>
           <p>Your one-time sign-in code (valid for a few minutes):</p>
-          <p style="font-size:36px;letter-spacing:10px;font-weight:bold;font-family:monospace;color:#0066cc">{code}</p>
+          <p style="font-size:36px;letter-spacing:10px;font-weight:bold;font-family:monospace;color:#0066cc">{safeCode}</p>
           <p>If you didn't request this code, ignore this email.</p>
           <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
         </body></html>
@@ -82,7 +85,7 @@ public class SmtpEmailService : IEmailService
             _logger.LogWarning(
                 "Email SMTP not configured. {Purpose} email for {Email} was not sent.",
                 purpose, toEmail);
-            return;
+            throw new InvalidOperationException("Email SMTP is not configured.");
         }
 
         using var message = new MailMessage
@@ -122,17 +125,26 @@ public class SmtpEmailService : IEmailService
         return $"{callbackBaseUrl}{sep}token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
     }
 
-    private static string BuildActionEmailBody(string name, string title, string button, string link) => $"""
+    private static string BuildActionEmailBody(string name, string title, string button, string link)
+    {
+        var encoder = HtmlEncoder.Default;
+        var safeName = encoder.Encode(name);
+        var safeTitle = encoder.Encode(title);
+        var safeButton = encoder.Encode(button);
+        var safeLink = encoder.Encode(link);
+
+        return $"""
         <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
-          <h2>{title}</h2>
-          <p>Hello <strong>{name}</strong>,</p>
+          <h2>{safeTitle}</h2>
+          <p>Hello <strong>{safeName}</strong>,</p>
           <p>Use the following link to continue (valid for 24 hours):</p>
-          <p><a href="{link}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
-            {button}
+          <p><a href="{safeLink}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
+            {safeButton}
           </a></p>
           <p>If the button doesn't work, copy and paste this URL into your browser:</p>
-          <p style="word-break:break-all;font-size:13px;color:#555">{link}</p>
+          <p style="word-break:break-all;font-size:13px;color:#555">{safeLink}</p>
           <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
         </body></html>
         """;
+    }
 }

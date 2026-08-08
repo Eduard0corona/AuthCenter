@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore from the project files alone so the layer survives source-only changes. Restoring the
@@ -13,7 +13,7 @@ RUN dotnet restore src/AuthCenter.Api/AuthCenter.Api.csproj
 COPY src/ src/
 RUN dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # curl backs the compose healthcheck; the runtime image ships without it.

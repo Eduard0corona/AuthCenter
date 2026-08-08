@@ -16,6 +16,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.Property(r => r.UserAgent).HasMaxLength(512);
         builder.Property(r => r.CreatedAt).IsRequired();
         builder.Property(r => r.ExpiresAt).IsRequired();
+        builder.Property(r => r.RevokedAt).IsConcurrencyToken();
 
         builder.HasIndex(r => r.TokenHash).IsUnique();
         builder.HasIndex(r => new { r.UserId, r.RevokedAt });

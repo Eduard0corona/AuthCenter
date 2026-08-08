@@ -108,13 +108,15 @@ public static class AuthCenterSeeder
         string[] permissionCodes,
         ILogger logger)
     {
-        if (!await roleManager.RoleExistsAsync(roleName))
+        var storageName = $"{(await db.ApplicationSystems.Where(app => app.Id == appSystemId).Select(app => app.Code).SingleAsync())}:{roleName}";
+        if (!await roleManager.RoleExistsAsync(storageName))
         {
             var role = new ApplicationRole
             {
                 Id = Guid.NewGuid(),
-                Name = roleName,
-                NormalizedName = roleName.ToUpperInvariant(),
+                Name = storageName,
+                NormalizedName = storageName.ToUpperInvariant(),
+                DisplayName = roleName,
                 Description = description,
                 ApplicationSystemId = appSystemId,
                 IsSystemRole = isSystem,
@@ -178,7 +180,7 @@ public static class AuthCenterSeeder
             return;
         }
 
-        await userManager.AddToRoleAsync(admin, DomainConstants.Roles.SuperAdmin);
+        await userManager.AddToRoleAsync(admin, $"{appSystem.Code}:{DomainConstants.Roles.SuperAdmin}");
 
         db.UserApplicationAccesses.Add(new UserApplicationAccess
         {

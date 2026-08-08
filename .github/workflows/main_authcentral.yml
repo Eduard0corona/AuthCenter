@@ -9,19 +9,29 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read #This is required for actions/checkout
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up .NET Core
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: '9.x'
+          dotnet-version: '10.0.x'
 
       - name: Build with dotnet
         run: dotnet build --configuration Release
@@ -29,30 +39,34 @@ jobs:
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
 
+      - name: Audit vulnerable dependencies
+        run: dotnet list package --vulnerable --include-transitive
+
       - name: dotnet publish
         run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj -c Release -r linux-x64 --self-contained true -o ${{env.DOTNET_ROOT}}/myapp
 
       - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: .net-app
           path: ${{env.DOTNET_ROOT}}/myapp
 
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     permissions:
       contents: read
 
     steps:
       - name: Download artifact from build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: .net-app
 
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@b686016b4de8820a23519503685d8d03fbfa03a6 # v3
         with:
           app-name: 'authcentral'
           slot-name: 'Production'

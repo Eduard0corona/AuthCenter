@@ -28,6 +28,12 @@ public static class DomainConstants
         public const string AuditLogsRead = "AUTHCENTER_AUDIT_LOGS_READ";
         public const string OAuthClientsRead = "AUTHCENTER_OAUTH_CLIENTS_READ";
         public const string OAuthClientsWrite = "AUTHCENTER_OAUTH_CLIENTS_WRITE";
+
+        public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+        {
+            UsersRead, UsersWrite, ApplicationsRead, ApplicationsWrite, RolesRead, RolesWrite,
+            PermissionsRead, PermissionsWrite, AuditLogsRead, OAuthClientsRead, OAuthClientsWrite
+        };
     }
 
     public static class Roles

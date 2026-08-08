@@ -4,6 +4,8 @@ using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
+using AuthCenter.Contracts.Requests.Common;
+using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
@@ -68,10 +70,16 @@ public class OAuthClientService : IOAuthClientService
         });
     }
 
-    public async Task<IReadOnlyList<OAuthClientResponse>> GetAllAsync(CancellationToken ct = default)
+    public async Task<PagedResult<OAuthClientResponse>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
     {
-        var clients = await _db.OAuthClients.OrderBy(c => c.DisplayName).ToListAsync(ct);
-        return clients.Select(MapToResponse).ToList();
+        var query = _db.OAuthClients.AsNoTracking().OrderBy(c => c.DisplayName).ThenBy(c => c.ClientId);
+        var totalCount = await query.CountAsync(ct);
+        var clients = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
+        return PagedResult<OAuthClientResponse>.Create(
+            clients.Select(MapToResponse).ToList(),
+            totalCount,
+            pagination.Page,
+            pagination.PageSize);
     }
 
     public async Task<OAuthClientResponse?> GetByClientIdAsync(string clientId, CancellationToken ct = default)

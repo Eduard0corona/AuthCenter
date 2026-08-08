@@ -6,23 +6,55 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: AuthCenter_CI_2026_Strong!
+        ports:
+          - 1433:1433
+    env:
+      AUTHCENTER_RELATIONAL_TEST_CONNECTION: "Server=localhost,1433;User Id=sa;Password=AuthCenter_CI_2026_Strong!;TrustServerCertificate=true"
 
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup .NET 9
-        uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          dotnet-version: '9.0.x'
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Restore dependencies
         run: dotnet restore
+
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if (echo > /dev/tcp/127.0.0.1/1433) 2>/dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
+
+      - name: Audit vulnerable dependencies
+        run: dotnet list package --vulnerable --include-transitive

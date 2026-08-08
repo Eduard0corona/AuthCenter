@@ -4,6 +4,7 @@ namespace AuthCenter.Domain.Entities;
 
 public class ApplicationRole : IdentityRole<Guid>
 {
+    public string DisplayName { get; set; } = string.Empty;
     public string? Description { get; set; }
     public Guid? ApplicationSystemId { get; set; }
     public bool IsSystemRole { get; set; }

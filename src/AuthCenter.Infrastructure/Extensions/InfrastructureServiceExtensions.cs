@@ -5,10 +5,13 @@ using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography.X509Certificates;
 
 namespace AuthCenter.Infrastructure.Extensions;
 
@@ -18,12 +21,26 @@ public static class InfrastructureServiceExtensions
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection");
 
-        services.AddDbContext<AuthCenterDbContext>(options => ConfigureSqlServer(options, connectionString));
-        services.AddDbContextFactory<AuthCenterDbContext>(
-            options => ConfigureSqlServer(options, connectionString),
-            ServiceLifetime.Scoped);
+        services.AddDbContextPool<AuthCenterDbContext>(options => ConfigureSqlServer(options, connectionString));
+        services.AddPooledDbContextFactory<AuthCenterDbContext>(options => ConfigureSqlServer(options, connectionString));
 
         services.AddMemoryCache();
+
+        var dataProtection = services.AddDataProtection()
+            .SetApplicationName(configuration["DataProtection:ApplicationName"] ?? "AuthCenter")
+            .PersistKeysToDbContext<AuthCenterDbContext>();
+
+        var certificateBase64 = configuration["DataProtection:KeyEncryptionCertificateBase64"];
+        if (!string.IsNullOrWhiteSpace(certificateBase64) &&
+            !certificateBase64.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            var certificateBytes = Convert.FromBase64String(certificateBase64);
+            var certificate = X509CertificateLoader.LoadPkcs12(
+                certificateBytes,
+                configuration["DataProtection:KeyEncryptionCertificatePassword"],
+                X509KeyStorageFlags.EphemeralKeySet);
+            dataProtection.ProtectKeysWithCertificate(certificate);
+        }
 
         services.Configure<JwtSettings>(configuration.GetSection("Jwt"));
         services.AddSingleton<IValidateOptions<JwtSettings>, JwtSettingsValidator>();
@@ -34,6 +51,10 @@ public static class InfrastructureServiceExtensions
         services.Configure<AppleAuthSettings>(configuration.GetSection("Authentication:Apple"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
         services.Configure<MfaSettings>(configuration.GetSection("Mfa"));
+        services.AddSingleton<IValidateOptions<MfaSettings>, MfaSettingsValidator>();
+        services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
+        services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
+        services.AddHostedService<RetentionCleanupService>();
 
         services.AddHttpClient("GitHub", client =>
         {
@@ -60,6 +81,7 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddScoped<IAuthenticationSessionIssuer, AuthenticationSessionIssuer>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<ITransientStateStore, TransientStateStore>();
         services.AddScoped<IGoogleAuthService, GoogleAuthService>();
@@ -71,11 +93,15 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IUserAccessService, UserAccessService>();
         services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddScoped<SmtpEmailService>();
+        services.AddScoped<IEmailService, OutboxEmailService>();
+        services.AddHostedService<OutboxDispatcherService>();
+        services.AddSingleton<IActionLinkService, ActionLinkService>();
         services.AddScoped<IAccountManagementService, AccountManagementService>();
         services.AddScoped<IMfaService, TotpService>();
         services.AddScoped<IOAuthClientService, OAuthClientService>();
         services.AddScoped<IOAuthAuthorizationService, OAuthAuthorizationService>();
+        services.AddScoped<IExternalIdentityLinkService, ExternalIdentityLinkService>();
 
         return services;
     }
