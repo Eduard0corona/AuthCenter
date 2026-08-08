@@ -54,6 +54,7 @@ automatizada o una comprobación equivalente.
 - [x] Restringir `AllowedHosts` y construir discovery exclusivamente desde `Oidc:PublicOrigin`, no desde `Host`.
 - [x] Migrar solución, imágenes y CI de .NET 9 fuera de soporte a .NET 10 LTS y actualizar todos los paquetes directos disponibles.
 - [x] Endurecer GitHub Actions con permisos mínimos, timeouts, concurrencia, auditoría de dependencias y acciones fijadas por SHA.
+- [x] Sustituir el perfil de publicación permanente de Azure por federación OIDC, limitar la identidad a `Website Contributor` sobre el App Service y corregir el artefacto de despliegue para el runtime Windows de `authcenter`.
 
 ## Pruebas y verificación
 
