@@ -13,4 +13,5 @@ public class DirectoryGroup
     public ICollection<UserGroupMembership> Memberships { get; set; } = new List<UserGroupMembership>();
     public ICollection<GroupApplicationAssignment> ApplicationAssignments { get; set; } = new List<GroupApplicationAssignment>();
     public ICollection<GroupRoleAssignment> RoleAssignments { get; set; } = new List<GroupRoleAssignment>();
+    public ICollection<ApplicationAccessPolicyRule> AccessPolicyRules { get; set; } = new List<ApplicationAccessPolicyRule>();
 }

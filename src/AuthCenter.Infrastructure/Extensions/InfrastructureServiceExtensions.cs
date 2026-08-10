@@ -103,6 +103,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IOAuthAuthorizationService, OAuthAuthorizationService>();
         services.AddScoped<IExternalIdentityLinkService, ExternalIdentityLinkService>();
         services.AddScoped<IDirectoryGroupService, DirectoryGroupService>();
+        services.AddScoped<IAccessPolicyService, AccessPolicyService>();
 
         return services;
     }

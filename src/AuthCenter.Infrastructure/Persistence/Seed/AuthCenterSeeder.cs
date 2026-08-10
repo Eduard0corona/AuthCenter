@@ -66,6 +66,8 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.OAuthClientsWrite, "Write OAuth clients"),
             (DomainConstants.Permissions.GroupsRead, "Read directory groups"),
             (DomainConstants.Permissions.GroupsWrite, "Write directory groups"),
+            (DomainConstants.Permissions.AccessPoliciesRead, "Read access policies"),
+            (DomainConstants.Permissions.AccessPoliciesWrite, "Write access policies"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -97,6 +99,8 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.AuditLogsRead,
                 DomainConstants.Permissions.GroupsRead,
                 DomainConstants.Permissions.GroupsWrite,
+                DomainConstants.Permissions.AccessPoliciesRead,
+                DomainConstants.Permissions.AccessPoliciesWrite,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);

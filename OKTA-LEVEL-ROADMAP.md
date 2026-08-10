@@ -18,7 +18,7 @@ y evidencia de operación.
 |---|---|---|---|
 | OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación | Interoperabilidad completa, PAR, Device Authorization, introspección y token exchange cuando exista un consumidor real | Fundación lista |
 | Directorio universal | Usuarios, aplicaciones, roles y permisos fijos | Grupos, perfiles/esquemas extensibles, atributos y reglas de membresía | Pendiente |
-| Políticas de acceso | Configuración básica por aplicación | Motor versionado de reglas por aplicación, grupo, red, horario, riesgo y assurance; simulación antes de publicar | Pendiente |
+| Políticas de acceso | Reglas ordenadas por aplicación, grupo y red; allow/deny, MFA y fail-closed | Motor versionado con horario, riesgo, assurance y simulación antes de publicar | Parcial |
 | Autenticadores | Password, TOTP, email OTP, magic link y backup codes | Passkeys/WebAuthn phishing-resistant, enrollment policy, recuperación y step-up | Pendiente |
 | Federación | Google, Microsoft, GitHub y Apple implementados directamente | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Pendiente |
 | Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
@@ -43,10 +43,12 @@ y evidencia de operación.
 
 - [x] Crear grupos y membresías auditables, con asignación de grupos a aplicaciones y roles.
 - [ ] Añadir atributos de perfil extensibles con esquema, tipo, obligatoriedad y validación.
-- [ ] Implementar políticas versionadas y ordenadas con deny-by-default.
-- [ ] Evaluar reglas por usuario, grupo, aplicación, red, horario y contexto de autenticación.
+- [x] Implementar reglas ordenadas por aplicación con allow/deny y deny-by-default al existir reglas activas.
+- [x] Evaluar condiciones por usuario, grupo, aplicación y rangos de red IPv4/IPv6.
+- [x] Aplicar MFA obligatorio y controlar si un dispositivo confiable puede omitir el desafío.
+- [ ] Versionar borradores/publicaciones y evaluar horario, riesgo y assurance de autenticación.
 - [ ] Añadir endpoint de simulación y explicación de decisiones antes de publicar una política.
-- [ ] Invalidar sesiones/claims cuando cambien membresías, roles o políticas relevantes.
+- [x] Invalidar sesiones/claims cuando cambien membresías, roles o políticas relevantes.
 
 ### Fase 2 — Passkeys y autenticación adaptable
 
