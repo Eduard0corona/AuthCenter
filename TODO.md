@@ -12,18 +12,16 @@ Operational and deployment work. Code-level performance, security and scalabilit
       the App Service managed identity and a least-privilege contained database principal.
 - [x] Consolidate CI and deployment so that only a successful validation run on `main` publishes
       the artifact, deploys it with OIDC, and verifies `/health/live`.
-- [ ] Configure the remaining deployed app settings. The API fails fast without them:
-  - `Jwt:RsaPrivateKeyPem`
-  - `Jwt:SigningKey` (min 64 chars)
-  - `Mfa:EncryptionKey` (min 32 chars)
-  - `Cors:AllowedOrigins`
-  - `AllowedHosts`, `Jwt:Issuer`, `Oidc:PublicOrigin`, and `ActionLinks:DefaultBaseUrl`
-  - Data Protection certificate/settings and the distributed rate-limiting backend
+- [x] Configure the remaining required production settings: new RSA/HMAC/MFA secrets, encrypted
+      Data Protection with a generated PKCS#12 certificate, exact host/issuer/origins, and SQL-backed
+      distributed rate limiting. All sensitive values are versionless Key Vault references.
 - [x] Apply all 12 EF Core migrations to the new Azure SQL database out of band with the Microsoft
       Entra administrator; the application identity retains no DDL permissions.
 - [ ] Seed the deployed database once with `Database:SeedOnStartup=true` plus intentionally chosen
       production `Seed:*` values, then remove those values and switch seeding back off.
-- [ ] Narrow `AllowedHosts` from `*` to the real public hostnames once they exist.
+- [x] Narrow `AllowedHosts` to the current Azure hostname.
+- [ ] Add the real frontend hostname to `Cors:AllowedOrigins` and `ActionLinks` when it exists. The
+      current configuration intentionally permits only the AuthCenter origin.
 
 ## Security
 

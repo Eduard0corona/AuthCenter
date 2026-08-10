@@ -143,8 +143,15 @@ The Azure deployment uses a passwordless database connection:
   secret, so secret rotations do not require a code change.
 - The matching contained Azure SQL principal has only `db_datareader`, `db_datawriter`, and
   `EXECUTE`; it is not a database owner and cannot change the schema.
-- The application identity can read only the connection-string secret. Operators do not retain a
-  Key Vault data-plane role after provisioning.
+- RSA, internal-token HMAC, MFA, and Data Protection certificate material are separate versionless
+  Key Vault references generated for production; local `.env` values are never promoted.
+- The application identity receives one secret-scoped `Key Vault Secrets User` assignment per
+  value. Operators do not retain a Key Vault data-plane role after provisioning.
+- Windows App Service loads the PKCS#12 private key with `WEBSITE_LOAD_USER_PROFILE=1`. The
+  certificate itself and its password remain in Key Vault.
+- The initial Azure host is the exact `AllowedHosts`, issuer, OIDC/action-link origin, and only CORS
+  origin. Add the real frontend origin explicitly when it exists. Google login remains disabled
+  until a real client ID is configured.
 
 The single `CI/CD` workflow validates every pull request. On a push to `main` (or a manual run on
 `main`), it deploys only after the secret scan, build, tests, and dependency audit pass. Azure

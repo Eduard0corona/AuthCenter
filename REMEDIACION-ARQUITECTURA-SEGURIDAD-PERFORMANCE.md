@@ -102,8 +102,13 @@ relacional aplicó la cadena completa de migraciones sobre una base nueva y la e
       `main` publica el artefacto y despliega mediante OIDC. Se eliminó el workflow duplicado.
 - [x] Añadir verificación posterior al despliegue contra `/health/live` para no reportar como sano
       un release que sólo terminó de copiar archivos.
-- [ ] Configurar los secretos y dependencias productivas restantes (RSA, HMAC, MFA, certificado de
-      Data Protection, hosts/orígenes y backend Redis). Hasta entonces el sitio devuelve HTTP 500
-      y la verificación de salud del deployment lo marcará correctamente como fallido.
+- [x] Generar secretos productivos nuevos para RSA, HMAC y MFA, además de un certificado PKCS#12
+      para Data Protection; almacenarlos como referencias separadas de Key Vault sin reutilizar
+      ningún valor local.
+- [x] Configurar hosts/orígenes exactos, deshabilitar Google hasta contar con un Client ID real,
+      habilitar el perfil de usuario requerido por App Service Windows para la llave privada y usar
+      Azure SQL como backend del rate limiting distribuido. `/health/live` responde HTTP 200.
+- [x] Verificar desde el worker de App Service que el token de identidad administrada entra a SQL
+      como `authcenter-app` con lectura/escritura; un login inválido devuelve 401, no un error 500.
 - [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
       administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.
