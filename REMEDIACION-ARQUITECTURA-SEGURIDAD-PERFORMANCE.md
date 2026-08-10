@@ -113,10 +113,11 @@ relacional aplicó la cadena completa de migraciones sobre una base nueva y la e
 - [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
       administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.
 
-## Refinamiento AAA de OAuth/OIDC (2026-08-10)
+## Fundación OAuth/OIDC para una plataforma nivel Okta (2026-08-10)
 
-Este ciclo eleva AuthCenter como servicio de **autenticación, autorización y auditoría** para
-clientes externos. Los controles se basan en OAuth 2.0 Security BCP (RFC 9700), PKCE (RFC 7636),
+Este ciclo endurece el authorization server, pero no representa por sí solo paridad de producto con
+Okta. La brecha completa y sus criterios de cierre se mantienen en `OKTA-LEVEL-ROADMAP.md`. Los
+controles de esta fundación se basan en OAuth 2.0 Security BCP (RFC 9700), PKCE (RFC 7636),
 revocación (RFC 7009) y OpenID Connect Core.
 
 - [x] Relacionar obligatoriamente cada `OAuthClient` con un `ApplicationSystem` activo mediante FK.

@@ -15,6 +15,9 @@ Clean Architecture with five layers:
 | `AuthCenter.Api` | Controllers, middleware, composition root |
 
 See [docs/architecture.md](docs/architecture.md) for full details.
+The product-level capability plan is tracked in
+[OKTA-LEVEL-ROADMAP.md](OKTA-LEVEL-ROADMAP.md); the current API is a hardened foundation, not yet
+feature parity with a full Identity-as-a-Service platform.
 
 ## Requirements
 
