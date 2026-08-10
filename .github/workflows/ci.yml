@@ -1,10 +1,11 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -72,3 +73,79 @@ jobs:
 
       - name: Audit vulnerable dependencies
         run: dotnet list package --vulnerable --include-transitive
+
+      - name: Publish deployment artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj --configuration Release --no-build --output "${{ runner.temp }}/authcenter-publish"
+
+      - name: Upload deployment artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: authcenter-app
+          path: ${{ runner.temp }}/authcenter-publish
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+          AZURE_WEBAPP_SLOT: ${{ vars.AZURE_WEBAPP_SLOT }}
+        run: |
+          test -n "$AZURE_CLIENT_ID"
+          test -n "$AZURE_TENANT_ID"
+          test -n "$AZURE_SUBSCRIPTION_ID"
+          test -n "$AZURE_WEBAPP_NAME"
+          test -n "$AZURE_WEBAPP_SLOT"
+
+      - name: Download deployment artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: authcenter-app
+          path: app
+
+      - name: Sign in to Azure with OpenID Connect
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@b686016b4de8820a23519503685d8d03fbfa03a6 # v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          slot-name: ${{ vars.AZURE_WEBAPP_SLOT }}
+          package: app
+
+      - name: Verify deployment health
+        shell: bash
+        env:
+          APP_URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+        run: |
+          for attempt in {1..18}; do
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --max-time 20 "${APP_URL%/}/health/live" || true)"
+            if [ "$status" = "200" ]; then
+              exit 0
+            fi
+            echo "Health check attempt ${attempt}/18 returned HTTP ${status:-unreachable}."
+            sleep 10
+          done
+          echo "The deployment completed, but the liveness endpoint did not become healthy." >&2
+          exit 1

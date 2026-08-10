@@ -7,14 +7,22 @@ Operational and deployment work. Code-level performance, security and scalabilit
 
 - [x] Recreate the Azure Web App and deploy through GitHub Actions with OIDC. The workflow uses
       repository variables for the app and slot names and no longer stores a publish profile.
-- [ ] Configure the deployed app settings. The API fails fast without them:
-  - `ConnectionStrings:DefaultConnection`
+- [x] Store `ConnectionStrings:DefaultConnection` in Azure Key Vault and expose it to App Service
+      through a resolved versionless reference. Azure SQL authentication is passwordless through
+      the App Service managed identity and a least-privilege contained database principal.
+- [x] Consolidate CI and deployment so that only a successful validation run on `main` publishes
+      the artifact, deploys it with OIDC, and verifies `/health/live`.
+- [ ] Configure the remaining deployed app settings. The API fails fast without them:
   - `Jwt:RsaPrivateKeyPem`
   - `Jwt:SigningKey` (min 64 chars)
   - `Mfa:EncryptionKey` (min 32 chars)
   - `Cors:AllowedOrigins`
-- [ ] Bootstrap the deployed database: run once with `Database:MigrateOnStartup` and
-      `Database:SeedOnStartup` set to `true` plus the `Seed:*` values, then switch both off.
+  - `AllowedHosts`, `Jwt:Issuer`, `Oidc:PublicOrigin`, and `ActionLinks:DefaultBaseUrl`
+  - Data Protection certificate/settings and the distributed rate-limiting backend
+- [x] Apply all 12 EF Core migrations to the new Azure SQL database out of band with the Microsoft
+      Entra administrator; the application identity retains no DDL permissions.
+- [ ] Seed the deployed database once with `Database:SeedOnStartup=true` plus intentionally chosen
+      production `Seed:*` values, then remove those values and switch seeding back off.
 - [ ] Narrow `AllowedHosts` from `*` to the real public hostnames once they exist.
 
 ## Security

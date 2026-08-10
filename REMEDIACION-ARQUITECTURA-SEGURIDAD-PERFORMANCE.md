@@ -84,3 +84,26 @@ Antes de desplegar esta versión se deben aplicar las migraciones nuevas y confi
 Las migraciones agregan las tablas `DataProtectionKeys`, `DistributedRateLimitBuckets` y
 `OutboxMessages`, además de separar el nombre visible e interno de los roles. La validación
 relacional aplicó la cadena completa de migraciones sobre una base nueva y la eliminó al terminar.
+
+## Azure Key Vault, SQL y CI/CD (2026-08-10)
+
+- [x] Habilitar la identidad administrada asignada por el sistema en App Service.
+- [x] Guardar la cadena de `AuthCenter` en Azure Key Vault sin usuario ni contraseña, usando
+      autenticación `Active Directory Managed Identity`, cifrado TLS y validación del certificado.
+- [x] Configurar `ConnectionStrings__DefaultConnection` como referencia versionless de Key Vault y
+      comprobar que App Service reporta el estado `Resolved`.
+- [x] Limitar `Key Vault Secrets User` al secreto de conexión y retirar el permiso temporal de
+      escritura utilizado durante el aprovisionamiento.
+- [x] Configurar Microsoft Entra en Azure SQL y crear el principal contenido `authcenter-app` con
+      `db_datareader`, `db_datawriter` y `EXECUTE`, sin `db_owner` ni permisos DDL.
+- [x] Aplicar fuera del proceso web las 12 migraciones existentes sobre la base nueva, usando el
+      administrador Entra y sin elevar los permisos de la identidad de ejecución.
+- [x] Unificar CI y CD: escaneo de secretos, build, pruebas y auditoría bloquean el deploy; sólo
+      `main` publica el artefacto y despliega mediante OIDC. Se eliminó el workflow duplicado.
+- [x] Añadir verificación posterior al despliegue contra `/health/live` para no reportar como sano
+      un release que sólo terminó de copiar archivos.
+- [ ] Configurar los secretos y dependencias productivas restantes (RSA, HMAC, MFA, certificado de
+      Data Protection, hosts/orígenes y backend Redis). Hasta entonces el sitio devuelve HTTP 500
+      y la verificación de salud del deployment lo marcará correctamente como fallido.
+- [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
+      administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.

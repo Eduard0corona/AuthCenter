@@ -136,6 +136,23 @@ set to `true` along with the `Seed:*` values, then turn both back off so that la
 not re-run the bootstrap. Alternatively, apply the migrations out of band with
 `dotnet ef database update`.
 
+The Azure deployment uses a passwordless database connection:
+
+- App Service uses its system-assigned managed identity.
+- `ConnectionStrings__DefaultConnection` is an App Service Key Vault reference to a versionless
+  secret, so secret rotations do not require a code change.
+- The matching contained Azure SQL principal has only `db_datareader`, `db_datawriter`, and
+  `EXECUTE`; it is not a database owner and cannot change the schema.
+- The application identity can read only the connection-string secret. Operators do not retain a
+  Key Vault data-plane role after provisioning.
+
+The single `CI/CD` workflow validates every pull request. On a push to `main` (or a manual run on
+`main`), it deploys only after the secret scan, build, tests, and dependency audit pass. Azure
+authentication uses GitHub OIDC; no publish profile or Azure client secret is stored in GitHub.
+The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
+`CI_MSSQL_SA_PASSWORD` as secrets, plus `AZURE_WEBAPP_NAME` and `AZURE_WEBAPP_SLOT` as variables.
+After deployment, `/health/live` must return HTTP 200 or the workflow is marked failed.
+
 ## Key Endpoints
 
 ### Authentication
