@@ -256,7 +256,7 @@ public class RolesAndPermissionsTests : IClassFixture<AuthCenterWebApplicationFa
     /// <summary>A user with application access but no roles, so their token carries no permissions.</summary>
     private async Task<HttpClient> CreateUserWithoutPermissionsClientAsync()
     {
-        const string password = "NoPerms12345";
+        var password = TestSecretGenerator.CreatePassword();
         var email = $"noperms-{Guid.NewGuid():N}@example.com";
 
         using (var scope = _factory.Services.CreateScope())

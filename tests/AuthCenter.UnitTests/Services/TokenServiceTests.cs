@@ -24,7 +24,7 @@ public class TokenServiceTests : IDisposable
         {
             Issuer = "TestIssuer",
             Audience = "TestAudience",
-            SigningKey = "test-signing-key-that-is-long-enough-32chars",
+            SigningKey = TestSecretGenerator.CreateKey(),
             AccessTokenMinutes = 15,
             RefreshTokenDays = 30,
             MagicLinkTokenMinutes = 15,
@@ -170,7 +170,7 @@ public class TokenServiceTests : IDisposable
     {
         return new TokenService(
             Options.Create(settings),
-            Options.Create(new MfaSettings { EncryptionKey = "test-mfa-key", MfaTokenExpirySeconds = 300 }),
+            Options.Create(new MfaSettings { EncryptionKey = TestSecretGenerator.CreateKey(), MfaTokenExpirySeconds = 300 }),
             new DateTimeProvider(),
             keyRing);
     }
@@ -181,7 +181,7 @@ public class TokenServiceTests : IDisposable
         {
             Issuer = "TestIssuer",
             Audience = "TestAudience",
-            SigningKey = "test-signing-key-that-is-long-enough-32chars"
+            SigningKey = TestSecretGenerator.CreateKey()
         };
 
         return CreateTokenService(settings, new RsaSigningKeyRing(Options.Create(settings)));

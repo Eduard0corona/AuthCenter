@@ -31,6 +31,11 @@ logs/
 secrets.json
 .env
 *.pem
+*.key
+*.pfx
+*.p12
+*.publishsettings
+*.pubxml.user
 
 ## User secrets
 %APPDATA%\Microsoft\UserSecrets

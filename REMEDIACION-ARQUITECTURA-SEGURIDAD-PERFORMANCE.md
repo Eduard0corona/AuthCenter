@@ -55,6 +55,9 @@ automatizada o una comprobación equivalente.
 - [x] Migrar solución, imágenes y CI de .NET 9 fuera de soporte a .NET 10 LTS y actualizar todos los paquetes directos disponibles.
 - [x] Endurecer GitHub Actions con permisos mínimos, timeouts, concurrencia, auditoría de dependencias y acciones fijadas por SHA.
 - [x] Sustituir el perfil de publicación permanente de Azure por federación OIDC, limitar la identidad a `Website Contributor` sobre el App Service y corregir el artefacto de despliegue para el runtime Windows de `authcenter`.
+- [x] Externalizar nombre y slot del App Service en variables de GitHub, retirar contraseñas de CI del YAML y ampliar la exclusión de certificados, llaves y perfiles de publicación.
+- [x] Generar en tiempo de ejecución todas las llaves y credenciales de pruebas; el árbol actual no contiene material criptográfico privado funcional.
+- [x] Añadir Gitleaks verificado por SHA-256 al CI para bloquear nuevos secretos; Secret Scanning nativo no está disponible en el plan actual del repositorio privado.
 
 ## Pruebas y verificación
 
@@ -81,3 +84,31 @@ Antes de desplegar esta versión se deben aplicar las migraciones nuevas y confi
 Las migraciones agregan las tablas `DataProtectionKeys`, `DistributedRateLimitBuckets` y
 `OutboxMessages`, además de separar el nombre visible e interno de los roles. La validación
 relacional aplicó la cadena completa de migraciones sobre una base nueva y la eliminó al terminar.
+
+## Azure Key Vault, SQL y CI/CD (2026-08-10)
+
+- [x] Habilitar la identidad administrada asignada por el sistema en App Service.
+- [x] Guardar la cadena de `AuthCenter` en Azure Key Vault sin usuario ni contraseña, usando
+      autenticación `Active Directory Managed Identity`, cifrado TLS y validación del certificado.
+- [x] Configurar `ConnectionStrings__DefaultConnection` como referencia versionless de Key Vault y
+      comprobar que App Service reporta el estado `Resolved`.
+- [x] Limitar `Key Vault Secrets User` al secreto de conexión y retirar el permiso temporal de
+      escritura utilizado durante el aprovisionamiento.
+- [x] Configurar Microsoft Entra en Azure SQL y crear el principal contenido `authcenter-app` con
+      `db_datareader`, `db_datawriter` y `EXECUTE`, sin `db_owner` ni permisos DDL.
+- [x] Aplicar fuera del proceso web las 12 migraciones existentes sobre la base nueva, usando el
+      administrador Entra y sin elevar los permisos de la identidad de ejecución.
+- [x] Unificar CI y CD: escaneo de secretos, build, pruebas y auditoría bloquean el deploy; sólo
+      `main` publica el artefacto y despliega mediante OIDC. Se eliminó el workflow duplicado.
+- [x] Añadir verificación posterior al despliegue contra `/health/live` para no reportar como sano
+      un release que sólo terminó de copiar archivos.
+- [x] Generar secretos productivos nuevos para RSA, HMAC y MFA, además de un certificado PKCS#12
+      para Data Protection; almacenarlos como referencias separadas de Key Vault sin reutilizar
+      ningún valor local.
+- [x] Configurar hosts/orígenes exactos, deshabilitar Google hasta contar con un Client ID real,
+      habilitar el perfil de usuario requerido por App Service Windows para la llave privada y usar
+      Azure SQL como backend del rate limiting distribuido. `/health/live` responde HTTP 200.
+- [x] Verificar desde el worker de App Service que el token de identidad administrada entra a SQL
+      como `authcenter-app` con lectura/escritura; un login inválido devuelve 401, no un error 500.
+- [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
+      administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.

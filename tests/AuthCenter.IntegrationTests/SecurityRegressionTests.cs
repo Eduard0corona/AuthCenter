@@ -28,13 +28,14 @@ public sealed class SecurityRegressionTests : IClassFixture<AuthCenterWebApplica
     {
         var (email, password) = await CreateUserAsync(_factory);
         using var client = _factory.CreateClient();
+        var wrongPassword = TestSecretGenerator.CreatePassword();
 
         for (var attempt = 0; attempt < 5; attempt++)
         {
             var failed = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest
             {
                 Email = email,
-                Password = "DefinitelyWrong123",
+                Password = wrongPassword,
                 ApplicationCode = "AUTHCENTER"
             });
             Assert.Equal(HttpStatusCode.Unauthorized, failed.StatusCode);
@@ -88,7 +89,7 @@ public sealed class SecurityRegressionTests : IClassFixture<AuthCenterWebApplica
     private static async Task<(string Email, string Password)> CreateUserAsync(WebApplicationFactory<Program> factory)
     {
         var email = $"security-{Guid.NewGuid():N}@example.com";
-        const string password = "SecurityUser12345";
+        var password = TestSecretGenerator.CreatePassword();
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
