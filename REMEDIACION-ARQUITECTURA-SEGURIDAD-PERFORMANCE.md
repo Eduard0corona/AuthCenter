@@ -1,7 +1,7 @@
 # Remediación integral de arquitectura, seguridad, performance y escalabilidad
 
 Registro vivo de la remediación realizada en la rama
-`fix/comprehensive-security-architecture-hardening`. Todos los puntos detectados quedaron
+`feat/aaa-hardening`. Todos los puntos detectados quedaron
 implementados y verificados. Las casillas se marcaron únicamente después de contar con validación
 automatizada o una comprobación equivalente.
 
@@ -66,7 +66,7 @@ automatizada o una comprobación equivalente.
 - [x] Ejecutar migraciones y pruebas relacionales reales contra SQL Server/LocalDB.
 - [x] Probar Data Protection y rate limiting compartidos entre instancias/contextos distintos.
 - [x] Ejecutar build Release sin advertencias: **0 errores, 0 advertencias**.
-- [x] Ejecutar pruebas: **47 unitarias + 83 de integración/relacionales = 130 aprobadas**.
+- [x] Ejecutar pruebas: **51 unitarias + 90 de integración/relacionales = 141 aprobadas**.
 - [x] Verificar paquetes vulnerables: **ninguna vulnerabilidad conocida**.
 - [x] Verificar paquetes desactualizados: **ninguna actualización directa disponible**.
 
@@ -112,3 +112,25 @@ relacional aplicó la cadena completa de migraciones sobre una base nueva y la e
       como `authcenter-app` con lectura/escritura; un login inválido devuelve 401, no un error 500.
 - [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
       administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.
+
+## Refinamiento AAA de OAuth/OIDC (2026-08-10)
+
+Este ciclo eleva AuthCenter como servicio de **autenticación, autorización y auditoría** para
+clientes externos. Los controles se basan en OAuth 2.0 Security BCP (RFC 9700), PKCE (RFC 7636),
+revocación (RFC 7009) y OpenID Connect Core.
+
+- [x] Relacionar obligatoriamente cada `OAuthClient` con un `ApplicationSystem` activo mediante FK.
+- [x] Exigir acceso activo del usuario a la aplicación durante consentimiento, canje y renovación.
+- [x] Emitir en tokens OAuth el código de aplicación y sus roles/permisos vigentes, respetando scopes.
+- [x] Validar scopes de forma exacta y rechazar combinaciones incompatibles con cada grant.
+- [x] Exigir PKCE `S256` y validar sintaxis/longitud de challenge y verifier sin permitir downgrade.
+- [x] Aplicar `AutoConsent` y exponer metadatos seguros de la interacción para la UI de login.
+- [x] Devolver errores de autorización al redirect registrado con `state` e identificador de issuer.
+- [x] Admitir autenticación confidencial `client_secret_basic` además de `client_secret_post`.
+- [x] Implementar revocación OAuth y publicarla en discovery.
+- [x] Rotar refresh tokens OAuth con familia, expiración absoluta y detección de reutilización.
+- [x] Auditar altas/cambios/rotaciones de clientes y eventos sensibles de autorización/token.
+- [x] Completar pruebas positivas de Microsoft y Apple mediante proveedores/JWKS controlados.
+- [x] Actualizar documentación de integración, migración y operación segura.
+- [x] Validar build, pruebas, formato, dependencias y escaneo de secretos sin hallazgos nuevos:
+      **0 advertencias, 141/141 pruebas, 0 advisories NuGet y 0 fugas en el diff staged**.

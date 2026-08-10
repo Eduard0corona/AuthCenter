@@ -28,7 +28,14 @@ public interface ITokenService
 
     string HashToken(string token);
 
-    string GenerateOAuthAccessToken(ApplicationUser? user, string clientId, IList<string> scopes, int lifetimeSeconds);
+    string GenerateOAuthAccessToken(
+        ApplicationUser? user,
+        string clientId,
+        string applicationCode,
+        IList<string> scopes,
+        IList<string> roles,
+        IList<string> permissions,
+        int lifetimeSeconds);
     string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes);
     string GetJwks();
 

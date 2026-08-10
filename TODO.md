@@ -53,8 +53,7 @@ change, the full OAuth/OIDC surface, key rotation, account self-service (session
 devices, linked providers, email change, deletion), roles and permissions, and GitHub login
 against a stubbed provider API.
 
-Remaining gaps are the ones that cannot be reached without a real provider:
+Provider validation no longer depends on live third parties in tests:
 
-- [ ] Microsoft and Apple login only have negative cases. Both validate a signed ID token, so a
-      positive test needs either a stubbed JWKS endpoint or a fake token signed by a key the
-      service is configured to trust.
+- [x] Microsoft single-tenant, Microsoft multi-tenant and Apple have positive RS256 cases against
+      controlled OpenID configuration/JWKS data; Apple also retains an unverified-email regression.

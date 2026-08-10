@@ -2,6 +2,8 @@ namespace AuthCenter.Application.Models;
 
 public class OAuthAuthorizationSession
 {
+    public Guid ApplicationSystemId { get; init; }
+    public string ApplicationCode { get; init; } = string.Empty;
     public string ClientId { get; init; } = string.Empty;
     public string RedirectUri { get; init; } = string.Empty;
     public IList<string> Scopes { get; init; } = [];

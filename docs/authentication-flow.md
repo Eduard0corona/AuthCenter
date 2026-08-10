@@ -88,3 +88,67 @@ Client -> POST /api/auth/refresh-token
 3. PermissionPolicyProvider creates a PermissionRequirement from the policy name.
 4. PermissionAuthorizationHandler checks the permissions claim.
 ```
+
+## OAuth 2.0 / OpenID Connect authorization code
+
+Each OAuth client is attached to one `ApplicationSystem`. Register the application first, then
+create the client with its `applicationSystemId`, exact redirect URIs, exact scopes and grant
+types. Public and browser/mobile clients must never receive or persist a client secret.
+
+```
+Client -> GET /oauth/authorize
+          ?response_type=code
+          &client_id=<registered-client>
+          &redirect_uri=<exact-registered-uri>
+          &scope=openid email offline_access
+          &state=<unpredictable-client-state>
+          &nonce=<unpredictable-login-nonce>
+          &code_challenge=<base64url-sha256-verifier>
+          &code_challenge_method=S256
+
+1. AuthCenter validates client, application, redirect URI, response type, exact scopes, state,
+   nonce and PKCE before creating a short-lived interaction.
+2. AuthCenter redirects to the registered client login URL with only `interaction_id`.
+3. After signing in, the consent UI calls authenticated
+   GET /oauth/interactions/{interactionId} to render application name and requested scopes.
+4. The UI posts `{ interactionId, consent }` to /oauth/authorize/complete.
+5. AuthCenter verifies active user and application access and redirects to the exact callback with
+   `code`, original `state` and `iss`. Protocol errors use the same callback only after its URI is
+   trusted; client/redirect errors are never redirected.
+6. The client exchanges the single-use code at /oauth/token with the original verifier. A
+   confidential client authenticates with HTTP Basic or form credentials; a public client sends
+   only client_id.
+7. The access token contains application-scoped roles and permissions. `email` and `name` appear
+   only when their scopes permit them.
+8. `offline_access` creates a rotating refresh-token family with a fixed absolute expiration.
+   Reuse of an old member revokes the entire family.
+```
+
+The client must compare returned `state`, validate the ID token signature/issuer/audience/expiry,
+and compare `nonce`. Never log authorization codes, client secrets, access tokens, refresh tokens,
+PKCE verifiers or ID tokens.
+
+## OAuth client credentials
+
+This grant is only for confidential service identities and does not represent a user. Register a
+client with only `client_credentials` and machine scopes; `openid` and `offline_access` are not
+valid here. Authenticate to `/oauth/token` with `Authorization: Basic base64(client_id:secret)`.
+The returned token contains the linked application claim but no user, roles, permissions or
+UserInfo subject.
+
+## OAuth refresh and revocation
+
+Send a refresh token only to `/oauth/token` with `grant_type=refresh_token`. Store it in a secure,
+server-side or platform-protected location. Each successful use replaces it. To sign out or react
+to suspected compromise, call `/oauth/revoke`; AuthCenter returns success even for an unknown token
+and revokes the known token's entire family. Already-issued stateless access tokens remain valid
+until their short expiration, so sensitive consumers should keep access-token lifetimes small.
+
+## Migration and rollout
+
+Migration `LinkOAuthClientsToApplicationsAndHardenRefreshFamilies` adds the required application
+foreign key and refresh-family metadata. During rollout it maps existing clients by exact
+application code or by a `<application-code>-`/`<application-code>_` client-id prefix, preferring
+the longest matching application code. It aborts instead of guessing when any legacy client cannot
+be mapped. Review client/application mappings before deployment and apply migrations using the
+database deployment identity; the App Service runtime identity intentionally has no DDL rights.

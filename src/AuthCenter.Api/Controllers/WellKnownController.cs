@@ -32,6 +32,7 @@ public class WellKnownController : ControllerBase
             issuer,
             authorization_endpoint = $"{baseUrl}/oauth/authorize",
             token_endpoint = $"{baseUrl}/oauth/token",
+            revocation_endpoint = $"{baseUrl}/oauth/revoke",
             userinfo_endpoint = $"{baseUrl}/oauth/userinfo",
             jwks_uri = $"{baseUrl}/.well-known/jwks.json",
             scopes_supported = new[] { "openid", "profile", "email", "offline_access" },
@@ -39,7 +40,10 @@ public class WellKnownController : ControllerBase
             grant_types_supported = new[] { "authorization_code", "client_credentials", "refresh_token" },
             subject_types_supported = new[] { "public" },
             id_token_signing_alg_values_supported = new[] { "RS256" },
-            token_endpoint_auth_methods_supported = new[] { "client_secret_post", "none" }
+            token_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
+            revocation_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
+            code_challenge_methods_supported = new[] { "S256" },
+            authorization_response_iss_parameter_supported = true
         };
         return Ok(discovery);
     }

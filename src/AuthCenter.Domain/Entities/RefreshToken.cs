@@ -15,6 +15,8 @@ public class RefreshToken
 
     public string? OAuthClientId { get; set; }
     public string? GrantedScopes { get; set; }
+    public Guid? TokenFamilyId { get; set; }
+    public DateTime? AbsoluteExpiresAt { get; set; }
 
     public bool IsActive => RevokedAt is null && DateTime.UtcNow < ExpiresAt;
 

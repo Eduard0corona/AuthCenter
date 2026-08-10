@@ -19,6 +19,12 @@ public class OAuthClientConfiguration : IEntityTypeConfiguration<OAuthClient>
         builder.Property(c => c.CreatedAt).IsRequired();
 
         builder.HasIndex(c => c.ClientId).IsUnique();
+        builder.HasIndex(c => c.ApplicationSystemId);
+
+        builder.HasOne(c => c.ApplicationSystem)
+            .WithMany(a => a.OAuthClients)
+            .HasForeignKey(c => c.ApplicationSystemId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(c => c.AuthorizationCodes)
             .WithOne(a => a.OAuthClient)

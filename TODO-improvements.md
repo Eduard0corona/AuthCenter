@@ -20,37 +20,30 @@ doing first.
       container (no HTTPS port configured, verified against the Compose stack); with forwarded
       headers now honoured, configuring one no longer risks a redirect loop.
 
-- [ ] Rate limiters are in-memory, so limits multiply by instance count. Needs a distributed
-      limiter once there is more than one instance.
+- [x] Production rate limiting uses serializable SQL buckets shared by every instance; the
+      in-memory limiter is restricted to development and testing.
 
 ## Security
 
 - [x] Rate limited `/oauth/token`, deliberately looser than the interactive endpoints because a
       machine client legitimately exchanges tokens in bursts.
 - [x] `client_secret` is now compared with `CryptographicOperations.FixedTimeEquals`.
-- [ ] Access tokens cannot be revoked. Revoking a session only kills the refresh token; the access
-      token stays valid for up to 15 minutes. This is inherent to stateless JWTs and is probably
-      the right trade-off, but `DELETE /api/auth/sessions` implies an immediacy it does not
-      deliver — decide and document it, or add a `jti` revocation list checked in middleware.
-- [ ] No global query filter for `DeletedAt`. It works because every query remembers to filter
-      (`UserAccessService.cs:40`), but it only has to be forgotten once to expose deleted accounts.
-- [ ] `/health` is anonymous and reports database status. Minor disclosure; move it to an internal
-      port or authenticate it.
+- [x] First-party access tokens include `sid` and validate their active session on every request,
+      so session revocation is immediate. OAuth access tokens remain deliberately stateless, use a
+      15-minute default (one-hour maximum), and UserInfo rechecks client, user and application
+      access; this behavior is explicitly documented.
+- [x] `ApplicationUser` has a global `DeletedAt` query filter.
+- [x] `/health/live` exposes no dependencies, while SQL readiness is registered only for an
+      explicitly configured administration host.
 
 ## Performance and resilience
 
 - [x] Enabled `EnableRetryOnFailure` with a 30s command timeout on both the scoped context and the
       context factory.
-- [ ] Nothing prunes the append-only tables. There is no `BackgroundService` in the project, so
-      `RefreshTokens`, `OAuthAuthorizationCodes`, `UserTrustedDevices` and `AuditLogs` grow without
-      bound; revoked tokens and expired codes are never deleted. `RefreshTokens` is the one that
-      degrades first under real traffic. (`TransientStates` is exempt: it sweeps itself.)
-- [ ] User search causes a table scan. `UserAccessService.cs:48` uses `Contains`, which becomes
-      `LIKE '%x%'` — not sargable, so the `IX_AspNetUsers_FullName` index cannot be used. Fine at
-      small scale. `StartsWith` would use the index if prefix search is acceptable; otherwise this
-      needs full-text search.
-- [ ] Serilog writes to a file in production (`appsettings.json:46-53`). In a container those logs
-      are ephemeral and add disk I/O per request. Console only is the usual container setup.
+- [x] `RetentionCleanupService` prunes refresh tokens, authorization codes, trusted devices,
+      audit logs, outbox records, transient state and distributed rate-limit buckets in batches.
+- [x] User search uses indexable prefixes over `FullName` and `NormalizedEmail`.
+- [x] Serilog writes to console only; there is no production file sink.
 - [x] Split the health endpoint into `/health/live`, which carries no dependencies, and
       `/health/ready`, which reports SQL Server. `/health` is unchanged.
 
@@ -60,14 +53,14 @@ doing first.
 
 ## Structure
 
-- [ ] `AuthService` is a 977-line god class with 18 dependencies, covering registration, password
-      login, four social providers, MFA orchestration, magic links, password reset and forced
-      password change. The next largest file is 543 lines. Splittable by use case without changing
-      the public API.
-- [ ] Application logic lives in Infrastructure. `AuthCenter.Application` holds only interfaces,
-      validators and models, so business rules cannot be tested without EF Core and Identity —
-      which is why all coverage of these flows is integration rather than unit. Worth addressing
-      only if test speed starts to hurt.
+- [x] `AuthService` remains the compatibility coordinator, while session issuance, tokens, MFA,
+      application access, roles, providers, external links, action links, account management and
+      durable effects are delegated to focused services. Further mechanical file splitting would
+      redistribute the coordinator without reducing its remaining coupling.
+- [x] EF Core and Identity use-case implementations deliberately remain in Infrastructure behind
+      Application interfaces. Pure validation stays in Application, and the 141-test suite runs in
+      seconds; moving framework adapters inward would violate the dependency rule without improving
+      test feedback.
 
 ## Verified as already sound
 

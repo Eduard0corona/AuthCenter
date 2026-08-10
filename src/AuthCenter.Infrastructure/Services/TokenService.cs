@@ -75,7 +75,14 @@ public class TokenService : ITokenService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public string GenerateOAuthAccessToken(ApplicationUser? user, string clientId, IList<string> scopes, int lifetimeSeconds)
+    public string GenerateOAuthAccessToken(
+        ApplicationUser? user,
+        string clientId,
+        string applicationCode,
+        IList<string> scopes,
+        IList<string> roles,
+        IList<string> permissions,
+        int lifetimeSeconds)
     {
         var creds = GetRsaSigningCredentials();
 
@@ -83,13 +90,25 @@ public class TokenService : ITokenService
         {
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new("client_id", clientId),
-            new("scope", string.Join(" ", scopes))
+            new("scope", string.Join(" ", scopes)),
+            new(DomainConstants.Claims.Applications, applicationCode)
         };
 
         if (user is not null)
         {
             claims.Add(new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()));
-            claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email!));
+
+            if (scopes.Contains(DomainConstants.OAuthScopes.Email))
+                claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email!));
+
+            if (scopes.Contains(DomainConstants.OAuthScopes.Profile))
+                claims.Add(new Claim(JwtRegisteredClaimNames.Name, user.FullName));
+
+            foreach (var role in roles)
+                claims.Add(new Claim(ClaimTypes.Role, role));
+
+            foreach (var permission in permissions)
+                claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
         }
 
         var token = new JwtSecurityToken(
