@@ -15,4 +15,5 @@ public class ApplicationSystem
     public ApplicationRegistrationSettings? RegistrationSettings { get; set; }
     public ICollection<ApplicationRole> Roles { get; set; } = new List<ApplicationRole>();
     public ICollection<OAuthClient> OAuthClients { get; set; } = new List<OAuthClient>();
+    public ICollection<GroupApplicationAssignment> GroupAssignments { get; set; } = new List<GroupApplicationAssignment>();
 }

@@ -41,7 +41,7 @@ y evidencia de operación.
 
 ### Fase 1 — Directorio, grupos y políticas
 
-- [ ] Crear grupos y membresías auditables, con asignación de grupos a aplicaciones y roles.
+- [x] Crear grupos y membresías auditables, con asignación de grupos a aplicaciones y roles.
 - [ ] Añadir atributos de perfil extensibles con esquema, tipo, obligatoriedad y validación.
 - [ ] Implementar políticas versionadas y ordenadas con deny-by-default.
 - [ ] Evaluar reglas por usuario, grupo, aplicación, red, horario y contexto de autenticación.
