@@ -82,4 +82,8 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   and CIDR conditions. The first matching rule controls allow/deny and MFA behavior; if rules exist
   and none match, access is denied. Policy mutations revoke all sessions for the application and are
   audited atomically with the rule mutation.
+- **Passkeys**: ASP.NET Core Identity WebAuthn validates exact RP/origin, challenge, signature,
+  user-verification flags and replay counter. Ceremony application context is single-use and
+  distributed; verified assertions issue the same application-scoped JWT/refresh sessions as other
+  authentication methods and satisfy an MFA policy without weakening its assurance.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.
