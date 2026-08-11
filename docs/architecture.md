@@ -78,8 +78,13 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
 - **Effective group entitlements**: group membership grants access only through an explicit
   application assignment; group roles must belong to that application. Role and permission queries
   union direct and group-derived entitlements, and entitlement changes revoke affected sessions.
-- **Fail-closed application policies**: active rules are evaluated by priority using optional group
-  and CIDR conditions. The first matching rule controls allow/deny and MFA behavior; if rules exist
-  and none match, access is denied. Policy mutations revoke all sessions for the application and are
-  audited atomically with the rule mutation.
+- **Universal directory profiles**: stable custom-attribute definitions own type and bounded
+  validation constraints. Values are canonical JSON linked by definition/user, required attributes
+  always have a valid default, and incompatible schema edits are rejected before existing data can
+  be invalidated.
+- **Versioned fail-closed application policies**: one editable draft per application is isolated
+  from runtime. Published versions are immutable and rules evaluate user, group, CIDR, UTC schedule,
+  risk and assurance in priority order. Publishing atomically archives the previous version, audits
+  the transition and revokes sessions. The same evaluator powers an administrative dry-run with
+  per-rule explanations, so simulation and production cannot drift.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

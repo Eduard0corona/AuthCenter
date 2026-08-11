@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +16,56 @@ namespace AuthCenter.IntegrationTests;
 
 public sealed class SqlServerHardeningTests
 {
+    [Fact]
+    public async Task Phase1Migration_PreservesExistingRulesAsPublishedVersion()
+    {
+        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
+            return;
+
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            await using var db = new AuthCenterDbContext(options);
+            var migrator = db.Database.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260810160017_AddApplicationAccessPolicies");
+
+            var applicationId = Guid.NewGuid();
+            var ruleId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            await db.Database.ExecuteSqlInterpolatedAsync($$"""
+                INSERT INTO dbo.ApplicationSystems
+                    (Id, Code, Name, Description, IsActive, CreatedAt, UpdatedAt)
+                VALUES
+                    ({{applicationId}}, 'MIGRATION_TEST', 'Migration test', NULL, 1, {{now}}, NULL);
+
+                INSERT INTO dbo.ApplicationAccessPolicyRules
+                    (Id, ApplicationSystemId, DirectoryGroupId, Name, Priority, Action,
+                     MfaRequirement, AllowTrustedDeviceBypass, IncludedIpCidrsJson,
+                     ExcludedIpCidrsJson, IsActive, CreatedAt, UpdatedAt)
+                VALUES
+                    ({{ruleId}}, {{applicationId}}, NULL, 'Existing allow', 100, 'Allow',
+                     'Optional', 1, NULL, NULL, 1, {{now}}, NULL);
+                """);
+
+            await migrator.MigrateAsync();
+            db.ChangeTracker.Clear();
+
+            var migratedRule = await db.ApplicationAccessPolicyRules
+                .Include(rule => rule.PolicyVersion)
+                .SingleAsync(rule => rule.Id == ruleId);
+            Assert.NotEqual(Guid.Empty, migratedRule.PolicyVersionId);
+            Assert.Equal(1, migratedRule.PolicyVersion.VersionNumber);
+            Assert.Equal(AuthCenter.Domain.Enums.AccessPolicyVersionStatus.Published, migratedRule.PolicyVersion.Status);
+            Assert.Equal(AuthCenter.Domain.Enums.AuthenticationAssuranceLevel.Password, migratedRule.RequiredAssuranceLevel);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
     [Fact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {

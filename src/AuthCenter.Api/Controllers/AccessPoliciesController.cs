@@ -22,8 +22,46 @@ public class AccessPoliciesController : ControllerBase
 
     [HttpGet("applications/{applicationSystemId:guid}")]
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesRead)]
-    public async Task<IActionResult> GetByApplication(Guid applicationSystemId, CancellationToken ct) =>
-        Ok(ApiResponse<object>.Ok(await _policies.GetByApplicationAsync(applicationSystemId, ct)));
+    public async Task<IActionResult> GetByApplication(
+        Guid applicationSystemId,
+        [FromQuery] Guid? policyVersionId,
+        CancellationToken ct) =>
+        Ok(ApiResponse<object>.Ok(await _policies.GetByApplicationAsync(applicationSystemId, policyVersionId, ct)));
+
+    [HttpGet("applications/{applicationSystemId:guid}/versions")]
+    [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesRead)]
+    public async Task<IActionResult> GetVersions(Guid applicationSystemId, CancellationToken ct) =>
+        Ok(ApiResponse<object>.Ok(await _policies.GetVersionsAsync(applicationSystemId, ct)));
+
+    [HttpPost("applications/{applicationSystemId:guid}/drafts")]
+    [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
+    public async Task<IActionResult> CreateDraft(Guid applicationSystemId, CancellationToken ct)
+    {
+        var result = await _policies.CreateDraftAsync(applicationSystemId, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    [HttpPost("applications/{applicationSystemId:guid}/versions/{policyVersionId:guid}/publish")]
+    [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
+    public async Task<IActionResult> Publish(Guid applicationSystemId, Guid policyVersionId, CancellationToken ct)
+    {
+        var result = await _policies.PublishAsync(applicationSystemId, policyVersionId, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    [HttpPost("simulate")]
+    [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesRead)]
+    public async Task<IActionResult> Simulate(SimulateAccessPolicyRequest request, CancellationToken ct)
+    {
+        var result = await _policies.SimulateAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
 
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]

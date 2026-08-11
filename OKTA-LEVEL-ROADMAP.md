@@ -17,8 +17,8 @@ y evidencia de operación.
 | Área | Estado actual | Objetivo de producto | Estado |
 |---|---|---|---|
 | OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación | Interoperabilidad completa, PAR, Device Authorization, introspección y token exchange cuando exista un consumidor real | Fundación lista |
-| Directorio universal | Usuarios, aplicaciones, roles y permisos fijos | Grupos, perfiles/esquemas extensibles, atributos y reglas de membresía | Pendiente |
-| Políticas de acceso | Reglas ordenadas por aplicación, grupo y red; allow/deny, MFA y fail-closed | Motor versionado con horario, riesgo, assurance y simulación antes de publicar | Parcial |
+| Directorio universal | Usuarios, grupos, membresías, perfiles tipados y asignaciones efectivas | Reglas dinámicas de membresía y mappings en Fase 4 | Fase 1 lista |
+| Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
 | Autenticadores | Password, TOTP, email OTP, magic link y backup codes | Passkeys/WebAuthn phishing-resistant, enrollment policy, recuperación y step-up | Pendiente |
 | Federación | Google, Microsoft, GitHub y Apple implementados directamente | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Pendiente |
 | Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
@@ -42,12 +42,12 @@ y evidencia de operación.
 ### Fase 1 — Directorio, grupos y políticas
 
 - [x] Crear grupos y membresías auditables, con asignación de grupos a aplicaciones y roles.
-- [ ] Añadir atributos de perfil extensibles con esquema, tipo, obligatoriedad y validación.
+- [x] Añadir atributos de perfil extensibles con esquema, tipo, obligatoriedad y validación.
 - [x] Implementar reglas ordenadas por aplicación con allow/deny y deny-by-default al existir reglas activas.
 - [x] Evaluar condiciones por usuario, grupo, aplicación y rangos de red IPv4/IPv6.
 - [x] Aplicar MFA obligatorio y controlar si un dispositivo confiable puede omitir el desafío.
-- [ ] Versionar borradores/publicaciones y evaluar horario, riesgo y assurance de autenticación.
-- [ ] Añadir endpoint de simulación y explicación de decisiones antes de publicar una política.
+- [x] Versionar borradores/publicaciones y evaluar horario, riesgo y assurance de autenticación.
+- [x] Añadir endpoint de simulación y explicación de decisiones antes de publicar una política.
 - [x] Invalidar sesiones/claims cuando cambien membresías, roles o políticas relevantes.
 
 ### Fase 2 — Passkeys y autenticación adaptable

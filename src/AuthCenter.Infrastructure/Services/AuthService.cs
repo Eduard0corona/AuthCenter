@@ -562,6 +562,32 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("INVALID_MFA_CODE", "The MFA code is invalid.");
         }
 
+        // Re-evaluate the published policy after step-up. A policy may have been published or a
+        // time window may have closed while the MFA ceremony was in progress.
+        var postMfaPolicy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
+            user.Id,
+            appSystem.Id,
+            ipAddress,
+            _dateTimeProvider.UtcNow,
+            AccessRiskLevel.Unknown,
+            AuthenticationAssuranceLevel.Mfa), ct);
+        if (!postMfaPolicy.IsAllowed)
+        {
+            await _auditService.LogAsync(
+                "ACCESS_POLICY_DENIED_AFTER_MFA",
+                user.Id,
+                appSystem.Code,
+                nameof(ApplicationAccessPolicyRule),
+                postMfaPolicy.MatchedRuleId?.ToString(),
+                ipAddress,
+                userAgent,
+                new { postMfaPolicy.MatchedRuleName },
+                ct);
+            return OperationResult<AuthResponse>.Failure(
+                "ACCESS_POLICY_DENIED",
+                "Sign-in is denied by the application's access policy.");
+        }
+
         user.LastLoginAt = _dateTimeProvider.UtcNow;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);

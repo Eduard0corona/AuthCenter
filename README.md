@@ -303,27 +303,55 @@ stale entitlements.
 A group role is valid only after the role's application is assigned explicitly to the same group.
 Removing an application also removes every group-role assignment for that application.
 
-### Application access policies
+### Universal directory profile schema
 
-Access-policy rules are evaluated in ascending priority for each application. A rule can target an
-active directory group and IPv4/IPv6 CIDR ranges, allow or deny sign-in, require MFA, and decide
-whether a trusted device may bypass the MFA challenge. Applications without active rules preserve
-the existing allow behavior; once at least one active rule exists, requests that match no rule are
-denied. Include an explicit catch-all allow rule when that is the desired fallback.
-
-Creating, updating, or deleting a rule revokes every active session for the affected application so
-that a stale token cannot retain a previous policy decision. Policy denials are written to the audit
-log without storing credentials or raw tokens.
+Custom profile attributes are global, stable-key schema definitions. Supported types are `String`,
+`Integer`, `Decimal`, `Boolean`, `Date`, and `DateTime`; definitions can enforce required/default
+values, string length and a bounded non-backtracking regular expression, numeric ranges, and an
+allow-list. Required attributes must have a valid default so publishing a schema change cannot make
+every existing user invalid. Values are stored as canonical JSON and audit events contain changed
+keys, never profile values.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/access-policies/applications/{applicationId}` | List rules in evaluation order |
-| POST | `/api/access-policies` | Create a policy rule |
-| PUT | `/api/access-policies/{ruleId}` | Replace a policy rule |
-| DELETE | `/api/access-policies/{ruleId}` | Delete a policy rule |
+| GET | `/api/profile-schema` | List active definitions (`includeInactive=true` includes retired definitions) |
+| POST | `/api/profile-schema` | Create a typed attribute definition |
+| PUT | `/api/profile-schema/{definitionId}` | Update constraints after validating every existing value |
+| DELETE | `/api/profile-schema/{definitionId}` | Retire a definition without destroying stored values |
+| GET | `/api/users/{userId}/profile` | Read effective explicit/default profile values |
+| PUT | `/api/users/{userId}/profile` | Validate and replace the submitted custom values atomically |
+
+Schema administration requires `AUTHCENTER_PROFILE_SCHEMAS_READ` or
+`AUTHCENTER_PROFILE_SCHEMAS_WRITE`; user profile values retain the existing
+`AUTHCENTER_USERS_READ`/`AUTHCENTER_USERS_WRITE` boundary.
+
+### Application access policies
+
+Access-policy rules are evaluated in ascending priority inside an immutable published version. A
+rule can target a user, active group, IPv4/IPv6 ranges, UTC validity dates/days/daily windows and a
+risk range; it can allow or deny sign-in and require password or MFA assurance. Applications without
+a published policy (or with no active published rules) preserve allow-by-default. Once active rules
+exist, a request that matches none is denied.
+
+Edits happen only in one draft per application and do not affect sign-in or active sessions. A new
+draft clones the published version. Publishing atomically archives the old version and revokes every
+session for that application; published/archived rules are immutable. Administrators can simulate a
+draft at an explicit user, IP, UTC timestamp, risk and assurance level and receive a reason for every
+rule before publishing. Audit data contains policy metadata, never credentials or raw tokens.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/access-policies/applications/{applicationId}` | List draft rules, or published rules when no draft exists |
+| GET | `/api/access-policies/applications/{applicationId}/versions` | List immutable version history |
+| POST | `/api/access-policies/applications/{applicationId}/drafts` | Get or create the single editable draft |
+| POST | `/api/access-policies` | Add a rule to the requested draft version |
+| PUT | `/api/access-policies/{ruleId}` | Replace a draft rule |
+| DELETE | `/api/access-policies/{ruleId}` | Delete a draft rule |
+| POST | `/api/access-policies/applications/{applicationId}/versions/{versionId}/publish` | Publish a draft and revoke stale sessions |
+| POST | `/api/access-policies/simulate` | Explain a draft or published decision without changing state |
 
 Administrative access requires `AUTHCENTER_ACCESS_POLICIES_READ` or
-`AUTHCENTER_ACCESS_POLICIES_WRITE`. Priorities are unique within an application, range from 1 to
+`AUTHCENTER_ACCESS_POLICIES_WRITE`. Priorities are unique within a policy version, range from 1 to
 10000, and lower numbers are evaluated first. Each included/excluded network condition accepts up
 to 50 CIDR ranges. To prevent locking every administrator out of the identity control plane,
 `AUTHCENTER` must always retain an active unconditional `Allow` fallback whenever it has active

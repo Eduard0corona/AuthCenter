@@ -104,6 +104,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IExternalIdentityLinkService, ExternalIdentityLinkService>();
         services.AddScoped<IDirectoryGroupService, DirectoryGroupService>();
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
+        services.AddScoped<IUserProfileService, UserProfileService>();
 
         return services;
     }
