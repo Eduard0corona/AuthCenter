@@ -58,7 +58,9 @@ jobs:
         with:
           node-version: '24.x'
           cache: npm
-          cache-dependency-path: sdk/typescript/package-lock.json
+          cache-dependency-path: |
+            sdk/typescript/package-lock.json
+            src/AuthCenter.Admin/package-lock.json
 
       - name: Restore dependencies
         run: dotnet restore
@@ -71,6 +73,18 @@ jobs:
             sleep 2
           done
           exit 1
+
+      - name: Admin frontend quality gates
+        working-directory: src/AuthCenter.Admin
+        run: npm ci && npm audit --audit-level=high && npm run lint && npm run typecheck && npm test && npm run build
+
+      - name: Install admin E2E browser
+        working-directory: src/AuthCenter.Admin
+        run: npx playwright install --with-deps chromium
+
+      - name: Admin frontend E2E and accessibility
+        working-directory: src/AuthCenter.Admin
+        run: npm run test:e2e
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
@@ -105,7 +119,7 @@ jobs:
 
       - name: Publish deployment artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj --configuration Release --no-build --output "${{ runner.temp }}/authcenter-publish"
+        run: dotnet publish src/AuthCenter.Api/AuthCenter.Api.csproj --configuration Release --no-build -p:SkipAdminFrontendBuild=true --output "${{ runner.temp }}/authcenter-publish"
 
       - name: Upload deployment artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -197,3 +211,19 @@ jobs:
               exit 1
             fi
           done
+
+          admin_v2_html="$(curl --fail --silent --show-error --max-time 20 "${APP_URL%/}/admin-v2/")"
+          admin_v2_asset="$(grep --only-matching --max-count=1 '/admin-v2/assets/[^\" ]*\.js' <<< "$admin_v2_html")"
+          if [ -z "$admin_v2_asset" ]; then
+            echo "The admin-v2 document does not reference a hashed JavaScript asset." >&2
+            exit 1
+          fi
+          asset_headers="$(curl --fail --silent --show-error --compressed --header 'Accept-Encoding: br, gzip' --dump-header - --output /dev/null --max-time 20 "${APP_URL%/}${admin_v2_asset}")"
+          if ! grep --quiet --ignore-case '^cache-control: .*immutable' <<< "$asset_headers"; then
+            echo "The admin-v2 asset is not served with immutable caching." >&2
+            exit 1
+          fi
+          if ! grep --quiet --ignore-case '^content-encoding: \(br\|gzip\)' <<< "$asset_headers"; then
+            echo "The admin-v2 asset is not served with Brotli or Gzip compression." >&2
+            exit 1
+          fi

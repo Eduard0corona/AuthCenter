@@ -28,6 +28,26 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>AuthCenter.Api.Development</UserSecretsId>
+    <AdminFrontendRoot>$(MSBuildProjectDirectory)\..\AuthCenter.Admin</AdminFrontendRoot>
   </PropertyGroup>
+
+  <Target Name="BuildAdminFrontend" BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(SkipAdminFrontendBuild)' != 'true' and Exists('$(AdminFrontendRoot)\package-lock.json')">
+    <Exec WorkingDirectory="$(AdminFrontendRoot)" Command="npm ci" />
+    <Exec WorkingDirectory="$(AdminFrontendRoot)" Command="npm run build" />
+  </Target>
+
+  <Target Name="IncludeAdminFrontendInPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="BuildAdminFrontend"
+          Condition="Exists('$(AdminFrontendRoot)\dist\index.html')">
+    <ItemGroup>
+      <_AdminFrontendAsset Include="$(AdminFrontendRoot)\dist\**\*" />
+      <ResolvedFileToPublish Include="@(_AdminFrontendAsset)">
+        <RelativePath>wwwroot\admin-v2\%(_AdminFrontendAsset.RecursiveDir)%(_AdminFrontendAsset.Filename)%(_AdminFrontendAsset.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 
 </Project>
