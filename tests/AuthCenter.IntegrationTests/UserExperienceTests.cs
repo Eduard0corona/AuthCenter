@@ -39,6 +39,7 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
         var response = await client.GetAsync(path);
 
         response.EnsureSuccessStatusCode();
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         Assert.True(response.Headers.TryGetValues("Content-Security-Policy", out var values));
         Assert.Contains(values, value => value.Contains("default-src 'self'", StringComparison.Ordinal));
         Assert.Contains(values, value => value.Contains("frame-ancestors 'none'", StringComparison.Ordinal));

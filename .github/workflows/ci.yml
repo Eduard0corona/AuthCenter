@@ -177,6 +177,10 @@ jobs:
           for ui_path in login portal admin login.html portal.html admin.html; do
             headers="$(curl --silent --show-error --dump-header - --output /dev/null \
               --max-time 20 "${APP_URL%/}/${ui_path}")"
+            if ! grep --quiet --ignore-case '^content-type: text/html' <<< "$headers"; then
+              echo "The ${ui_path} UI document is not served as text/html." >&2
+              exit 1
+            fi
             if ! grep --quiet --ignore-case '^content-security-policy:' <<< "$headers"; then
               echo "The ${ui_path} UI document is missing Content-Security-Policy." >&2
               exit 1
