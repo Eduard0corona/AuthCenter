@@ -85,6 +85,17 @@ jobs:
         working-directory: sdk/typescript
         run: npm ci && npm test
 
+      - name: Pack .NET integration SDK
+        run: dotnet pack sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj --configuration Release --no-build --output "${{ runner.temp }}/sdk-packages"
+
+      - name: Upload .NET integration SDK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: authcenter-dotnet-sdk
+          path: ${{ runner.temp }}/sdk-packages/*.nupkg
+          if-no-files-found: error
+          retention-days: 7
+
       - name: SPA quickstart
         working-directory: samples/spa
         run: npm ci && npm run build
