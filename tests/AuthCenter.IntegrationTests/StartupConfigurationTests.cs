@@ -79,6 +79,8 @@ public class StartupConfigurationTests
             ["DataProtection:ApplicationName"] = "AuthCenter.Tests",
             ["DataProtection:KeyEncryptionCertificateBase64"] = CreateCertificateBase64(),
             ["Mfa:EncryptionKey"] = "startup-test-mfa-encryption-key-32chars",
+            ["Passkeys:RelyingPartyId"] = "authcenter.example.com",
+            ["Passkeys:AllowedOrigins:0"] = "https://authcenter.example.com",
             ["Authentication:Google:ClientId"] = string.Empty,
             ["Database:MigrateOnStartup"] = "false",
             ["Database:SeedOnStartup"] = "false"

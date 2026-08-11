@@ -55,8 +55,9 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(16, applied.Count);
+            Assert.Equal(17, applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
+            Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
         }
         finally
         {
@@ -258,10 +259,20 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString) =>
-        new DbContextOptionsBuilder<AuthCenterDbContext>()
+    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
+    {
+        var services = new ServiceCollection();
+        services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(identity =>
+        {
+            identity.Stores.SchemaVersion = Microsoft.AspNetCore.Identity.IdentitySchemaVersions.Version3;
+            identity.Stores.MaxLengthForKeys = 450;
+        });
+        var applicationServices = services.BuildServiceProvider();
+        return new DbContextOptionsBuilder<AuthCenterDbContext>()
             .UseSqlServer(connectionString)
+            .UseApplicationServiceProvider(applicationServices)
             .Options;
+    }
 
     private static ServiceProvider BuildDataProtectionProvider(string connectionString)
     {

@@ -19,7 +19,7 @@ y evidencia de operación.
 | OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación | Interoperabilidad completa, PAR, Device Authorization, introspección y token exchange cuando exista un consumidor real | Fundación lista |
 | Directorio universal | Usuarios, grupos, membresías, perfiles tipados y asignaciones efectivas | Reglas dinámicas de membresía y mappings en Fase 4 | Fase 1 lista |
 | Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
-| Autenticadores | Password, TOTP, email OTP, magic link y backup codes | Passkeys/WebAuthn phishing-resistant, enrollment policy, recuperación y step-up | Pendiente |
+| Autenticadores | Password, TOTP, email OTP, magic link, backup codes y passkeys passwordless | Enrollment policy, recuperación reforzada y passkey como step-up | Parcial |
 | Federación | Google, Microsoft, GitHub y Apple implementados directamente | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Pendiente |
 | Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
 | System Log | Auditoría consultable y outbox durable para correo | Catálogo estable de eventos, correlación, exportación, event hooks firmados y reintentos observables | Pendiente |
@@ -52,8 +52,9 @@ y evidencia de operación.
 
 ### Fase 2 — Passkeys y autenticación adaptable
 
-- [ ] Registrar, listar, renombrar y revocar credenciales WebAuthn/passkey.
-- [ ] Implementar login passwordless y passkey como step-up phishing-resistant.
+- [x] Registrar, listar, renombrar y revocar credenciales WebAuthn/passkey.
+- [x] Implementar login passwordless phishing-resistant con user verification obligatoria.
+- [ ] Implementar passkey como step-up de una sesión ya autenticada.
 - [ ] Aplicar enrollment y assurance desde el motor de políticas.
 - [ ] Proteger recuperación, cambio de factores y operaciones sensibles con reautenticación.
 - [ ] Incorporar señales de IP, dispositivo, geovelocidad y eventos anómalos sin almacenar datos

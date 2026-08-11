@@ -93,6 +93,10 @@ git-ignored and its values are for local use only.
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
 | `Mfa:EncryptionKey` | Key used to encrypt TOTP secrets at rest (min 32 chars, required outside Development) |
 | `Authentication:Google:ClientId` | Google OAuth Client ID |
+| `Passkeys:RelyingPartyId` | Exact WebAuthn RP host, without scheme or path |
+| `Passkeys:AllowedOrigins` | Exact HTTPS origins allowed to complete WebAuthn ceremonies |
+| `Passkeys:CeremonyMinutes` | Single-use ceremony lifetime, from 1 to 10 minutes |
+| `Passkeys:MaxCredentialsPerUser` | Per-user resource limit, from 2 to 20 |
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
@@ -204,6 +208,29 @@ After deployment, `/health/live` must return HTTP 200 or the workflow is marked 
 | POST | `/api/auth/mfa/enable` | Confirm and enable TOTP |
 | DELETE | `/api/auth/mfa` | Disable MFA |
 | POST | `/api/auth/mfa/verify` | Complete a login pending MFA |
+
+### Passkeys / WebAuthn
+
+Passkeys use ASP.NET Core Identity schema v3 and require user verification. Production startup
+fails unless the relying-party host and exact HTTPS origins are configured. Registration and
+assertion state is protected by Data Protection, while application context is stored as short-lived,
+single-use distributed state. The server stores only public credential material; private keys remain
+in the authenticator.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/passkeys/registration/options` | Create registration options for the authenticated user |
+| POST | `/api/auth/passkeys/registration/complete` | Verify attestation and store a named passkey |
+| GET | `/api/auth/passkeys` | List the current user's passkeys |
+| PUT | `/api/auth/passkeys/{credentialId}` | Rename a passkey |
+| DELETE | `/api/auth/passkeys/{credentialId}` | Revoke a passkey |
+| POST | `/api/auth/passkeys/login/options` | Start username or discoverable passwordless login |
+| POST | `/api/auth/passkeys/login/complete` | Verify the assertion and issue application-scoped tokens |
+
+Cross-origin browser calls must use credentials mode so the protected ceremony cookie is returned.
+CORS credentials are enabled only for explicitly configured origins. A completed assertion is
+treated as phishing-resistant MFA by application access policies, and its signature counter is
+persisted before tokens are issued.
 | POST | `/api/auth/mfa/backup-codes` | Regenerate backup codes |
 | POST | `/api/auth/mfa/email-otp/setup` | Start email OTP enrollment |
 | POST | `/api/auth/mfa/email-otp/enable` | Confirm and enable email OTP |

@@ -39,6 +39,10 @@ public class AuthCenterWebApplicationFactory : WebApplicationFactory<Program>
                 ["Mfa:TotpIssuer"] = "AuthCenter",
                 ["Mfa:MfaTokenExpirySeconds"] = "300",
                 ["Jwt:RsaPrivateKeyPem"] = TestRsaKey.PrivateKeyPem
+                ,
+                ["Passkeys:RelyingPartyId"] = "localhost"
+                ,
+                ["Passkeys:AllowedOrigins:0"] = "http://localhost"
             });
         });
 

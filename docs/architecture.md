@@ -87,4 +87,8 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   risk and assurance in priority order. Publishing atomically archives the previous version, audits
   the transition and revokes sessions. The same evaluator powers an administrative dry-run with
   per-rule explanations, so simulation and production cannot drift.
+- **Passkeys**: ASP.NET Core Identity WebAuthn validates exact RP/origin, challenge, signature,
+  user-verification flags and replay counter. Ceremony application context is single-use and
+  distributed; verified assertions issue the same application-scoped JWT/refresh sessions as other
+  authentication methods and satisfy an MFA policy without weakening its assurance.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

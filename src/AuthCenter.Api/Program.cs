@@ -48,6 +48,7 @@ try
     // than the first request that needs to sign or verify a token.
     builder.Services.AddOptions<JwtSettings>().ValidateOnStart();
     builder.Services.AddOptions<MfaSettings>().ValidateOnStart();
+    builder.Services.AddOptions<PasskeySettings>().ValidateOnStart();
 
     builder.Services.AddAuthentication(options =>
     {
@@ -166,7 +167,7 @@ try
         {
             if (allowedOrigins.Length > 0)
             {
-                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
             }
             else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
             {

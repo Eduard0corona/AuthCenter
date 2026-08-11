@@ -37,6 +37,9 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        // Identity schema v3 narrows PhoneNumber by default. Preserve the deployed v1 column shape;
+        // passkey enablement must not truncate unrelated existing identity data.
+        builder.Entity<ApplicationUser>().Property(user => user.PhoneNumber).HasColumnType("nvarchar(max)");
         builder.ApplyConfigurationsFromAssembly(typeof(AuthCenterDbContext).Assembly);
         builder.Entity<ApplicationUser>().HasQueryFilter(user => user.DeletedAt == null);
     }

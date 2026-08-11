@@ -52,6 +52,8 @@ public static class InfrastructureServiceExtensions
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
         services.Configure<MfaSettings>(configuration.GetSection("Mfa"));
         services.AddSingleton<IValidateOptions<MfaSettings>, MfaSettingsValidator>();
+        services.Configure<PasskeySettings>(configuration.GetSection("Passkeys"));
+        services.AddSingleton<IValidateOptions<PasskeySettings>, PasskeySettingsValidator>();
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
         services.AddHostedService<RetentionCleanupService>();
@@ -74,9 +76,30 @@ public static class InfrastructureServiceExtensions
             options.Lockout.AllowedForNewUsers = true;
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
+            options.Stores.MaxLengthForKeys = 450;
         })
         .AddEntityFrameworkStores<AuthCenterDbContext>()
         .AddDefaultTokenProviders();
+
+        services.AddOptions<IdentityPasskeyOptions>()
+            .Configure<IOptions<PasskeySettings>>((options, configured) =>
+            {
+                var settings = configured.Value;
+                options.ServerDomain = string.IsNullOrWhiteSpace(settings.RelyingPartyId)
+                    ? "localhost"
+                    : settings.RelyingPartyId;
+                options.AuthenticatorTimeout = TimeSpan.FromMinutes(settings.CeremonyMinutes);
+                options.ChallengeSize = 64;
+                options.UserVerificationRequirement = "required";
+                options.ResidentKeyRequirement = "preferred";
+                options.AttestationConveyancePreference = "none";
+                if (settings.AllowedOrigins.Length > 0)
+                {
+                    var origins = settings.AllowedOrigins.ToHashSet(StringComparer.Ordinal);
+                    options.ValidateOrigin = context => ValueTask.FromResult(origins.Contains(context.Origin));
+                }
+            });
 
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
         services.AddScoped<ITokenService, TokenService>();
@@ -105,6 +128,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IDirectoryGroupService, DirectoryGroupService>();
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<IPasskeyService, PasskeyService>();
 
         return services;
     }
