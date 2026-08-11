@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Iniciar sesión · AuthCenter</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/login.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al formulario</a>
+  <main id="main" class="auth-shell">
+    <section class="auth-panel" aria-labelledby="page-title">
+      <div class="brand">
+        <img id="brand-logo" alt="" hidden>
+        <div>
+          <strong id="brand-name">AuthCenter</strong>
+          <div class="muted">Identidad segura para tus aplicaciones</div>
+        </div>
+      </div>
+      <div>
+        <h1 id="page-title">Inicia sesión</h1>
+        <p class="muted">Usa tu cuenta organizacional. Nunca compartiremos tus credenciales con la aplicación.</p>
+      </div>
+      <form id="login-form" class="stack" novalidate>
+        <label>Aplicación <input id="application" name="application" value="AUTHCENTER" maxlength="50" autocomplete="off" required></label>
+        <label>Correo electrónico <input id="email" name="email" type="email" autocomplete="username webauthn" required></label>
+        <label>Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Continuar</button>
+        <div class="divider" aria-hidden="true">o</div>
+        <button id="passkey" class="secondary" type="button">Usar una passkey</button>
+      </form>
+      <form id="mfa-form" class="stack" hidden>
+        <h2>Verificación adicional</h2>
+        <p class="muted">Introduce un código TOTP, de correo o de respaldo.</p>
+        <label>Método <select id="mfa-method"><option value="totp">Aplicación autenticadora</option><option value="email">Correo electrónico</option><option value="backup">Código de respaldo</option></select></label>
+        <label>Código <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" required></label>
+        <div class="actions"><button type="submit">Verificar</button><button id="mfa-cancel" class="secondary" type="button">Cancelar</button></div>
+      </form>
+      <section id="consent" class="card" hidden aria-labelledby="consent-title">
+        <h2 id="consent-title">Autorizar aplicación</h2>
+        <p id="consent-description"></p>
+        <div id="consent-scopes"></div>
+        <div class="actions"><button id="consent-allow" type="button">Permitir</button><button id="consent-deny" class="secondary" type="button">Denegar</button></div>
+      </section>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <nav id="legal" class="actions" aria-label="Enlaces legales"></nav>
+    </section>
+    <aside class="auth-hero" aria-label="Información de seguridad">
+      <div><p class="badge">Passwordless · MFA · OIDC · SAML</p><h2>Una identidad, controles consistentes.</h2><p>Sesiones revocables, autenticación resistente a phishing y consentimiento transparente.</p></div>
+    </aside>
+  </main>
+</body>
+</html>

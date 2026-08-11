@@ -47,6 +47,10 @@ public class UserAccessService : IUserAccessService
             .Where(u => u.DeletedAt == null)
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
+            .Include(u => u.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.ApplicationAssignments)
+                        .ThenInclude(assignment => assignment.ApplicationSystem)
             .AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(pagination.Search))
@@ -58,7 +62,12 @@ public class UserAccessService : IUserAccessService
         }
 
         if (pagination.ApplicationSystemId.HasValue)
-            query = query.Where(u => u.ApplicationAccesses.Any(a => a.ApplicationSystemId == pagination.ApplicationSystemId.Value));
+            query = query.Where(u =>
+                u.ApplicationAccesses.Any(a => a.ApplicationSystemId == pagination.ApplicationSystemId.Value) ||
+                u.GroupMemberships.Any(membership =>
+                    membership.Group.IsActive &&
+                    membership.Group.ApplicationAssignments.Any(assignment =>
+                        assignment.ApplicationSystemId == pagination.ApplicationSystemId.Value)));
 
         if (pagination.IsActive.HasValue)
             query = query.Where(u => u.IsActive == pagination.IsActive.Value);
@@ -84,9 +93,25 @@ public class UserAccessService : IUserAccessService
             .AsNoTracking()
             .ToListAsync(ct);
 
-        var roleMap = rolesByUser
+        var groupRolesByUser = await _db.UserGroupMemberships
+            .Where(membership => userIds.Contains(membership.UserId) && membership.Group.IsActive)
+            .SelectMany(membership => membership.Group.RoleAssignments.Select(assignment => new
+            {
+                membership.UserId,
+                RoleName = assignment.Role.DisplayName,
+                assignment.Role.IsActive,
+                assignment.Role.ApplicationSystemId,
+                HasApplicationAccess = assignment.Role.ApplicationSystemId.HasValue &&
+                    membership.Group.ApplicationAssignments.Any(application =>
+                        application.ApplicationSystemId == assignment.Role.ApplicationSystemId.Value)
+            }))
+            .Where(item => item.IsActive && item.HasApplicationAccess)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        var roleMap = rolesByUser.Concat(groupRolesByUser.Select(item => new { item.UserId, item.RoleName }))
             .GroupBy(x => x.UserId)
-            .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName).ToList());
+            .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName).Distinct().ToList());
 
         var dtos = users
             .Select(u => MapToDto(u, roleMap.TryGetValue(u.Id, out var r) ? r : []))
@@ -391,13 +416,25 @@ public class UserAccessService : IUserAccessService
     }
 
     public Task<bool> HasActiveAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
-        _db.UserApplicationAccesses
-            .AnyAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId && a.IsActive, ct);
+        _db.Users.AnyAsync(user =>
+            user.Id == userId &&
+            (user.ApplicationAccesses.Any(access =>
+                 access.ApplicationSystemId == applicationSystemId && access.IsActive) ||
+             user.GroupMemberships.Any(membership =>
+                 membership.Group.IsActive &&
+                 membership.Group.ApplicationAssignments.Any(assignment =>
+                     assignment.ApplicationSystemId == applicationSystemId && assignment.ApplicationSystem.IsActive))), ct);
 
     public async Task<IList<string>> GetApplicationCodesForUserAsync(Guid userId, CancellationToken ct = default) =>
         await _db.UserApplicationAccesses
-            .Where(a => a.UserId == userId && a.IsActive)
-            .Select(a => a.ApplicationSystem.Code)
+            .Where(access => access.UserId == userId && access.IsActive && access.ApplicationSystem.IsActive)
+            .Select(access => access.ApplicationSystem.Code)
+            .Union(_db.UserGroupMemberships
+                .Where(membership => membership.UserId == userId && membership.Group.IsActive)
+                .SelectMany(membership => membership.Group.ApplicationAssignments)
+                .Where(assignment => assignment.ApplicationSystem.IsActive)
+                .Select(assignment => assignment.ApplicationSystem.Code))
+            .Distinct()
             .ToListAsync(ct);
 
     public async Task<OperationResult> ForcePasswordChangeAsync(Guid userId, CancellationToken ct = default)
@@ -460,6 +497,12 @@ public class UserAccessService : IUserAccessService
         Applications = user.ApplicationAccesses
             .Where(a => a.IsActive)
             .Select(a => a.ApplicationSystem.Code)
+            .Union(user.GroupMemberships
+                .Where(membership => membership.Group.IsActive)
+                .SelectMany(membership => membership.Group.ApplicationAssignments)
+                .Where(assignment => assignment.ApplicationSystem.IsActive)
+                .Select(assignment => assignment.ApplicationSystem.Code))
+            .Distinct()
             .ToList(),
         ApplicationAccesses = user.ApplicationAccesses
             .OrderBy(a => a.ApplicationSystem.Code)

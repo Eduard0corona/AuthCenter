@@ -13,6 +13,10 @@ public class ApplicationSystem
     public ICollection<Permission> Permissions { get; set; } = new List<Permission>();
     public ICollection<UserApplicationAccess> UserApplicationAccesses { get; set; } = new List<UserApplicationAccess>();
     public ApplicationRegistrationSettings? RegistrationSettings { get; set; }
+    public ApplicationBrandingSettings? BrandingSettings { get; set; }
     public ICollection<ApplicationRole> Roles { get; set; } = new List<ApplicationRole>();
     public ICollection<OAuthClient> OAuthClients { get; set; } = new List<OAuthClient>();
+    public ICollection<GroupApplicationAssignment> GroupAssignments { get; set; } = new List<GroupApplicationAssignment>();
+    public ICollection<ApplicationAccessPolicyRule> AccessPolicyRules { get; set; } = new List<ApplicationAccessPolicyRule>();
+    public ICollection<ApplicationAccessPolicyVersion> AccessPolicyVersions { get; set; } = new List<ApplicationAccessPolicyVersion>();
 }

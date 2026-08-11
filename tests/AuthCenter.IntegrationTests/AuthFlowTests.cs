@@ -255,6 +255,7 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
 
         var initialAuth = await LoginAsync(client, email, password);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", initialAuth.AccessToken);
+        await client.AddReauthenticationProofAsync(password, "factor.enroll");
 
         var setupResponse = await client.PostAsync("/api/auth/mfa/setup", null);
         setupResponse.EnsureSuccessStatusCode();
@@ -489,6 +490,7 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
 
         var auth = await LoginAsync(client, email, password);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        await client.AddReauthenticationProofAsync(password, "factor.enroll");
 
         var setupResponse = await client.PostAsync("/api/auth/mfa/email-otp/setup", null);
         setupResponse.EnsureSuccessStatusCode();

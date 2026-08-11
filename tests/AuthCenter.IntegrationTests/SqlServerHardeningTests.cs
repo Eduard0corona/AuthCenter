@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +16,111 @@ namespace AuthCenter.IntegrationTests;
 
 public sealed class SqlServerHardeningTests
 {
+    [Fact]
+    public async Task IdempotentDeploymentScript_UpgradesProductionBaseline()
+    {
+        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
+            return;
+
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            string deploymentScript;
+            await using (var db = new AuthCenterDbContext(options))
+            {
+                var migrator = db.Database.GetService<IMigrator>();
+                await migrator.MigrateAsync("20260808033000_AddOutbox");
+                deploymentScript = migrator.GenerateScript(
+                    options: MigrationsSqlGenerationOptions.Idempotent);
+            }
+
+            await using (var connection = new SqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                foreach (var batch in System.Text.RegularExpressions.Regex.Split(
+                    deploymentScript,
+                    "(?im)^\\s*GO\\s*$"))
+                {
+                    if (string.IsNullOrWhiteSpace(batch))
+                        continue;
+                    await using var command = connection.CreateCommand();
+                    command.CommandTimeout = 180;
+                    command.CommandText = batch;
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            await using var verifyDb = new AuthCenterDbContext(options);
+            var applied = await verifyDb.Database
+                .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
+                .ToListAsync();
+            Assert.Equal(22, applied.Count);
+            Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
+            Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
+            Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
+            Assert.Contains("20260811093652_CompleteEnterpriseFederationPhase3", applied);
+            Assert.Contains("20260811095011_CompleteLifecycleAutomationPhase4", applied);
+            Assert.Contains("20260811104737_CompleteDeveloperExperiencePhase5", applied);
+            Assert.Contains("20260811105540_CompleteOperationalExcellencePhase6", applied);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Phase1Migration_PreservesExistingRulesAsPublishedVersion()
+    {
+        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
+            return;
+
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            await using var db = new AuthCenterDbContext(options);
+            var migrator = db.Database.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260810160017_AddApplicationAccessPolicies");
+
+            var applicationId = Guid.NewGuid();
+            var ruleId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            await db.Database.ExecuteSqlInterpolatedAsync($$"""
+                INSERT INTO dbo.ApplicationSystems
+                    (Id, Code, Name, Description, IsActive, CreatedAt, UpdatedAt)
+                VALUES
+                    ({{applicationId}}, 'MIGRATION_TEST', 'Migration test', NULL, 1, {{now}}, NULL);
+
+                INSERT INTO dbo.ApplicationAccessPolicyRules
+                    (Id, ApplicationSystemId, DirectoryGroupId, Name, Priority, Action,
+                     MfaRequirement, AllowTrustedDeviceBypass, IncludedIpCidrsJson,
+                     ExcludedIpCidrsJson, IsActive, CreatedAt, UpdatedAt)
+                VALUES
+                    ({{ruleId}}, {{applicationId}}, NULL, 'Existing allow', 100, 'Allow',
+                     'Optional', 1, NULL, NULL, 1, {{now}}, NULL);
+                """);
+
+            await migrator.MigrateAsync();
+            db.ChangeTracker.Clear();
+
+            var migratedRule = await db.ApplicationAccessPolicyRules
+                .Include(rule => rule.PolicyVersion)
+                .SingleAsync(rule => rule.Id == ruleId);
+            Assert.NotEqual(Guid.Empty, migratedRule.PolicyVersionId);
+            Assert.Equal(1, migratedRule.PolicyVersion.VersionNumber);
+            Assert.Equal(AuthCenter.Domain.Enums.AccessPolicyVersionStatus.Published, migratedRule.PolicyVersion.Status);
+            Assert.Equal(AuthCenter.Domain.Enums.AuthenticationAssuranceLevel.Password, migratedRule.RequiredAssuranceLevel);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
     [Fact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {
@@ -157,10 +264,20 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString) =>
-        new DbContextOptionsBuilder<AuthCenterDbContext>()
+    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
+    {
+        var services = new ServiceCollection();
+        services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(identity =>
+        {
+            identity.Stores.SchemaVersion = Microsoft.AspNetCore.Identity.IdentitySchemaVersions.Version3;
+            identity.Stores.MaxLengthForKeys = 450;
+        });
+        var applicationServices = services.BuildServiceProvider();
+        return new DbContextOptionsBuilder<AuthCenterDbContext>()
             .UseSqlServer(connectionString)
+            .UseApplicationServiceProvider(applicationServices)
             .Options;
+    }
 
     private static ServiceProvider BuildDataProtectionProvider(string connectionString)
     {

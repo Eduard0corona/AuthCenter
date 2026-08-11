@@ -93,9 +93,20 @@ git-ignored and its values are for local use only.
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
 | `Mfa:EncryptionKey` | Key used to encrypt TOTP secrets at rest (min 32 chars, required outside Development) |
 | `Authentication:Google:ClientId` | Google OAuth Client ID |
+| `Passkeys:RelyingPartyId` | Exact WebAuthn RP host, without scheme or path |
+| `Passkeys:AllowedOrigins` | Exact HTTPS origins allowed to complete WebAuthn ceremonies |
+| `Passkeys:CeremonyMinutes` | Single-use ceremony lifetime, from 1 to 10 minutes |
+| `Passkeys:ReauthenticationMinutes` | Single-use sensitive-operation proof lifetime, from 1 to 15 minutes |
+| `Passkeys:MaxCredentialsPerUser` | Per-user resource limit, from 2 to 20 |
+| `AdaptiveAuth:SignalHashKey` | Key Vault secret used to HMAC minimized network/device signals |
+| `Saml:EntityId` | Stable SAML service-provider entity identifier |
+| `Saml:AssertionConsumerServiceUrl` | Exact public HTTPS SAML POST callback |
+| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata |
+| `Saml:SigningCertificatePassword` | Optional Key Vault password for the PKCS#12 certificate |
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
+| `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |
 | `Database:SeedOnStartup` | Seed the `AUTHCENTER` application, roles, permissions, and admin user at startup (default: on only in Development) |
 | `Seed:AdminEmail` | Initial admin user email |
 | `Seed:AdminPassword` | Initial admin user password |
@@ -163,7 +174,29 @@ The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRI
 `CI_MSSQL_SA_PASSWORD` as secrets, plus `AZURE_WEBAPP_NAME` and `AZURE_WEBAPP_SLOT` as variables.
 After deployment, `/health/live` must return HTTP 200 or the workflow is marked failed.
 
+OpenTelemetry exports traces, metrics and bounded custom SLI dimensions to Azure Monitor. System
+Log entries contain only the W3C `traceId` correlation key, not telemetry payloads. SLOs and burn-
+rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident procedures are in
+`ops/load/`, `scripts/ops/` and [docs/operations](docs/operations/).
+
 ## Key Endpoints
+
+### First-party experience
+
+| Route | Purpose |
+|---|---|
+| `/login` | Hosted password, MFA, passkey and OAuth consent flow with application branding |
+| `/portal` | Self-service sessions, trusted devices, passkeys, linked identities and consent grants |
+| `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
+
+These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
+written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
+submit token and every API repeats authorization server-side. Branding is public but accepts only
+bounded colors and absolute HTTPS links.
+
+SDKs and executable integration examples live under `sdk/` and `samples/`. See
+[docs/integration-quickstarts.md](docs/integration-quickstarts.md) and run
+`./scripts/Invoke-Conformance.ps1` for the automated OIDC/SCIM profile.
 
 ### Authentication
 
@@ -204,6 +237,35 @@ After deployment, `/health/live` must return HTTP 200 or the workflow is marked 
 | POST | `/api/auth/mfa/enable` | Confirm and enable TOTP |
 | DELETE | `/api/auth/mfa` | Disable MFA |
 | POST | `/api/auth/mfa/verify` | Complete a login pending MFA |
+
+### Passkeys / WebAuthn
+
+Passkeys use ASP.NET Core Identity schema v3 and require user verification. Production startup
+fails unless the relying-party host and exact HTTPS origins are configured. Registration and
+assertion state is protected by Data Protection, while application context is stored as short-lived,
+single-use distributed state. The server stores only public credential material; private keys remain
+in the authenticator.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/passkeys/registration/options` | Create registration options for the authenticated user |
+| POST | `/api/auth/passkeys/registration/complete` | Verify attestation and store a named passkey |
+| GET | `/api/auth/passkeys` | List the current user's passkeys |
+| PUT | `/api/auth/passkeys/{credentialId}` | Rename a passkey |
+| DELETE | `/api/auth/passkeys/{credentialId}` | Revoke a passkey |
+| POST | `/api/auth/passkeys/login/options` | Start username or discoverable passwordless login |
+| POST | `/api/auth/passkeys/login/complete` | Verify the assertion and issue application-scoped tokens |
+| POST | `/api/auth/passkeys/step-up/options` | Start passkey reauthentication for a closed purpose |
+| POST | `/api/auth/passkeys/step-up/complete` | Return a short-lived, single-use reauthentication proof |
+| POST | `/api/auth/reauth/password` | Return a password-backed proof when local password is available |
+
+Present a proof once in `X-AuthCenter-Reauthentication`. Clients must not persist it or reuse it for
+another purpose.
+
+Cross-origin browser calls must use credentials mode so the protected ceremony cookie is returned.
+CORS credentials are enabled only for explicitly configured origins. A completed assertion is
+treated as phishing-resistant MFA by application access policies, and its signature counter is
+persisted before tokens are issued.
 | POST | `/api/auth/mfa/backup-codes` | Regenerate backup codes |
 | POST | `/api/auth/mfa/email-otp/setup` | Start email OTP enrollment |
 | POST | `/api/auth/mfa/email-otp/enable` | Confirm and enable email OTP |
@@ -282,6 +344,107 @@ by default and registration rejects lifetimes above one hour. See
 | PATCH | `/api/users/{id}/activate` | Activate user |
 | PATCH | `/api/users/{id}/deactivate` | Deactivate user |
 
+### Directory groups
+
+Groups provide effective application access and roles without copying direct assignments to every
+user. Membership, application and role changes revoke affected sessions so new tokens cannot keep
+stale entitlements.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/groups` | Search and paginate groups |
+| POST | `/api/groups` | Create a group |
+| PUT | `/api/groups/{id}` | Update name and description |
+| PATCH | `/api/groups/{id}/activate` | Activate a group |
+| PATCH | `/api/groups/{id}/deactivate` | Deactivate a group and revoke member sessions |
+| GET | `/api/groups/{id}/members` | List members |
+| POST/DELETE | `/api/groups/{id}/members/{userId}` | Add or remove a member |
+| POST/DELETE | `/api/groups/{id}/applications/{applicationId}` | Grant or remove effective application access |
+| POST/DELETE | `/api/groups/{id}/roles/{roleId}` | Grant or remove an application role |
+
+A group role is valid only after the role's application is assigned explicitly to the same group.
+Removing an application also removes every group-role assignment for that application.
+
+### Universal directory profile schema
+
+Custom profile attributes are global, stable-key schema definitions. Supported types are `String`,
+`Integer`, `Decimal`, `Boolean`, `Date`, and `DateTime`; definitions can enforce required/default
+values, string length and a bounded non-backtracking regular expression, numeric ranges, and an
+allow-list. Required attributes must have a valid default so publishing a schema change cannot make
+every existing user invalid. Values are stored as canonical JSON and audit events contain changed
+keys, never profile values.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/profile-schema` | List active definitions (`includeInactive=true` includes retired definitions) |
+| POST | `/api/profile-schema` | Create a typed attribute definition |
+| PUT | `/api/profile-schema/{definitionId}` | Update constraints after validating every existing value |
+| DELETE | `/api/profile-schema/{definitionId}` | Retire a definition without destroying stored values |
+| GET | `/api/users/{userId}/profile` | Read effective explicit/default profile values |
+| PUT | `/api/users/{userId}/profile` | Validate and replace the submitted custom values atomically |
+
+Schema administration requires `AUTHCENTER_PROFILE_SCHEMAS_READ` or
+`AUTHCENTER_PROFILE_SCHEMAS_WRITE`; user profile values retain the existing
+`AUTHCENTER_USERS_READ`/`AUTHCENTER_USERS_WRITE` boundary.
+
+### Application access policies
+
+Access-policy rules are evaluated in ascending priority inside an immutable published version. A
+rule can target a user, active group, IPv4/IPv6 ranges, UTC validity dates/days/daily windows and a
+risk range; it can allow or deny sign-in and require password or MFA assurance. Applications without
+a published policy (or with no active published rules) preserve allow-by-default. Once active rules
+exist, a request that matches none is denied.
+
+Edits happen only in one draft per application and do not affect sign-in or active sessions. A new
+draft clones the published version. Publishing atomically archives the old version and revokes every
+session for that application; published/archived rules are immutable. Administrators can simulate a
+draft at an explicit user, IP, UTC timestamp, risk and assurance level and receive a reason for every
+rule before publishing. Audit data contains policy metadata, never credentials or raw tokens.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/access-policies/applications/{applicationId}` | List draft rules, or published rules when no draft exists |
+| GET | `/api/access-policies/applications/{applicationId}/versions` | List immutable version history |
+| POST | `/api/access-policies/applications/{applicationId}/drafts` | Get or create the single editable draft |
+| POST | `/api/access-policies` | Add a rule to the requested draft version |
+| PUT | `/api/access-policies/{ruleId}` | Replace a draft rule |
+| DELETE | `/api/access-policies/{ruleId}` | Delete a draft rule |
+| POST | `/api/access-policies/applications/{applicationId}/versions/{versionId}/publish` | Publish a draft and revoke stale sessions |
+| POST | `/api/access-policies/simulate` | Explain a draft or published decision without changing state |
+
+Administrative access requires `AUTHCENTER_ACCESS_POLICIES_READ` or
+`AUTHCENTER_ACCESS_POLICIES_WRITE`. Priorities are unique within a policy version, range from 1 to
+10000, and lower numbers are evaluated first. Each included/excluded network condition accepts up
+to 50 CIDR ranges. To prevent locking every administrator out of the identity control plane,
+`AUTHCENTER` must always retain an active unconditional `Allow` fallback whenever it has active
+rules; give that fallback the lowest precedence (the largest priority number).
+
+### Enterprise federation
+
+`/api/federation/providers` and `/api/federation/routing-rules` configure OIDC/SAML providers per
+application. OIDC callbacks are exact registered HTTPS values and upstream client secrets are
+protected at rest. SAML publishes metadata at `/api/federation/saml/{providerId}/metadata` and the
+POST ACS is `/api/federation/saml/acs`. Keep the SAML PKCS#12 certificate and password in Key Vault.
+
+### SCIM and lifecycle automation
+
+Provisioning tokens are created at `/api/provisioning-tokens`; the raw value is returned once.
+Send it as `Authorization: Bearer acp_...` to `/scim/v2/Users` or `/scim/v2/Groups`. Tokens are
+application-bound and use separate read/write scopes. Filters support bounded `userName`,
+`externalId`, or `displayName eq`; pagination accepts `startIndex` and `count` up to 200. DELETE
+deprovisions rather than erasing identity history.
+
+Profile mappings and dynamic group rules are managed under `/api/lifecycle`. An authoritative
+mapping prevents other sources from overwriting its target attribute. Group membership immediately
+feeds existing application/role assignments and invalidates stale entitlement sessions.
+
+Event hooks are managed at `/api/event-hooks`. The endpoint must be public HTTPS and echo the
+verification challenge before delivery is enabled. Deliveries include `X-AuthCenter-Event-Id`,
+`X-AuthCenter-Idempotency-Key`, `X-AuthCenter-Timestamp`, and
+`X-AuthCenter-Signature: v1=<hex-hmac-sha256>`. Consumers should verify the signature over
+`<timestamp>.<raw-body>`, reject stale timestamps, and deduplicate by event ID. Failed deliveries
+retry and appear in `/api/event-hooks/deliveries?deadLettersOnly=true` for controlled replay.
+
 ### Other
 
 | Method | Endpoint | Description |
@@ -319,13 +482,15 @@ curl -X POST https://localhost:7001/api/auth/google \
 - The JWT includes `roles`, `permissions`, and `applications` claims scoped to the application used for login.
 - Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`.
 - Refresh tokens are bound to the application they were issued for.
+- Effective application access and claims are the union of active direct assignments and active
+  directory-group assignments; duplicates are removed.
 
 ### Default Seed Data
 
 The `AUTHCENTER` application is seeded automatically with:
 - **SuperAdmin** role (all permissions)
 - **Admin** role (read + write users, read apps/roles/permissions)
-- All 8 default permissions under `AUTHCENTER_*`
+- All permissions enumerated under `AUTHCENTER_*`
 
 ## Running Tests
 

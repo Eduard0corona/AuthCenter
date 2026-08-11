@@ -180,18 +180,16 @@ public class RoleService : IRoleService
     }
 
     public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, CancellationToken ct = default) =>
-        await _db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Join(_db.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (_, rp) => rp)
+        await GetEffectiveRoleIds(userId, null)
+            .Join(_db.RolePermissions, roleId => roleId, rp => rp.RoleId, (_, rp) => rp)
             .Where(rp => rp.Role.IsActive && rp.Permission.IsActive)
             .Select(rp => rp.Permission.Code)
             .Distinct()
             .ToListAsync(ct);
 
     public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
-        await _db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Join(_db.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (_, rp) => rp)
+        await GetEffectiveRoleIds(userId, applicationSystemId)
+            .Join(_db.RolePermissions, roleId => roleId, rp => rp.RoleId, (_, rp) => rp)
             .Where(rp =>
                 rp.Role.IsActive &&
                 rp.Permission.IsActive &&
@@ -202,22 +200,43 @@ public class RoleService : IRoleService
             .ToListAsync(ct);
 
     public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, CancellationToken ct = default) =>
-        await _db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
+        await GetEffectiveRoleIds(userId, null)
+            .Join(_db.Roles, roleId => roleId, role => role.Id, (_, role) => role)
             .Where(r => r.IsActive)
             .Select(r => r.DisplayName)
+            .Distinct()
             .ToListAsync(ct);
 
     public async Task<IList<string>> GetRoleNamesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
-        await _db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r)
+        await GetEffectiveRoleIds(userId, applicationSystemId)
+            .Join(_db.Roles, roleId => roleId, role => role.Id, (_, role) => role)
             .Where(r =>
                 r.IsActive &&
                 (!r.ApplicationSystemId.HasValue || r.ApplicationSystemId == applicationSystemId))
             .Select(r => r.DisplayName)
+            .Distinct()
             .ToListAsync(ct);
+
+    private IQueryable<Guid> GetEffectiveRoleIds(Guid userId, Guid? applicationSystemId)
+    {
+        var directRoleIds = _db.UserRoles
+            .Where(userRole => userRole.UserId == userId)
+            .Select(userRole => userRole.RoleId);
+
+        var groupRoleIds = _db.UserGroupMemberships
+            .Where(membership => membership.UserId == userId && membership.Group.IsActive)
+            .SelectMany(membership => membership.Group.RoleAssignments)
+            .Where(assignment =>
+                assignment.Role.IsActive &&
+                assignment.Role.ApplicationSystemId.HasValue &&
+                assignment.Group.ApplicationAssignments.Any(application =>
+                    application.ApplicationSystemId == assignment.Role.ApplicationSystemId.Value));
+
+        if (applicationSystemId.HasValue)
+            groupRoleIds = groupRoleIds.Where(assignment => assignment.Role.ApplicationSystemId == applicationSystemId.Value);
+
+        return directRoleIds.Union(groupRoleIds.Select(assignment => assignment.RoleId));
+    }
 
     private static RoleDto MapToDto(ApplicationRole role) => new()
     {

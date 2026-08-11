@@ -10,6 +10,7 @@ public class ApplicationDto
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
     public ApplicationRegistrationSettingsDto? RegistrationSettings { get; init; }
+    public ApplicationBrandingDto? Branding { get; init; }
 }
 
 public class ApplicationRegistrationSettingsDto

@@ -64,6 +64,12 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.AuditLogsRead, "Read audit logs"),
             (DomainConstants.Permissions.OAuthClientsRead, "Read OAuth clients"),
             (DomainConstants.Permissions.OAuthClientsWrite, "Write OAuth clients"),
+            (DomainConstants.Permissions.GroupsRead, "Read directory groups"),
+            (DomainConstants.Permissions.GroupsWrite, "Write directory groups"),
+            (DomainConstants.Permissions.AccessPoliciesRead, "Read access policies"),
+            (DomainConstants.Permissions.AccessPoliciesWrite, "Write access policies"),
+            (DomainConstants.Permissions.ProfileSchemasRead, "Read universal directory profile schemas"),
+            (DomainConstants.Permissions.ProfileSchemasWrite, "Write universal directory profile schemas"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -93,6 +99,12 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.RolesRead,
                 DomainConstants.Permissions.PermissionsRead,
                 DomainConstants.Permissions.AuditLogsRead,
+                DomainConstants.Permissions.GroupsRead,
+                DomainConstants.Permissions.GroupsWrite,
+                DomainConstants.Permissions.AccessPoliciesRead,
+                DomainConstants.Permissions.AccessPoliciesWrite,
+                DomainConstants.Permissions.ProfileSchemasRead,
+                DomainConstants.Permissions.ProfileSchemasWrite,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);
@@ -109,9 +121,10 @@ public static class AuthCenterSeeder
         ILogger logger)
     {
         var storageName = $"{(await db.ApplicationSystems.Where(app => app.Id == appSystemId).Select(app => app.Code).SingleAsync())}:{roleName}";
-        if (!await roleManager.RoleExistsAsync(storageName))
+        var role = await roleManager.FindByNameAsync(storageName);
+        if (role is null)
         {
-            var role = new ApplicationRole
+            role = new ApplicationRole
             {
                 Id = Guid.NewGuid(),
                 Name = storageName,
@@ -125,18 +138,18 @@ public static class AuthCenterSeeder
             };
             await roleManager.CreateAsync(role);
             logger.LogInformation("Created role {RoleName}", roleName);
-
-            var now = DateTime.UtcNow;
-            foreach (var code in permissionCodes)
-            {
-                var perm = await db.Permissions.FirstOrDefaultAsync(p => p.Code == code);
-                if (perm is not null && !await db.RolePermissions.AnyAsync(rp => rp.RoleId == role.Id && rp.PermissionId == perm.Id))
-                {
-                    db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = perm.Id, CreatedAt = now });
-                }
-            }
-            await db.SaveChangesAsync();
         }
+
+        var now = DateTime.UtcNow;
+        foreach (var code in permissionCodes)
+        {
+            var perm = await db.Permissions.FirstOrDefaultAsync(p => p.Code == code);
+            if (perm is not null && !await db.RolePermissions.AnyAsync(rp => rp.RoleId == role.Id && rp.PermissionId == perm.Id))
+            {
+                db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = perm.Id, CreatedAt = now });
+            }
+        }
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedAdminUserAsync(

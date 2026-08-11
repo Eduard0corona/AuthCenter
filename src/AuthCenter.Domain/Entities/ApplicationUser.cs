@@ -19,4 +19,7 @@ public class ApplicationUser : IdentityUser<Guid>
     public ICollection<ExternalIdentityProvider> ExternalIdentityProviders { get; set; } = new List<ExternalIdentityProvider>();
     public ICollection<UserApplicationAccess> ApplicationAccesses { get; set; } = new List<UserApplicationAccess>();
     public UserMfaCredential? MfaCredential { get; set; }
+    public ICollection<UserGroupMembership> GroupMemberships { get; set; } = new List<UserGroupMembership>();
+    public ICollection<UserProfileAttributeValue> ProfileAttributeValues { get; set; } = new List<UserProfileAttributeValue>();
+    public ICollection<ApplicationAccessPolicyRule> AccessPolicyRules { get; set; } = new List<ApplicationAccessPolicyRule>();
 }

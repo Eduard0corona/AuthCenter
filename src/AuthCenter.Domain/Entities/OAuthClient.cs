@@ -22,5 +22,6 @@ public class OAuthClient
     public DateTime? UpdatedAt { get; set; }
 
     public ApplicationSystem ApplicationSystem { get; set; } = null!;
+    public ICollection<OAuthConsentGrant> ConsentGrants { get; set; } = new List<OAuthConsentGrant>();
     public ICollection<OAuthAuthorizationCode> AuthorizationCodes { get; set; } = new List<OAuthAuthorizationCode>();
 }

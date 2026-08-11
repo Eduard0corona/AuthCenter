@@ -22,6 +22,210 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationAccessPolicyRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ActiveDaysUtcJson")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ActiveFromUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("ActiveUntilUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("AllowTrustedDeviceBypass")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<TimeOnly?>("DailyEndTimeUtc")
+                        .HasColumnType("time");
+
+                    b.Property<TimeOnly?>("DailyStartTimeUtc")
+                        .HasColumnType("time");
+
+                    b.Property<Guid?>("DirectoryGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExcludedIpCidrsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("IncludedIpCidrsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("MaximumRiskLevel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("MfaRequirement")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("MinimumRiskLevel")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("PolicyVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequiredAssuranceLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId");
+
+                    b.HasIndex("DirectoryGroupId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("PolicyVersionId", "ApplicationSystemId");
+
+                    b.HasIndex("PolicyVersionId", "IsActive");
+
+                    b.HasIndex("PolicyVersionId", "Priority")
+                        .IsUnique();
+
+                    b.ToTable("ApplicationAccessPolicyRules");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationAccessPolicyVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("PublishedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId")
+                        .IsUnique()
+                        .HasFilter("[Status] = 'Draft'");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("PublishedByUserId");
+
+                    b.HasIndex("ApplicationSystemId", "Status");
+
+                    b.HasIndex("ApplicationSystemId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("ApplicationAccessPolicyVersions");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationBrandingSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BackgroundColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PrimaryColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<string>("PrivacyUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SupportUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("TermsUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId")
+                        .IsUnique();
+
+                    b.ToTable("ApplicationBrandingSettings");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -231,6 +435,7 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PhoneNumber")
+                        .HasMaxLength(256)
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("PhoneNumberConfirmed")
@@ -301,6 +506,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Property<string>("MetadataJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("UserAgent")
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
@@ -315,9 +525,103 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.HasIndex("CreatedAt")
                         .IsDescending();
 
+                    b.HasIndex("TraceId")
+                        .HasFilter("[TraceId] IS NOT NULL");
+
                     b.HasIndex("UserId");
 
                     b.ToTable("AuditLogs");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AuthenticationObservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DeviceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("decimal(6,2)");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("decimal(6,2)");
+
+                    b.Property<string>("NetworkHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("ObservedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReasonCodesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("RiskLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("UserId", "ObservedAt");
+
+                    b.ToTable("AuthenticationObservations", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.DirectoryGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive", "Name");
+
+                    b.ToTable("DirectoryGroups");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.DistributedRateLimitBucket", b =>
@@ -340,6 +644,145 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.HasIndex("ExpiresAt");
 
                     b.ToTable("DistributedRateLimitBuckets");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.DynamicGroupRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("DirectoryGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExpectedValueJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Operator")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("ProfileAttributeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProfileAttributeDefinitionId");
+
+                    b.HasIndex("DirectoryGroupId", "ProfileAttributeDefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("DynamicGroupRules", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.EventHook", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EventTypesJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("ProtectedSecret")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("VerifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId", "Name")
+                        .IsUnique()
+                        .HasFilter("[ApplicationSystemId] IS NOT NULL");
+
+                    b.ToTable("EventHooks", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.EventHookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DeadLetteredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeliveredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EventHookId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventHookId", "EventId")
+                        .IsUnique();
+
+                    b.HasIndex("DeliveredAt", "DeadLetteredAt", "NextAttemptAt");
+
+                    b.ToTable("EventHookDeliveries", (string)null);
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ExternalIdentityProvider", b =>
@@ -391,6 +834,159 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ExternalIdentityProviders");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.FederationProvider", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AccountLinkingMode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ClientId")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DiscoveryEndpoint")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Issuer")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("JitProvisioningEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("OidcCallbackUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ProtectedClientSecret")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SamlSigningCertificatePem")
+                        .HasMaxLength(10000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SamlSingleSignOnUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("FederationProviders", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.FederationRoutingRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("DirectoryGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EmailDomain")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ExpectedProfileValueJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid>("FederationProviderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("ProfileAttributeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DirectoryGroupId");
+
+                    b.HasIndex("ProfileAttributeDefinitionId");
+
+                    b.HasIndex("FederationProviderId", "Priority")
+                        .IsUnique();
+
+                    b.ToTable("FederationRoutingRules", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.GroupApplicationAssignment", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("GroupId", "ApplicationSystemId");
+
+                    b.HasIndex("ApplicationSystemId");
+
+                    b.ToTable("GroupApplicationAssignments");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.GroupRoleAssignment", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("GroupId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("GroupRoleAssignments");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthAuthorizationCode", b =>
@@ -528,6 +1124,39 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("OAuthClients");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthConsentGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("OAuthClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ScopesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OAuthClientId");
+
+                    b.HasIndex("UserId", "OAuthClientId")
+                        .IsUnique();
+
+                    b.ToTable("OAuthConsentGrants");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -605,6 +1234,93 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Permissions");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ProfileMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsAuthoritative")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("SourcePath")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("TargetAttributeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetAttributeDefinitionId");
+
+                    b.HasIndex("ApplicationSystemId", "SourceSystem", "SourcePath")
+                        .IsUnique();
+
+                    b.ToTable("ProfileMappings", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ProvisioningToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ScopesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("ApplicationSystemId", "ExpiresAt");
+
+                    b.ToTable("ProvisioningTokens", (string)null);
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.RefreshToken", b =>
@@ -692,6 +1408,45 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("RolePermissions");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ScimResourceLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId", "ResourceType", "ExternalId")
+                        .IsUnique()
+                        .HasFilter("[ExternalId] IS NOT NULL");
+
+                    b.HasIndex("ApplicationSystemId", "ResourceType", "ResourceId")
+                        .IsUnique();
+
+                    b.ToTable("ScimResourceLinks", (string)null);
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.TransientState", b =>
                 {
                     b.Property<Guid>("Id")
@@ -758,6 +1513,24 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("UserApplicationAccesses");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserGroupMembership", b =>
+                {
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("GroupId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserGroupMemberships");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.UserMfaCredential", b =>
                 {
                     b.Property<Guid>("Id")
@@ -801,6 +1574,105 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("UserMfaCredentials");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AllowedValuesJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("DefaultValueJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("MaxLength")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MaximumNumber")
+                        .HasPrecision(38, 10)
+                        .HasColumnType("decimal(38,10)");
+
+                    b.Property<int?>("MinLength")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("MinimumNumber")
+                        .HasPrecision(38, 10)
+                        .HasColumnType("decimal(38,10)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ValidationPattern")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.ToTable("UserProfileAttributeDefinitions");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserProfileAttributeValue", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AttributeDefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ValueJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.HasKey("UserId", "AttributeDefinitionId");
+
+                    b.HasIndex("AttributeDefinitionId");
+
+                    b.ToTable("UserProfileAttributeValues");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.UserTrustedDevice", b =>
@@ -910,9 +1782,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<System.Guid>", b =>
                 {
                     b.Property<string>("LoginProvider")
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ProviderKey")
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ProviderDisplayName")
@@ -926,6 +1800,22 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserPasskey<System.Guid>", b =>
+                {
+                    b.Property<byte[]>("CredentialId")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varbinary(1024)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("CredentialId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserPasskeys", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<System.Guid>", b =>
@@ -949,9 +1839,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("LoginProvider")
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Name")
+                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Value")
@@ -960,6 +1852,76 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationAccessPolicyRule", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany("AccessPolicyRules")
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "DirectoryGroup")
+                        .WithMany("AccessPolicyRules")
+                        .HasForeignKey("DirectoryGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("AccessPolicyRules")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationAccessPolicyVersion", "PolicyVersion")
+                        .WithMany("Rules")
+                        .HasForeignKey("PolicyVersionId", "ApplicationSystemId")
+                        .HasPrincipalKey("Id", "ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("DirectoryGroup");
+
+                    b.Navigation("PolicyVersion");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationAccessPolicyVersion", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany("AccessPolicyVersions")
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "PublishedByUser")
+                        .WithMany()
+                        .HasForeignKey("PublishedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("PublishedByUser");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationBrandingSettings", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithOne("BrandingSettings")
+                        .HasForeignKey("AuthCenter.Domain.Entities.ApplicationBrandingSettings", "ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
@@ -983,6 +1945,57 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("ApplicationSystem");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AuthenticationObservation", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.DynamicGroupRule", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "DirectoryGroup")
+                        .WithMany()
+                        .HasForeignKey("DirectoryGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", "ProfileAttributeDefinition")
+                        .WithMany()
+                        .HasForeignKey("ProfileAttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DirectoryGroup");
+
+                    b.Navigation("ProfileAttributeDefinition");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.EventHook", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.EventHookDelivery", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.EventHook", "EventHook")
+                        .WithMany("Deliveries")
+                        .HasForeignKey("EventHookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("EventHook");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ExternalIdentityProvider", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
@@ -992,6 +2005,80 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.FederationProvider", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.FederationRoutingRule", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "DirectoryGroup")
+                        .WithMany()
+                        .HasForeignKey("DirectoryGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AuthCenter.Domain.Entities.FederationProvider", "FederationProvider")
+                        .WithMany("RoutingRules")
+                        .HasForeignKey("FederationProviderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", "ProfileAttributeDefinition")
+                        .WithMany()
+                        .HasForeignKey("ProfileAttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("DirectoryGroup");
+
+                    b.Navigation("FederationProvider");
+
+                    b.Navigation("ProfileAttributeDefinition");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.GroupApplicationAssignment", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany("GroupAssignments")
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "Group")
+                        .WithMany("ApplicationAssignments")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.GroupRoleAssignment", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "Group")
+                        .WithMany("RoleAssignments")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationRole", "Role")
+                        .WithMany("GroupAssignments")
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("Role");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthAuthorizationCode", b =>
@@ -1024,10 +2111,59 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("ApplicationSystem");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthConsentGrant", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.OAuthClient", "OAuthClient")
+                        .WithMany("ConsentGrants")
+                        .HasForeignKey("OAuthClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OAuthClient");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
                         .WithMany("Permissions")
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ProfileMapping", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", "TargetAttributeDefinition")
+                        .WithMany()
+                        .HasForeignKey("TargetAttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("TargetAttributeDefinition");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ProvisioningToken", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
                         .HasForeignKey("ApplicationSystemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1065,6 +2201,17 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ScimResourceLink", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.UserApplicationAccess", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
@@ -1084,6 +2231,25 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserGroupMembership", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.DirectoryGroup", "Group")
+                        .WithMany("Memberships")
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("GroupMemberships")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.UserMfaCredential", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
@@ -1091,6 +2257,25 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasForeignKey("AuthCenter.Domain.Entities.UserMfaCredential", "UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserProfileAttributeValue", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", "AttributeDefinition")
+                        .WithMany("Values")
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("ProfileAttributeValues")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AttributeDefinition");
 
                     b.Navigation("User");
                 });
@@ -1133,6 +2318,57 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserPasskey<System.Guid>", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsOne("Microsoft.AspNetCore.Identity.IdentityPasskeyData", "Data", b1 =>
+                        {
+                            b1.Property<byte[]>("IdentityUserPasskeyCredentialId");
+
+                            b1.Property<byte[]>("AttestationObject")
+                                .IsRequired();
+
+                            b1.Property<byte[]>("ClientDataJson")
+                                .IsRequired();
+
+                            b1.Property<DateTimeOffset>("CreatedAt");
+
+                            b1.Property<bool>("IsBackedUp");
+
+                            b1.Property<bool>("IsBackupEligible");
+
+                            b1.Property<bool>("IsUserVerified");
+
+                            b1.Property<string>("Name");
+
+                            b1.Property<byte[]>("PublicKey")
+                                .IsRequired();
+
+                            b1.Property<long>("SignCount");
+
+                            b1.PrimitiveCollection<string>("Transports");
+
+                            b1.HasKey("IdentityUserPasskeyCredentialId");
+
+                            b1.ToTable("AspNetUserPasskeys");
+
+                            b1
+                                .ToJson("Data")
+                                .HasColumnType("nvarchar(max)");
+
+                            b1.WithOwner()
+                                .HasForeignKey("IdentityUserPasskeyCredentialId");
+                        });
+
+                    b.Navigation("Data")
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<System.Guid>", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationRole", null)
@@ -1157,13 +2393,28 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationAccessPolicyVersion", b =>
+                {
+                    b.Navigation("Rules");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRole", b =>
                 {
+                    b.Navigation("GroupAssignments");
+
                     b.Navigation("RolePermissions");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationSystem", b =>
                 {
+                    b.Navigation("AccessPolicyRules");
+
+                    b.Navigation("AccessPolicyVersions");
+
+                    b.Navigation("BrandingSettings");
+
+                    b.Navigation("GroupAssignments");
+
                     b.Navigation("OAuthClients");
 
                     b.Navigation("Permissions");
@@ -1177,23 +2428,57 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationUser", b =>
                 {
+                    b.Navigation("AccessPolicyRules");
+
                     b.Navigation("ApplicationAccesses");
 
                     b.Navigation("ExternalIdentityProviders");
 
+                    b.Navigation("GroupMemberships");
+
                     b.Navigation("MfaCredential");
 
+                    b.Navigation("ProfileAttributeValues");
+
                     b.Navigation("RefreshTokens");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.DirectoryGroup", b =>
+                {
+                    b.Navigation("AccessPolicyRules");
+
+                    b.Navigation("ApplicationAssignments");
+
+                    b.Navigation("Memberships");
+
+                    b.Navigation("RoleAssignments");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.EventHook", b =>
+                {
+                    b.Navigation("Deliveries");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.FederationProvider", b =>
+                {
+                    b.Navigation("RoutingRules");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthClient", b =>
                 {
                     b.Navigation("AuthorizationCodes");
+
+                    b.Navigation("ConsentGrants");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>
                 {
                     b.Navigation("RolePermissions");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.UserProfileAttributeDefinition", b =>
+                {
+                    b.Navigation("Values");
                 });
 #pragma warning restore 612, 618
         }

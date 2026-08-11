@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Audit;
 using AuthCenter.Contracts.Responses;
@@ -50,6 +51,7 @@ public class AuditService : IAuditService
                 IpAddress = ipAddress,
                 UserAgent = userAgent,
                 MetadataJson = metadata is not null ? JsonSerializer.Serialize(metadata) : null,
+                TraceId = Activity.Current?.TraceId.ToHexString(),
                 CreatedAt = _dateTimeProvider.UtcNow
             };
 
@@ -57,6 +59,35 @@ public class AuditService : IAuditService
             // not any pending changes in the caller's unit-of-work
             await using var auditDb = await _dbFactory.CreateDbContextAsync(ct);
             auditDb.AuditLogs.Add(log);
+            var hooks = await auditDb.EventHooks
+                .Where(hook => hook.IsActive && hook.IsVerified &&
+                    (!hook.ApplicationSystemId.HasValue || hook.ApplicationSystem!.Code == applicationCode))
+                .ToListAsync(ct);
+            foreach (var hook in hooks)
+            {
+                var eventTypes = JsonSerializer.Deserialize<string[]>(hook.EventTypesJson) ?? [];
+                if (!eventTypes.Contains(action, StringComparer.Ordinal) && !eventTypes.Contains("*", StringComparer.Ordinal))
+                    continue;
+                auditDb.EventHookDeliveries.Add(new EventHookDelivery
+                {
+                    Id = Guid.NewGuid(),
+                    EventHookId = hook.Id,
+                    EventId = log.Id,
+                    EventType = action,
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        id = log.Id,
+                        type = action,
+                        occurredAt = log.CreatedAt,
+                        subjectId = userId,
+                        applicationCode,
+                        entity = entityName,
+                        entityId,
+                        traceId = log.TraceId
+                    }),
+                    NextAttemptAt = log.CreatedAt
+                });
+            }
             await auditDb.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -79,6 +110,9 @@ public class AuditService : IAuditService
 
         if (!string.IsNullOrWhiteSpace(query.Action))
             logs = logs.Where(a => a.Action == query.Action);
+
+        if (!string.IsNullOrWhiteSpace(query.TraceId))
+            logs = logs.Where(a => a.TraceId == query.TraceId);
 
         if (query.FromUtc.HasValue)
             logs = logs.Where(a => a.CreatedAt >= query.FromUtc.Value);
@@ -103,6 +137,7 @@ public class AuditService : IAuditService
                 IpAddress = a.IpAddress,
                 UserAgent = a.UserAgent,
                 MetadataJson = a.MetadataJson,
+                TraceId = a.TraceId,
                 CreatedAt = a.CreatedAt
             })
             .ToListAsync(ct);

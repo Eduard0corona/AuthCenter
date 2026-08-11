@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mi cuenta · AuthCenter</title>
+  <link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/portal.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Saltar al contenido</a>
+  <div class="app-shell">
+    <aside class="sidebar"><h1>AuthCenter</h1><nav aria-label="Mi cuenta">
+      <a href="#overview" data-panel="overview" aria-current="page">Resumen</a>
+      <a href="#sessions" data-panel="sessions">Sesiones</a>
+      <a href="#factors" data-panel="factors">Factores</a>
+      <a href="#consents" data-panel="consents">Consentimientos</a>
+    </nav></aside>
+    <main id="content" class="main">
+      <header class="topbar"><div><p class="muted">Portal de usuario</p><h2 id="user-name">Cargando…</h2></div><div class="actions"><a id="admin-link" class="button" href="/admin" hidden>Administración</a><button id="logout" class="secondary">Cerrar sesión</button></div></header>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <section id="overview" class="panel active"><h2>Resumen de seguridad</h2><div id="overview-grid" class="grid"></div></section>
+      <section id="sessions" class="panel"><h2>Sesiones y dispositivos</h2><p class="muted">Revoca cualquier acceso que no reconozcas.</p><h3>Sesiones activas</h3><div id="sessions-list" class="grid"></div><h3>Dispositivos confiables</h3><div id="devices-list" class="grid"></div></section>
+      <section id="factors" class="panel"><div class="topbar"><div><h2>Passkeys y proveedores</h2><p class="muted">Las passkeys son resistentes al phishing.</p></div><button id="add-passkey">Agregar passkey</button></div><h3>Passkeys</h3><div id="passkeys-list" class="grid"></div><h3>Proveedores vinculados</h3><div id="providers-list" class="grid"></div></section>
+      <section id="consents" class="panel"><h2>Aplicaciones autorizadas</h2><p class="muted">Revocar un consentimiento también invalida sus refresh tokens.</p><div id="consents-list" class="grid"></div></section>
+    </main>
+  </div>
+  <dialog id="reauth-dialog"><form id="reauth-form" class="stack"><h2>Confirma tu identidad</h2><p>Esta operación requiere una contraseña reciente.</p><label>Contraseña <input id="reauth-password" type="password" autocomplete="current-password" required></label><div class="actions"><button type="submit">Confirmar</button><button id="reauth-cancel" class="secondary" type="button">Cancelar</button></div><p id="reauth-status" class="status" role="status"></p></form></dialog>
+</body>
+</html>

@@ -60,6 +60,14 @@ public class StartupConfigurationTests
         Assert.NotEqual(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public void MissingAzureMonitorConnection_FailsStartupOutsideDevelopment()
+    {
+        using var factory = CreateProductionFactory(new Dictionary<string, string?> { ["AzureMonitor:ConnectionString"] = string.Empty });
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        Assert.Contains("AzureMonitor:ConnectionString", exception.ToString());
+    }
+
     private static WebApplicationFactory<Program> CreateProductionFactory(
         IDictionary<string, string?>? overrides = null)
     {
@@ -79,6 +87,13 @@ public class StartupConfigurationTests
             ["DataProtection:ApplicationName"] = "AuthCenter.Tests",
             ["DataProtection:KeyEncryptionCertificateBase64"] = CreateCertificateBase64(),
             ["Mfa:EncryptionKey"] = "startup-test-mfa-encryption-key-32chars",
+            ["Passkeys:RelyingPartyId"] = "authcenter.example.com",
+            ["Passkeys:AllowedOrigins:0"] = "https://authcenter.example.com",
+            ["AdaptiveAuth:SignalHashKey"] = "startup-test-adaptive-signal-key-32chars",
+            ["Saml:EntityId"] = "https://authcenter.example.com/saml",
+            ["Saml:AssertionConsumerServiceUrl"] = "https://authcenter.example.com/api/federation/saml/acs",
+            ["Saml:SigningCertificateBase64"] = CreateCertificateBase64(),
+            ["AzureMonitor:ConnectionString"] = "InstrumentationKey=00000000-0000-0000-0000-000000000001;IngestionEndpoint=https://monitor.example.com/",
             ["Authentication:Google:ClientId"] = string.Empty,
             ["Database:MigrateOnStartup"] = "false",
             ["Database:SeedOnStartup"] = "false"

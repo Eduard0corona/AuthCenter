@@ -20,6 +20,7 @@ public class AuthController : ControllerBase
     private readonly IAccountManagementService _accountManagementService;
     private readonly IMfaService _mfaService;
     private readonly IExternalIdentityLinkService _externalIdentityLinkService;
+    private readonly IReauthenticationService _reauthenticationService;
     private readonly MfaSettings _mfaSettings;
 
     public AuthController(
@@ -28,6 +29,7 @@ public class AuthController : ControllerBase
         IAccountManagementService accountManagementService,
         IMfaService mfaService,
         IExternalIdentityLinkService externalIdentityLinkService,
+        IReauthenticationService reauthenticationService,
         IOptions<MfaSettings> mfaSettings)
     {
         _authService = authService;
@@ -35,6 +37,7 @@ public class AuthController : ControllerBase
         _accountManagementService = accountManagementService;
         _mfaService = mfaService;
         _externalIdentityLinkService = externalIdentityLinkService;
+        _reauthenticationService = reauthenticationService;
         _mfaSettings = mfaSettings.Value;
     }
 
@@ -270,6 +273,7 @@ public class AuthController : ControllerBase
     {
         var userId = _currentUserService.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "factor.enroll", ct)) return ReauthenticationRequired("factor.enroll");
 
         var result = await _mfaService.SetupTotpAsync(userId.Value, ct);
         if (!result.IsSuccess)
@@ -326,6 +330,7 @@ public class AuthController : ControllerBase
     {
         var userId = _currentUserService.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "factor.enroll", ct)) return ReauthenticationRequired("factor.enroll");
 
         var result = await _mfaService.SetupEmailOtpAsync(userId.Value, ct);
         if (!result.IsSuccess)
@@ -471,6 +476,7 @@ public class AuthController : ControllerBase
     {
         var userId = _currentUserService.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "session.revoke-all", ct)) return ReauthenticationRequired("session.revoke-all");
 
         var result = await _accountManagementService.RevokeAllSessionsAsync(userId.Value, ct);
         if (!result.IsSuccess)
@@ -524,6 +530,7 @@ public class AuthController : ControllerBase
     {
         var userId = _currentUserService.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "account.change-email", ct)) return ReauthenticationRequired("account.change-email");
 
         var result = await _accountManagementService.RequestEmailChangeAsync(userId.Value, request, ct);
         if (!result.IsSuccess)
@@ -558,4 +565,10 @@ public class AuthController : ControllerBase
 
     private string? GetUserAgent() =>
         Request.Headers.UserAgent.ToString();
+
+    private Task<bool> HasProofAsync(Guid userId, string purpose, CancellationToken ct) =>
+        _reauthenticationService.ConsumeProofAsync(userId, purpose, Request.Headers["X-AuthCenter-Reauthentication"].ToString(), ct);
+
+    private ObjectResult ReauthenticationRequired(string purpose) =>
+        StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("REAUTHENTICATION_REQUIRED", $"A recent single-use reauthentication proof for {purpose} is required."));
 }

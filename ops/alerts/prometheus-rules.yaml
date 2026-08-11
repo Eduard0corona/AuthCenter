@@ -1,0 +1,24 @@
+groups:
+  - name: authcenter-slo-burn-rate
+    rules:
+      - alert: AuthCenterLoginFastBurn
+        expr: |
+          (sum(rate(authcenter_operation_requests_total{authcenter_operation="login",authcenter_outcome="server_error"}[1h])) / sum(rate(authcenter_operation_requests_total{authcenter_operation="login"}[1h])) > 14.4 * 0.001)
+          and
+          (sum(rate(authcenter_operation_requests_total{authcenter_operation="login",authcenter_outcome="server_error"}[5m])) / sum(rate(authcenter_operation_requests_total{authcenter_operation="login"}[5m])) > 14.4 * 0.001)
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "AuthCenter login is consuming its error budget rapidly" }
+      - alert: AuthCenterTokenSlowBurn
+        expr: |
+          (sum(rate(authcenter_operation_requests_total{authcenter_operation="token",authcenter_outcome="server_error"}[6h])) / sum(rate(authcenter_operation_requests_total{authcenter_operation="token"}[6h])) > 6 * 0.0005)
+          and
+          (sum(rate(authcenter_operation_requests_total{authcenter_operation="token",authcenter_outcome="server_error"}[30m])) / sum(rate(authcenter_operation_requests_total{authcenter_operation="token"}[30m])) > 6 * 0.0005)
+        for: 5m
+        labels: { severity: ticket }
+        annotations: { summary: "AuthCenter token endpoint is consuming its error budget" }
+      - alert: AuthCenterEventHookDeadLetters
+        expr: increase(authcenter_event_hook_deliveries_total{authcenter_outcome="dead_letter"}[15m]) > 0
+        for: 1m
+        labels: { severity: page }
+        annotations: { summary: "AuthCenter produced an Event Hook dead letter" }

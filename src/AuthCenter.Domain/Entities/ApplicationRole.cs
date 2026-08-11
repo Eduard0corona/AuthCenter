@@ -13,4 +13,5 @@ public class ApplicationRole : IdentityRole<Guid>
 
     public ApplicationSystem? ApplicationSystem { get; set; }
     public ICollection<RolePermission> RolePermissions { get; set; } = new List<RolePermission>();
+    public ICollection<GroupRoleAssignment> GroupAssignments { get; set; } = new List<GroupRoleAssignment>();
 }

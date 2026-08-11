@@ -10,6 +10,8 @@ packages/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+node_modules/
+dist/
 
 ## Rider
 .idea/

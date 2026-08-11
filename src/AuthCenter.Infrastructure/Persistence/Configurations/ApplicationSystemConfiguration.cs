@@ -30,5 +30,10 @@ public class ApplicationSystemConfiguration : IEntityTypeConfiguration<Applicati
             .WithOne(r => r.ApplicationSystem)
             .HasForeignKey<ApplicationRegistrationSettings>(r => r.ApplicationSystemId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(a => a.BrandingSettings)
+            .WithOne(b => b.ApplicationSystem)
+            .HasForeignKey<ApplicationBrandingSettings>(b => b.ApplicationSystemId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

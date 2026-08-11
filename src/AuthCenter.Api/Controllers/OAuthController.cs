@@ -51,10 +51,33 @@ public class OAuthController : ControllerBase
     [HttpGet("interactions/{interactionId}")]
     public async Task<IActionResult> GetInteraction(string interactionId, CancellationToken ct)
     {
-        var result = await _oAuthService.GetInteractionAsync(interactionId, ct);
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+        var result = await _oAuthService.GetInteractionAsync(interactionId, userId.Value, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
+    }
+
+    [Authorize]
+    [HttpGet("consents")]
+    public async Task<IActionResult> GetConsents(CancellationToken ct)
+    {
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+        return Ok(ApiResponse<object>.Ok(await _oAuthService.GetConsentGrantsAsync(userId.Value, ct)));
+    }
+
+    [Authorize]
+    [HttpDelete("consents/{grantId:guid}")]
+    public async Task<IActionResult> RevokeConsent(Guid grantId, CancellationToken ct)
+    {
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+        var result = await _oAuthService.RevokeConsentGrantAsync(userId.Value, grantId, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse.Ok("Consent and associated refresh sessions were revoked."))
+            : NotFound(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
     [Authorize]
@@ -67,6 +90,8 @@ public class OAuthController : ControllerBase
         var result = await _oAuthService.CompleteAuthorizationAsync(request, userId.Value, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (Request.Headers["X-AuthCenter-UI"] == "1")
+            return Ok(ApiResponse<object>.Ok(new { redirectUrl = result.Data! }));
         return Redirect(result.Data!);
     }
 

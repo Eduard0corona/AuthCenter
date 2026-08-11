@@ -31,6 +31,7 @@ public class ApplicationService : IApplicationService
     {
         var query = _db.ApplicationSystems
             .Include(a => a.RegistrationSettings)
+            .Include(a => a.BrandingSettings)
             .AsNoTracking()
             .OrderBy(a => a.Name);
 
@@ -44,6 +45,7 @@ public class ApplicationService : IApplicationService
     {
         var app = await _db.ApplicationSystems
             .Include(a => a.RegistrationSettings)
+            .Include(a => a.BrandingSettings)
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == id, ct);
         return app is null ? null : MapToDto(app);
@@ -53,6 +55,54 @@ public class ApplicationService : IApplicationService
         _db.ApplicationSystems
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Code == code, ct);
+
+    public async Task<ApplicationBrandingDto?> GetBrandingAsync(string code, CancellationToken ct = default)
+    {
+        var app = await _db.ApplicationSystems
+            .AsNoTracking()
+            .Include(item => item.BrandingSettings)
+            .FirstOrDefaultAsync(item => item.Code == code && item.IsActive, ct);
+        return app is null ? null : MapBranding(app);
+    }
+
+    public async Task<OperationResult<ApplicationBrandingDto>> UpdateBrandingAsync(
+        Guid applicationId,
+        UpdateApplicationBrandingRequest request,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.DisplayName.Trim().Length > 100)
+            return OperationResult<ApplicationBrandingDto>.Failure("INVALID_DISPLAY_NAME", "Display name is required and cannot exceed 100 characters.");
+        if (!IsHexColor(request.PrimaryColor) || !IsHexColor(request.BackgroundColor))
+            return OperationResult<ApplicationBrandingDto>.Failure("INVALID_COLOR", "Brand colors must use the #RRGGBB format.");
+        if (!AreSafeBrandingUrls(request.LogoUrl, request.SupportUrl, request.PrivacyUrl, request.TermsUrl))
+            return OperationResult<ApplicationBrandingDto>.Failure("INVALID_BRANDING_URL", "Branding links must be absolute HTTPS URLs without embedded credentials.");
+
+        var app = await _db.ApplicationSystems
+            .Include(item => item.BrandingSettings)
+            .FirstOrDefaultAsync(item => item.Id == applicationId, ct)
+            ?? throw new NotFoundException(nameof(ApplicationSystem), applicationId);
+        var now = _dateTimeProvider.UtcNow;
+        if (app.BrandingSettings is null)
+        {
+            app.BrandingSettings = new ApplicationBrandingSettings
+            {
+                Id = Guid.NewGuid(),
+                ApplicationSystemId = app.Id,
+                CreatedAt = now
+            };
+            _db.ApplicationBrandingSettings.Add(app.BrandingSettings);
+        }
+        app.BrandingSettings.DisplayName = request.DisplayName.Trim();
+        app.BrandingSettings.PrimaryColor = request.PrimaryColor.ToUpperInvariant();
+        app.BrandingSettings.BackgroundColor = request.BackgroundColor.ToUpperInvariant();
+        app.BrandingSettings.LogoUrl = NormalizeUrl(request.LogoUrl);
+        app.BrandingSettings.SupportUrl = NormalizeUrl(request.SupportUrl);
+        app.BrandingSettings.PrivacyUrl = NormalizeUrl(request.PrivacyUrl);
+        app.BrandingSettings.TermsUrl = NormalizeUrl(request.TermsUrl);
+        app.BrandingSettings.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+        return OperationResult<ApplicationBrandingDto>.Success(MapBranding(app));
+    }
 
     public async Task<ApplicationSystem?> GetByCodeWithSettingsAsync(string code, CancellationToken ct = default)
     {
@@ -105,6 +155,12 @@ public class ApplicationService : IApplicationService
                 RequireMfa = request.RequireMfa,
                 AllowedEmailDomains = request.AllowedEmailDomains,
                 DefaultRoleId = request.DefaultRoleId,
+                CreatedAt = now
+            },
+            BrandingSettings = new ApplicationBrandingSettings
+            {
+                Id = Guid.NewGuid(),
+                DisplayName = request.Name.Trim(),
                 CreatedAt = now
             }
         };
@@ -167,8 +223,24 @@ public class ApplicationService : IApplicationService
     {
         var app = await _db.ApplicationSystems.FindAsync([id], ct)
             ?? throw new NotFoundException(nameof(ApplicationSystem), id);
+        var now = _dateTimeProvider.UtcNow;
+        if (_db.Database.IsRelational())
+        {
+            await _db.RefreshTokens
+                .Where(token => token.ApplicationCode == app.Code && token.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now), ct);
+        }
+        else
+        {
+            var activeTokens = await _db.RefreshTokens
+                .Where(token => token.ApplicationCode == app.Code && token.RevokedAt == null)
+                .ToListAsync(ct);
+            foreach (var token in activeTokens)
+                token.RevokedAt = now;
+        }
+
         app.IsActive = false;
-        app.UpdatedAt = _dateTimeProvider.UtcNow;
+        app.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
         return OperationResult.Success();
@@ -196,6 +268,35 @@ public class ApplicationService : IApplicationService
             RequireMfa = app.RegistrationSettings.RequireMfa,
             AllowedEmailDomains = app.RegistrationSettings.AllowedEmailDomains,
             DefaultRoleId = app.RegistrationSettings.DefaultRoleId
-        }
+        },
+        Branding = MapBranding(app)
     };
+
+    private static ApplicationBrandingDto MapBranding(ApplicationSystem app)
+    {
+        var branding = app.BrandingSettings;
+        return new ApplicationBrandingDto
+        {
+            ApplicationCode = app.Code,
+            DisplayName = branding?.DisplayName ?? app.Name,
+            PrimaryColor = branding?.PrimaryColor ?? "#2563EB",
+            BackgroundColor = branding?.BackgroundColor ?? "#F8FAFC",
+            LogoUrl = branding?.LogoUrl,
+            SupportUrl = branding?.SupportUrl,
+            PrivacyUrl = branding?.PrivacyUrl,
+            TermsUrl = branding?.TermsUrl
+        };
+    }
+
+    private static bool IsHexColor(string value) =>
+        value.Length == 7 && value[0] == '#' && value[1..].All(Uri.IsHexDigit);
+
+    private static bool AreSafeBrandingUrls(params string?[] values) => values.All(value =>
+        string.IsNullOrWhiteSpace(value) ||
+        (Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+         uri.Scheme == Uri.UriSchemeHttps &&
+         string.IsNullOrEmpty(uri.UserInfo)));
+
+    private static string? NormalizeUrl(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

@@ -90,6 +90,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
         var second = await LoginAsync(client, email, password);
 
         Authorize(client, second.AccessToken);
+        await client.AddReauthenticationProofAsync(password, "session.revoke-all");
         Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync("/api/auth/sessions")).StatusCode);
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/sessions")).StatusCode);
@@ -273,6 +274,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
 
         using var client = _factory.CreateClient();
         Authorize(client, (await LoginAsync(client, email, password)).AccessToken);
+        await client.AddReauthenticationProofAsync(password, "account.change-email");
 
         var requestResponse = await client.PostAsJsonAsync("/api/auth/email-change/request",
             new RequestEmailChangeRequest { NewEmail = newEmail });
@@ -314,6 +316,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
 
         using var client = _factory.CreateClient();
         Authorize(client, (await LoginAsync(client, email, password)).AccessToken);
+        await client.AddReauthenticationProofAsync(password, "account.change-email");
 
         var response = await client.PostAsJsonAsync("/api/auth/email-change/request",
             new RequestEmailChangeRequest { NewEmail = takenEmail });
@@ -329,6 +332,7 @@ public class AccountManagementTests : IClassFixture<AuthCenterWebApplicationFact
 
         using var client = _factory.CreateClient();
         Authorize(client, (await LoginAsync(client, email, password)).AccessToken);
+        await client.AddReauthenticationProofAsync(password, "account.change-email");
 
         var response = await client.PostAsJsonAsync("/api/auth/email-change/request",
             new RequestEmailChangeRequest { NewEmail = email });

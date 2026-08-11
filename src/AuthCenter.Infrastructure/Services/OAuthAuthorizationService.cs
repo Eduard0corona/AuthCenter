@@ -139,7 +139,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         return OperationResult<string>.Success(redirectUrl);
     }
 
-    public async Task<OperationResult<OAuthInteractionResponse>> GetInteractionAsync(string interactionId, CancellationToken ct = default)
+    public async Task<OperationResult<OAuthInteractionResponse>> GetInteractionAsync(string interactionId, Guid userId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(interactionId))
             return OperationResult<OAuthInteractionResponse>.Failure("INVALID_INTERACTION", "Interaction not found or expired.");
@@ -160,7 +160,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             ApplicationCode = client.ApplicationSystem.Code,
             ApplicationName = client.ApplicationSystem.Name,
             Scopes = session.Scopes,
-            RequiresConsent = !client.AutoConsent,
+            RequiresConsent = !client.AutoConsent && !await HasConsentAsync(userId, client.Id, session.Scopes, ct),
             ExpiresAt = session.CreatedAt.AddMinutes(AuthorizationLifetimeMinutes)
         });
     }
@@ -179,7 +179,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (client is null || client.ApplicationSystemId != session.ApplicationSystemId)
             return OperationResult<string>.Failure("INVALID_CLIENT", "OAuth client is no longer active.");
 
-        if (!request.Consent && !client.AutoConsent)
+        var hasExistingConsent = client.AutoConsent || await HasConsentAsync(userId, client.Id, session.Scopes, ct);
+        if (!request.Consent && !hasExistingConsent)
         {
             AddAudit("OAUTH_CONSENT_DENIED", userId, client, metadata: new { scopes = session.Scopes });
             await _db.SaveChangesAsync(ct);
@@ -199,6 +200,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 
         var rawCode = GenerateCode();
         var now = _dateTimeProvider.UtcNow;
+        if (request.Consent && !client.AutoConsent)
+            await UpsertConsentAsync(userId, client.Id, session.Scopes, now, ct);
         _db.OAuthAuthorizationCodes.Add(new OAuthAuthorizationCode
         {
             Id = Guid.NewGuid(),
@@ -218,6 +221,59 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         await _db.SaveChangesAsync(ct);
 
         return OperationResult<string>.Success(BuildAuthorizationSuccessRedirect(session.RedirectUri, session.State, rawCode));
+    }
+
+    public async Task<IReadOnlyList<OAuthConsentGrantDto>> GetConsentGrantsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var grants = await _db.OAuthConsentGrants
+            .AsNoTracking()
+            .Where(item => item.UserId == userId && item.OAuthClient.IsActive && item.OAuthClient.ApplicationSystem.IsActive)
+            .OrderByDescending(item => item.UpdatedAt)
+            .Select(item => new
+            {
+                item.Id,
+                item.OAuthClient.ClientId,
+                ClientDisplayName = item.OAuthClient.DisplayName,
+                ApplicationCode = item.OAuthClient.ApplicationSystem.Code,
+                ApplicationName = item.OAuthClient.ApplicationSystem.Name,
+                item.ScopesJson,
+                item.GrantedAt,
+                item.UpdatedAt
+            })
+            .ToListAsync(ct);
+        return grants.Select(item => new OAuthConsentGrantDto
+        {
+            Id = item.Id,
+            ClientId = item.ClientId,
+            ClientDisplayName = item.ClientDisplayName,
+            ApplicationCode = item.ApplicationCode,
+            ApplicationName = item.ApplicationName,
+            Scopes = DeserializeValues(item.ScopesJson),
+            GrantedAt = item.GrantedAt,
+            UpdatedAt = item.UpdatedAt
+        }).ToList();
+    }
+
+    public async Task<OperationResult> RevokeConsentGrantAsync(Guid userId, Guid grantId, CancellationToken ct = default)
+    {
+        var grant = await _db.OAuthConsentGrants
+            .Include(item => item.OAuthClient)
+            .ThenInclude(item => item.ApplicationSystem)
+            .FirstOrDefaultAsync(item => item.Id == grantId && item.UserId == userId, ct);
+        if (grant is null)
+            return OperationResult.Failure("CONSENT_NOT_FOUND", "Consent grant was not found.");
+
+        var now = _dateTimeProvider.UtcNow;
+        var clientId = grant.OAuthClient.ClientId;
+        _db.OAuthConsentGrants.Remove(grant);
+        var tokens = await _db.RefreshTokens
+            .Where(item => item.UserId == userId && item.OAuthClientId == clientId && item.RevokedAt == null)
+            .ToListAsync(ct);
+        foreach (var token in tokens)
+            token.RevokedAt = now;
+        AddAudit("OAUTH_CONSENT_REVOKED", userId, grant.OAuthClient, metadata: new { grantId });
+        await _db.SaveChangesAsync(ct);
+        return OperationResult.Success();
     }
 
     public async Task<OperationResult<OAuthTokenResponse>> ExchangeCodeAsync(OAuthTokenRequest request, CancellationToken ct = default)
@@ -509,6 +565,44 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             Email = scopes.Contains(DomainConstants.OAuthScopes.Email) ? user.Email : null,
             EmailVerified = scopes.Contains(DomainConstants.OAuthScopes.Email) ? user.EmailConfirmed : null
         });
+    }
+
+    private async Task<bool> HasConsentAsync(Guid userId, Guid clientId, IEnumerable<string> requestedScopes, CancellationToken ct)
+    {
+        var stored = await _db.OAuthConsentGrants
+            .AsNoTracking()
+            .Where(item => item.UserId == userId && item.OAuthClientId == clientId)
+            .Select(item => item.ScopesJson)
+            .SingleOrDefaultAsync(ct);
+        if (stored is null)
+            return false;
+        var grantedScopes = DeserializeValues(stored).ToHashSet(StringComparer.Ordinal);
+        return requestedScopes.All(grantedScopes.Contains);
+    }
+
+    private async Task UpsertConsentAsync(Guid userId, Guid clientId, IEnumerable<string> scopes, DateTime now, CancellationToken ct)
+    {
+        var grant = await _db.OAuthConsentGrants
+            .SingleOrDefaultAsync(item => item.UserId == userId && item.OAuthClientId == clientId, ct);
+        if (grant is null)
+        {
+            grant = new OAuthConsentGrant
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                OAuthClientId = clientId,
+                GrantedAt = now
+            };
+            _db.OAuthConsentGrants.Add(grant);
+        }
+
+        var combined = DeserializeValues(grant.ScopesJson)
+            .Concat(scopes)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToList();
+        grant.ScopesJson = JsonSerializer.Serialize(combined);
+        grant.UpdatedAt = now;
     }
 
     private Task<OAuthClient?> FindActiveClientAsync(string clientId, CancellationToken ct) =>

@@ -28,11 +28,19 @@ public static class DomainConstants
         public const string AuditLogsRead = "AUTHCENTER_AUDIT_LOGS_READ";
         public const string OAuthClientsRead = "AUTHCENTER_OAUTH_CLIENTS_READ";
         public const string OAuthClientsWrite = "AUTHCENTER_OAUTH_CLIENTS_WRITE";
+        public const string GroupsRead = "AUTHCENTER_GROUPS_READ";
+        public const string GroupsWrite = "AUTHCENTER_GROUPS_WRITE";
+        public const string AccessPoliciesRead = "AUTHCENTER_ACCESS_POLICIES_READ";
+        public const string AccessPoliciesWrite = "AUTHCENTER_ACCESS_POLICIES_WRITE";
+        public const string ProfileSchemasRead = "AUTHCENTER_PROFILE_SCHEMAS_READ";
+        public const string ProfileSchemasWrite = "AUTHCENTER_PROFILE_SCHEMAS_WRITE";
 
         public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
         {
             UsersRead, UsersWrite, ApplicationsRead, ApplicationsWrite, RolesRead, RolesWrite,
-            PermissionsRead, PermissionsWrite, AuditLogsRead, OAuthClientsRead, OAuthClientsWrite
+            PermissionsRead, PermissionsWrite, AuditLogsRead, OAuthClientsRead, OAuthClientsWrite,
+            GroupsRead, GroupsWrite, AccessPoliciesRead, AccessPoliciesWrite,
+            ProfileSchemasRead, ProfileSchemasWrite
         };
     }
 

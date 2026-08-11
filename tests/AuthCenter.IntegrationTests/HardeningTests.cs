@@ -78,6 +78,7 @@ public class HardeningTests : IClassFixture<AuthCenterWebApplicationFactory>
         using var client = _factory.CreateClient();
         var auth = await LoginAsync(client);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        await client.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "factor.enroll");
 
         // Enrolling in email OTP parks a code that a later request has to read back. If that lived
         // in process memory, a second instance would never find it.

@@ -20,6 +20,7 @@ using Xunit;
 
 namespace AuthCenter.IntegrationTests;
 
+[Trait("Category", "Conformance")]
 public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
 {
     private readonly AuthCenterWebApplicationFactory _factory;
