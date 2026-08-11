@@ -122,6 +122,8 @@ relacional aplicó la cadena completa de migraciones sobre una base nueva y la e
       login hospedado, el portal y la consola administrativa.
 - [x] Aplicar Content-Security-Policy tanto a las rutas canónicas como a `login.html`,
       `portal.html` y `admin.html`.
+- [x] Servir las rutas canónicas `/login`, `/portal` y `/admin` explícitamente como
+      `text/html; charset=utf-8`; esto evita que `nosniff` haga que el navegador muestre HTML crudo.
 - [x] Endurecer el gate posterior al despliegue: exige liveness, readiness, branding de
       `AUTHCENTER` y CSP en los seis paths de UI antes de declarar exitoso el release.
 - [x] Validar la corrección con SQL Server real, 51 pruebas unitarias, 120 pruebas de integración,

@@ -416,9 +416,15 @@ try
     app.UseAuthorization();
     app.MapControllers();
     app.MapGet("/", () => Results.Redirect("/login"));
-    app.MapGet("/login", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "login.html")));
-    app.MapGet("/portal", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "portal.html")));
-    app.MapGet("/admin", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "admin.html")));
+    app.MapGet("/login", () => Results.File(
+        Path.Combine(app.Environment.WebRootPath, "login.html"),
+        "text/html; charset=utf-8"));
+    app.MapGet("/portal", () => Results.File(
+        Path.Combine(app.Environment.WebRootPath, "portal.html"),
+        "text/html; charset=utf-8"));
+    app.MapGet("/admin", () => Results.File(
+        Path.Combine(app.Environment.WebRootPath, "admin.html"),
+        "text/html; charset=utf-8"));
     app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
     var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
     if (!string.IsNullOrWhiteSpace(readinessHost))
