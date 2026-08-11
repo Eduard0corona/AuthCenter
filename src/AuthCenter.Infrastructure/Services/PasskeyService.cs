@@ -26,6 +26,7 @@ public sealed class PasskeyService : IPasskeyService
     private readonly IAuditService _audit;
     private readonly IDateTimeProvider _clock;
     private readonly PasskeySettings _settings;
+    private readonly IAuthenticationRiskService _authenticationRisk;
 
     public PasskeyService(
         UserManager<ApplicationUser> users,
@@ -37,7 +38,8 @@ public sealed class PasskeyService : IPasskeyService
         IAuthenticationSessionIssuer sessions,
         IAuditService audit,
         IDateTimeProvider clock,
-        IOptions<PasskeySettings> settings)
+        IOptions<PasskeySettings> settings,
+        IAuthenticationRiskService authenticationRisk)
     {
         _users = users;
         _signIn = signIn;
@@ -49,6 +51,7 @@ public sealed class PasskeyService : IPasskeyService
         _audit = audit;
         _clock = clock;
         _settings = settings.Value;
+        _authenticationRisk = authenticationRisk;
     }
 
     public async Task<OperationResult<PasskeyOptionsResponse>> GetRegistrationOptionsAsync(Guid userId, CancellationToken ct = default)
@@ -190,7 +193,7 @@ public sealed class PasskeyService : IPasskeyService
             await _audit.LogAsync("PASSKEY_LOGIN_FAILED", null, ipAddress: ipAddress, userAgent: userAgent, ct: ct);
             return OperationResult<AuthResponse>.Failure("INVALID_PASSKEY_ASSERTION", "Passkey assertion is invalid or expired.");
         }
-        if (!assertion.Succeeded || assertion.User is null || assertion.Passkey is null)
+        if (!assertion.Succeeded || assertion.User is null || assertion.Passkey is null || !assertion.Passkey.IsUserVerified)
         {
             await _audit.LogAsync("PASSKEY_LOGIN_FAILED", null, ipAddress: ipAddress, userAgent: userAgent, ct: ct);
             return OperationResult<AuthResponse>.Failure("INVALID_PASSKEY_ASSERTION", "Passkey assertion is invalid or expired.");
@@ -200,7 +203,14 @@ public sealed class PasskeyService : IPasskeyService
         var app = await _db.ApplicationSystems.AsNoTracking().FirstOrDefaultAsync(item => item.Id == appId && item.IsActive, ct);
         if (!user.IsActive || app is null || !await _access.HasActiveAccessAsync(user.Id, appId, ct))
             return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "User or application access is inactive.");
-        var policy = await _policies.EvaluateAsync(user.Id, appId, ipAddress, ct);
+        var signals = await _authenticationRisk.AssessAndRecordAsync(user.Id, ipAddress, userAgent, ct: ct);
+        var policy = await _policies.EvaluateAsync(new AuthCenter.Application.Models.AccessPolicyEvaluationContext(
+            user.Id,
+            appId,
+            ipAddress,
+            _clock.UtcNow,
+            signals.RiskLevel,
+            AuthCenter.Domain.Enums.AuthenticationAssuranceLevel.PhishingResistant), ct);
         if (!policy.IsAllowed)
             return OperationResult<AuthResponse>.Failure("ACCESS_POLICY_DENIED", "Sign-in is denied by the application's access policy.");
 

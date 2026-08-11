@@ -13,11 +13,13 @@ namespace AuthCenter.Api.Controllers;
 public sealed class PasskeysController : ControllerBase
 {
     private readonly IPasskeyService _passkeys;
+    private readonly IReauthenticationService _reauthentication;
     private readonly ICurrentUserService _currentUser;
 
-    public PasskeysController(IPasskeyService passkeys, ICurrentUserService currentUser)
+    public PasskeysController(IPasskeyService passkeys, IReauthenticationService reauthentication, ICurrentUserService currentUser)
     {
         _passkeys = passkeys;
+        _reauthentication = reauthentication;
         _currentUser = currentUser;
     }
 
@@ -45,6 +47,8 @@ public sealed class PasskeysController : ControllerBase
     {
         var userId = _currentUser.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "factor.enroll", ct))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("REAUTHENTICATION_REQUIRED", "A recent single-use reauthentication proof for factor.enroll is required."));
         var result = await _passkeys.RegisterAsync(userId.Value, request, GetIpAddress(), GetUserAgent(), ct);
         return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
@@ -55,6 +59,8 @@ public sealed class PasskeysController : ControllerBase
     {
         var userId = _currentUser.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "passkey.manage", ct))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("REAUTHENTICATION_REQUIRED", "A recent single-use reauthentication proof for passkey.manage is required."));
         var result = await _passkeys.RenameAsync(userId.Value, credentialId, request, ct);
         return result.IsSuccess ? Ok(ApiResponse.Ok()) : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
@@ -65,6 +71,8 @@ public sealed class PasskeysController : ControllerBase
     {
         var userId = _currentUser.UserId;
         if (userId is null) return Unauthorized();
+        if (!await HasProofAsync(userId.Value, "passkey.manage", ct))
+            return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("REAUTHENTICATION_REQUIRED", "A recent single-use reauthentication proof for passkey.manage is required."));
         var result = await _passkeys.RemoveAsync(userId.Value, credentialId, ct);
         return result.IsSuccess ? Ok(ApiResponse.Ok()) : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
@@ -85,6 +93,34 @@ public sealed class PasskeysController : ControllerBase
         return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
+    [Authorize]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("step-up/options")]
+    public async Task<IActionResult> StepUpOptions([FromBody] BeginPasskeyStepUpRequest request, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId;
+        if (userId is null) return Unauthorized();
+        var result = await _reauthentication.GetPasskeyOptionsAsync(userId.Value, request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    [Authorize]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("step-up/complete")]
+    public async Task<IActionResult> CompleteStepUp([FromBody] CompletePasskeyStepUpRequest request, CancellationToken ct)
+    {
+        var userId = _currentUser.UserId;
+        if (userId is null) return Unauthorized();
+        var result = await _reauthentication.VerifyPasskeyAsync(userId.Value, request, GetIpAddress(), GetUserAgent(), ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
     private string? GetUserAgent() => Request.Headers.UserAgent.ToString();
+    private Task<bool> HasProofAsync(Guid userId, string purpose, CancellationToken ct) =>
+        _reauthentication.ConsumeProofAsync(userId, purpose, Request.Headers["X-AuthCenter-Reauthentication"].ToString(), ct);
 }

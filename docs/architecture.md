@@ -91,4 +91,9 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   user-verification flags and replay counter. Ceremony application context is single-use and
   distributed; verified assertions issue the same application-scoped JWT/refresh sessions as other
   authentication methods and satisfy an MFA policy without weakening its assurance.
+- **Step-up and adaptive risk**: sensitive operations use opaque, random, short-lived, single-use
+  proofs bound to a user and closed purpose; only the proof hash is retained. A user-verified
+  passkey raises assurance to `PhishingResistant`. Adaptive observations retain HMAC-protected
+  network prefixes and device families instead of raw values, detect new contexts, failure bursts
+  and impossible travel, and expire automatically.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

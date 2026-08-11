@@ -697,7 +697,7 @@ public sealed class AccessPolicyService : IAccessPolicyService
         if (!Enum.TryParse<AccessPolicyMfaRequirement>(mfaRequirement, true, out var parsedMfa) || !Enum.IsDefined(parsedMfa))
             return RuleValidation.Failure("INVALID_MFA_REQUIREMENT", "MfaRequirement must be Optional or Required.");
         if (!Enum.TryParse<AuthenticationAssuranceLevel>(requiredAssuranceLevel, true, out var assurance) || !Enum.IsDefined(assurance))
-            return RuleValidation.Failure("INVALID_ASSURANCE_LEVEL", "RequiredAssuranceLevel must be Password or Mfa.");
+            return RuleValidation.Failure("INVALID_ASSURANCE_LEVEL", "RequiredAssuranceLevel must be Password, Mfa, or PhishingResistant.");
 
         var allLists = new[] { includedCidrs ?? [], excludedCidrs ?? [] };
         if (allLists.Any(list => list.Count > MaxCidrsPerCondition))

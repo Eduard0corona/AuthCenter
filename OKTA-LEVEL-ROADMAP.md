@@ -19,7 +19,7 @@ y evidencia de operación.
 | OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación | Interoperabilidad completa, PAR, Device Authorization, introspección y token exchange cuando exista un consumidor real | Fundación lista |
 | Directorio universal | Usuarios, grupos, membresías, perfiles tipados y asignaciones efectivas | Reglas dinámicas de membresía y mappings en Fase 4 | Fase 1 lista |
 | Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
-| Autenticadores | Password, TOTP, email OTP, magic link, backup codes y passkeys passwordless | Enrollment policy, recuperación reforzada y passkey como step-up | Parcial |
+| Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión | Portal de autoservicio y recuperación asistida en Fase 5 | Fase 2 lista |
 | Federación | Google, Microsoft, GitHub y Apple implementados directamente | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Pendiente |
 | Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
 | System Log | Auditoría consultable y outbox durable para correo | Catálogo estable de eventos, correlación, exportación, event hooks firmados y reintentos observables | Pendiente |
@@ -54,10 +54,10 @@ y evidencia de operación.
 
 - [x] Registrar, listar, renombrar y revocar credenciales WebAuthn/passkey.
 - [x] Implementar login passwordless phishing-resistant con user verification obligatoria.
-- [ ] Implementar passkey como step-up de una sesión ya autenticada.
-- [ ] Aplicar enrollment y assurance desde el motor de políticas.
-- [ ] Proteger recuperación, cambio de factores y operaciones sensibles con reautenticación.
-- [ ] Incorporar señales de IP, dispositivo, geovelocidad y eventos anómalos sin almacenar datos
+- [x] Implementar passkey como step-up de una sesión ya autenticada.
+- [x] Aplicar enrollment y assurance desde el motor de políticas.
+- [x] Proteger recuperación, cambio de factores y operaciones sensibles con reautenticación.
+- [x] Incorporar señales de IP, dispositivo, geovelocidad y eventos anómalos sin almacenar datos
       innecesarios.
 
 ### Fase 3 — Federación empresarial

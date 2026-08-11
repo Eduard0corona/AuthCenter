@@ -96,7 +96,9 @@ git-ignored and its values are for local use only.
 | `Passkeys:RelyingPartyId` | Exact WebAuthn RP host, without scheme or path |
 | `Passkeys:AllowedOrigins` | Exact HTTPS origins allowed to complete WebAuthn ceremonies |
 | `Passkeys:CeremonyMinutes` | Single-use ceremony lifetime, from 1 to 10 minutes |
+| `Passkeys:ReauthenticationMinutes` | Single-use sensitive-operation proof lifetime, from 1 to 15 minutes |
 | `Passkeys:MaxCredentialsPerUser` | Per-user resource limit, from 2 to 20 |
+| `AdaptiveAuth:SignalHashKey` | Key Vault secret used to HMAC minimized network/device signals |
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
@@ -226,6 +228,12 @@ in the authenticator.
 | DELETE | `/api/auth/passkeys/{credentialId}` | Revoke a passkey |
 | POST | `/api/auth/passkeys/login/options` | Start username or discoverable passwordless login |
 | POST | `/api/auth/passkeys/login/complete` | Verify the assertion and issue application-scoped tokens |
+| POST | `/api/auth/passkeys/step-up/options` | Start passkey reauthentication for a closed purpose |
+| POST | `/api/auth/passkeys/step-up/complete` | Return a short-lived, single-use reauthentication proof |
+| POST | `/api/auth/reauth/password` | Return a password-backed proof when local password is available |
+
+Present a proof once in `X-AuthCenter-Reauthentication`. Clients must not persist it or reuse it for
+another purpose.
 
 Cross-origin browser calls must use credentials mode so the protected ceremony cookie is returned.
 CORS credentials are enabled only for explicitly configured origins. A completed assertion is

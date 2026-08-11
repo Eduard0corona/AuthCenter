@@ -64,6 +64,7 @@ public sealed class RetentionCleanupService : BackgroundService
         removed += await DeleteBatchesAsync(db, db.AuditLogs.Where(item => item.CreatedAt < auditCutoff), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.DistributedRateLimitBuckets.Where(item => item.ExpiresAt < now), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.OutboxMessages.Where(item => item.ProcessedAt != null && item.ProcessedAt < tokenCutoff), batchSize, ct);
+        removed += await DeleteBatchesAsync(db, db.AuthenticationObservations.Where(item => item.ExpiresAt < now), batchSize, ct);
 
         if (removed > 0)
             _logger.LogInformation("Retention cleanup removed {RemovedCount} expired records", removed);

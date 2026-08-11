@@ -16,6 +16,8 @@ public sealed class PasskeySettingsValidator : IValidateOptions<PasskeySettings>
     {
         if (settings.CeremonyMinutes is < 1 or > 10)
             return ValidateOptionsResult.Fail("Passkeys:CeremonyMinutes must be between 1 and 10.");
+        if (settings.ReauthenticationMinutes is < 1 or > 15)
+            return ValidateOptionsResult.Fail("Passkeys:ReauthenticationMinutes must be between 1 and 15.");
         if (settings.MaxCredentialsPerUser is < 2 or > 20)
             return ValidateOptionsResult.Fail("Passkeys:MaxCredentialsPerUser must be between 2 and 20.");
 

@@ -33,6 +33,7 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<ApplicationAccessPolicyVersion> ApplicationAccessPolicyVersions => Set<ApplicationAccessPolicyVersion>();
     public DbSet<UserProfileAttributeDefinition> UserProfileAttributeDefinitions => Set<UserProfileAttributeDefinition>();
     public DbSet<UserProfileAttributeValue> UserProfileAttributeValues => Set<UserProfileAttributeValue>();
+    public DbSet<AuthenticationObservation> AuthenticationObservations => Set<AuthenticationObservation>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

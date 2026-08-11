@@ -41,6 +41,7 @@ public class AuthService : IAuthService
     private readonly ILogger<AuthService> _logger;
     private readonly IAuthenticationSessionIssuer _sessionIssuer;
     private readonly IAccessPolicyService _accessPolicies;
+    private readonly IAuthenticationRiskService _authenticationRisk;
 
     public AuthService(
         UserManager<ApplicationUser> userManager,
@@ -64,7 +65,8 @@ public class AuthService : IAuthService
         AuthCenterDbContext db,
         ILogger<AuthService> logger,
         IAuthenticationSessionIssuer sessionIssuer,
-        IAccessPolicyService accessPolicies)
+        IAccessPolicyService accessPolicies,
+        IAuthenticationRiskService authenticationRisk)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -88,6 +90,7 @@ public class AuthService : IAuthService
         _logger = logger;
         _sessionIssuer = sessionIssuer;
         _accessPolicies = accessPolicies;
+        _authenticationRisk = authenticationRisk;
     }
 
     public async Task<OperationResult<AuthResponse>> RegisterAsync(RegisterRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -969,7 +972,14 @@ public class AuthService : IAuthService
         string? userAgent,
         CancellationToken ct)
     {
-        var policy = await _accessPolicies.EvaluateAsync(userId, appSystem.Id, ipAddress, ct);
+        var signals = await _authenticationRisk.AssessAndRecordAsync(userId, ipAddress, userAgent, ct: ct);
+        var policy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
+            userId,
+            appSystem.Id,
+            ipAddress,
+            _dateTimeProvider.UtcNow,
+            signals.RiskLevel,
+            AuthenticationAssuranceLevel.Password), ct);
         if (!policy.IsAllowed)
         {
             await _auditService.LogAsync(
@@ -985,6 +995,26 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure(
                 "ACCESS_POLICY_DENIED",
                 "Sign-in is denied by the application's access policy.");
+        }
+
+        if (policy.RequiredAssuranceLevel == AuthenticationAssuranceLevel.PhishingResistant)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            var hasPasskey = user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0;
+            await _auditService.LogAsync(
+                hasPasskey ? "PASSKEY_REQUIRED" : "PASSKEY_ENROLLMENT_REQUIRED",
+                userId,
+                appSystem.Code,
+                nameof(ApplicationAccessPolicyRule),
+                policy.MatchedRuleId?.ToString(),
+                ipAddress,
+                userAgent,
+                ct: ct);
+            return OperationResult<AuthResponse>.Failure(
+                hasPasskey ? "PASSKEY_REQUIRED" : "PASSKEY_ENROLLMENT_REQUIRED",
+                hasPasskey
+                    ? "This application requires a user-verified passkey. Continue with passkey sign-in."
+                    : "This application requires a passkey. Enroll one before the policy is enforced.");
         }
 
         var mfaCredential = await _db.UserMfaCredentials

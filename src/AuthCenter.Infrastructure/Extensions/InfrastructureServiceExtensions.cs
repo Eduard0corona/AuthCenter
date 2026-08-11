@@ -54,6 +54,8 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<IValidateOptions<MfaSettings>, MfaSettingsValidator>();
         services.Configure<PasskeySettings>(configuration.GetSection("Passkeys"));
         services.AddSingleton<IValidateOptions<PasskeySettings>, PasskeySettingsValidator>();
+        services.Configure<AdaptiveAuthenticationSettings>(configuration.GetSection("AdaptiveAuth"));
+        services.AddSingleton<IValidateOptions<AdaptiveAuthenticationSettings>, AdaptiveAuthenticationSettingsValidator>();
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
         services.AddHostedService<RetentionCleanupService>();
@@ -129,6 +131,8 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
+        services.AddScoped<IReauthenticationService, ReauthenticationService>();
+        services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();
 
         return services;
     }

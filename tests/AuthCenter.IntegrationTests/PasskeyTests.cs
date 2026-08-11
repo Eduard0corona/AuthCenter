@@ -61,13 +61,34 @@ public sealed class PasskeyTests : IClassFixture<AuthCenterWebApplicationFactory
     public async Task ManagementEndpoints_RejectInvalidCredentialData()
     {
         using var client = await CreateAdminClientAsync();
+        var withoutProof = await client.PostAsJsonAsync("/api/auth/passkeys/registration/complete",
+            new RegisterPasskeyRequest { Name = "Laptop", CredentialJson = "{}" });
+        Assert.Equal(HttpStatusCode.Forbidden, withoutProof.StatusCode);
+
+        var enrollmentProof = await CreateProofAsync(client, "factor.enroll");
+        client.DefaultRequestHeaders.Add("X-AuthCenter-Reauthentication", enrollmentProof);
         var registration = await client.PostAsJsonAsync("/api/auth/passkeys/registration/complete",
             new RegisterPasskeyRequest { Name = "Laptop", CredentialJson = "{}" });
         Assert.Equal(HttpStatusCode.BadRequest, registration.StatusCode);
+        client.DefaultRequestHeaders.Remove("X-AuthCenter-Reauthentication");
 
+        client.DefaultRequestHeaders.Add("X-AuthCenter-Reauthentication", await CreateProofAsync(client, "passkey.manage"));
         var rename = await client.PutAsJsonAsync("/api/auth/passkeys/not-base64!", new RenamePasskeyRequest { Name = "Laptop" });
         Assert.Equal(HttpStatusCode.BadRequest, rename.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.DeleteAsync("/api/auth/passkeys/not-base64!")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.DeleteAsync("/api/auth/passkeys/not-base64!")).StatusCode);
+    }
+
+    private static async Task<string> CreateProofAsync(HttpClient client, string purpose)
+    {
+        var response = await ReadDataAsync<ReauthenticationProofResponse>(await client.PostAsJsonAsync(
+            "/api/auth/reauth/password",
+            new PasswordReauthenticationRequest
+            {
+                Purpose = purpose,
+                Password = AuthCenterWebApplicationFactory.AdminPassword
+            }));
+        Assert.Equal("Password", response.AssuranceLevel);
+        return response.ProofToken;
     }
 
     private async Task<HttpClient> CreateAdminClientAsync()
