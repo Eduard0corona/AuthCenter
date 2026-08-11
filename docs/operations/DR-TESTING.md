@@ -43,5 +43,7 @@ código de la rama:
 - Azure SQL point-in-time restore: `Online` en 1,175.5 s, dentro del RTO de 1,800 s. La base
   temporal con prefijo `authcenter-drill-` se eliminó automáticamente.
 - App Service restart: `/health/live` recuperó HTTP 200 en 8.2 s, dentro del RTO de 300 s.
+- App Service readiness: el Health Check nativo quedó apuntando a `/health/ready`; liveness y
+  readiness recuperaron HTTP 200 en 49.6 s después del cambio de Site Config.
 - Failover regional: no ejecutado porque la topología actual es de una sola región; no se declara
   un RTO regional hasta contar con réplica y failover group aprobados.

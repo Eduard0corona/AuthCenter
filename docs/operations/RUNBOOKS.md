@@ -35,6 +35,23 @@ copies tokens, cadenas de conexión, claves ni cuerpos de autenticación al tick
 4. Si hay pérdida/corrupción, ejecuta `Invoke-AzureSqlRestoreDrill.ps1` con un nombre temporal
    acotado, valida y promueve sólo mediante un plan de cambio aprobado.
 
+## Health checks de App Service
+
+1. Configura `HealthChecks__ReadinessHost` con el hostname exacto del App Service; la aplicación no
+   publica `/health/ready` para hosts distintos.
+2. Configura `healthCheckPath=/health/ready` en Site Config para que Azure retire del balanceador
+   instancias que no puedan atender dependencias. Conserva `/health/live` para distinguir proceso
+   vivo de instancia lista.
+3. Verifica ambos endpoints después de cada cambio de configuración. Nunca uses una URL de login,
+   discovery o token como health probe.
+
+```powershell
+az webapp config appsettings set -g <resource-group> -n <app-name> `
+  --settings "HealthChecks__ReadinessHost=<app-hostname>" -o none
+az webapp config set -g <resource-group> -n <app-name> `
+  --generic-configurations healthCheckPath=/health/ready -o none
+```
+
 ## Key Vault
 
 1. Consulta el estado de referencias de App Service; diferencia `AccessToKeyVaultDenied` de secreto
