@@ -368,8 +368,11 @@ try
         ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
         ctx.Response.Headers.Append("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
         if (ctx.Request.Path.StartsWithSegments("/login") ||
+            ctx.Request.Path.Equals("/login.html") ||
             ctx.Request.Path.StartsWithSegments("/portal") ||
+            ctx.Request.Path.Equals("/portal.html") ||
             ctx.Request.Path.StartsWithSegments("/admin") ||
+            ctx.Request.Path.Equals("/admin.html") ||
             ctx.Request.Path.StartsWithSegments("/ui"))
         {
             ctx.Response.Headers.Append("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");

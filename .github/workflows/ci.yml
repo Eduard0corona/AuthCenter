@@ -157,13 +157,28 @@ jobs:
           APP_URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
         run: |
           for attempt in {1..18}; do
-            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            live_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
               --max-time 20 "${APP_URL%/}/health/live" || true)"
-            if [ "$status" = "200" ]; then
-              exit 0
+            ready_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --max-time 20 "${APP_URL%/}/health/ready" || true)"
+            branding_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --max-time 20 "${APP_URL%/}/api/applications/branding/AUTHCENTER" || true)"
+            if [ "$live_status" = "200" ] && [ "$ready_status" = "200" ] && [ "$branding_status" = "200" ]; then
+              break
             fi
-            echo "Health check attempt ${attempt}/18 returned HTTP ${status:-unreachable}."
+            echo "Deployment check ${attempt}/18 returned live=${live_status:-unreachable}, ready=${ready_status:-unreachable}, branding=${branding_status:-unreachable}."
+            if [ "$attempt" = "18" ]; then
+              echo "The deployment completed, but required runtime checks did not become healthy." >&2
+              exit 1
+            fi
             sleep 10
           done
-          echo "The deployment completed, but the liveness endpoint did not become healthy." >&2
-          exit 1
+
+          for ui_path in login portal admin login.html portal.html admin.html; do
+            headers="$(curl --silent --show-error --dump-header - --output /dev/null \
+              --max-time 20 "${APP_URL%/}/${ui_path}")"
+            if ! grep --quiet --ignore-case '^content-security-policy:' <<< "$headers"; then
+              echo "The ${ui_path} UI document is missing Content-Security-Policy." >&2
+              exit 1
+            fi
+          done

@@ -113,6 +113,20 @@ relacional aplicó la cadena completa de migraciones sobre una base nueva y la e
 - [ ] Ejecutar una sola vez el seed productivo después de definir de forma explícita la cuenta
       administradora inicial; no se generaron ni reutilizaron credenciales locales para hacerlo.
 
+## Cierre de despliegue de las fases 5 y 6 (2026-08-11)
+
+- [x] Convertir la aplicación interna `AUTHCENTER` en un invariante de base de datos. La migración
+      23 la crea o reactiva de forma idempotente y garantiza settings de registro y branding sin
+      crear usuarios, contraseñas ni accesos implícitos.
+- [x] Impedir la desactivación accidental de `AUTHCENTER`, porque dejaría fuera de servicio el
+      login hospedado, el portal y la consola administrativa.
+- [x] Aplicar Content-Security-Policy tanto a las rutas canónicas como a `login.html`,
+      `portal.html` y `admin.html`.
+- [x] Endurecer el gate posterior al despliegue: exige liveness, readiness, branding de
+      `AUTHCENTER` y CSP en los seis paths de UI antes de declarar exitoso el release.
+- [x] Validar la corrección con SQL Server real, 51 pruebas unitarias, 120 pruebas de integración,
+      SDK TypeScript, quickstart SPA, formato y auditorías de dependencias sin hallazgos.
+
 ## Fundación OAuth/OIDC para una plataforma nivel Okta (2026-08-10)
 
 Este ciclo endurece el authorization server, pero no representa por sí solo paridad de producto con
