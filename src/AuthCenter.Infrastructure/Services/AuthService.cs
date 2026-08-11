@@ -40,6 +40,7 @@ public class AuthService : IAuthService
     private readonly AuthCenterDbContext _db;
     private readonly ILogger<AuthService> _logger;
     private readonly IAuthenticationSessionIssuer _sessionIssuer;
+    private readonly IAccessPolicyService _accessPolicies;
 
     public AuthService(
         UserManager<ApplicationUser> userManager,
@@ -62,7 +63,8 @@ public class AuthService : IAuthService
         IOptions<MfaSettings> mfaSettings,
         AuthCenterDbContext db,
         ILogger<AuthService> logger,
-        IAuthenticationSessionIssuer sessionIssuer)
+        IAuthenticationSessionIssuer sessionIssuer,
+        IAccessPolicyService accessPolicies)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -85,6 +87,7 @@ public class AuthService : IAuthService
         _db = db;
         _logger = logger;
         _sessionIssuer = sessionIssuer;
+        _accessPolicies = accessPolicies;
     }
 
     public async Task<OperationResult<AuthResponse>> RegisterAsync(RegisterRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -170,7 +173,8 @@ public class AuthService : IAuthService
             }
             else
             {
-                result = await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
+                var policyResult = await RequireMfaIfNeededAsync(user.Id, appSystem, null, ipAddress, userAgent, ct);
+                result = policyResult ?? await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
                 if (!result.IsSuccess)
                     return (Result: result, User: (ApplicationUser?)null);
             }
@@ -657,6 +661,23 @@ public class AuthService : IAuthService
         if (!hasAccess)
             return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
 
+        var policy = await _accessPolicies.EvaluateAsync(storedToken.UserId, appSystem.Id, ipAddress, ct);
+        if (!policy.IsAllowed)
+        {
+            await _refreshTokenService.RevokeAllForUserAsync(storedToken.UserId, appSystem.Code, ct);
+            await _auditService.LogAsync(
+                "ACCESS_POLICY_DENIED",
+                storedToken.UserId,
+                appSystem.Code,
+                nameof(ApplicationAccessPolicyRule),
+                policy.MatchedRuleId?.ToString(),
+                ipAddress,
+                userAgent,
+                new { policy.MatchedRuleName, flow = "refresh" },
+                ct);
+            return OperationResult<AuthResponse>.Failure("ACCESS_POLICY_DENIED", "Sign-in is denied by the application's access policy.");
+        }
+
         var (newToken, newHash) = _tokenService.GenerateRefreshToken();
         var replacementTokenId = Guid.NewGuid();
         var rotated = await _refreshTokenService.TryRotateAsync(
@@ -922,11 +943,29 @@ public class AuthService : IAuthService
         string? userAgent,
         CancellationToken ct)
     {
+        var policy = await _accessPolicies.EvaluateAsync(userId, appSystem.Id, ipAddress, ct);
+        if (!policy.IsAllowed)
+        {
+            await _auditService.LogAsync(
+                "ACCESS_POLICY_DENIED",
+                userId,
+                appSystem.Code,
+                nameof(ApplicationAccessPolicyRule),
+                policy.MatchedRuleId?.ToString(),
+                ipAddress,
+                userAgent,
+                new { policy.MatchedRuleName },
+                ct);
+            return OperationResult<AuthResponse>.Failure(
+                "ACCESS_POLICY_DENIED",
+                "Sign-in is denied by the application's access policy.");
+        }
+
         var mfaCredential = await _db.UserMfaCredentials
             .AsNoTracking()
             .FirstOrDefaultAsync(m => m.UserId == userId, ct);
 
-        var mfaRequired = appSystem.RegistrationSettings?.RequireMfa == true || mfaCredential?.IsEnabled == true;
+        var mfaRequired = policy.RequireMfa || appSystem.RegistrationSettings?.RequireMfa == true || mfaCredential?.IsEnabled == true;
         if (!mfaRequired)
             return null;
 
@@ -938,7 +977,7 @@ public class AuthService : IAuthService
                 "This application requires MFA. Please set up two-factor authentication.");
         }
 
-        if (!string.IsNullOrWhiteSpace(deviceToken))
+        if (policy.AllowTrustedDeviceBypass && !string.IsNullOrWhiteSpace(deviceToken))
         {
             var hash = _tokenService.HashToken(deviceToken);
             var now = _dateTimeProvider.UtcNow;

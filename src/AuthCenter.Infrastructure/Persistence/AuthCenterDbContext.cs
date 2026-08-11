@@ -29,6 +29,7 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<UserGroupMembership> UserGroupMemberships => Set<UserGroupMembership>();
     public DbSet<GroupApplicationAssignment> GroupApplicationAssignments => Set<GroupApplicationAssignment>();
     public DbSet<GroupRoleAssignment> GroupRoleAssignments => Set<GroupRoleAssignment>();
+    public DbSet<ApplicationAccessPolicyRule> ApplicationAccessPolicyRules => Set<ApplicationAccessPolicyRule>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

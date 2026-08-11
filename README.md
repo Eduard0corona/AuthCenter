@@ -303,6 +303,32 @@ stale entitlements.
 A group role is valid only after the role's application is assigned explicitly to the same group.
 Removing an application also removes every group-role assignment for that application.
 
+### Application access policies
+
+Access-policy rules are evaluated in ascending priority for each application. A rule can target an
+active directory group and IPv4/IPv6 CIDR ranges, allow or deny sign-in, require MFA, and decide
+whether a trusted device may bypass the MFA challenge. Applications without active rules preserve
+the existing allow behavior; once at least one active rule exists, requests that match no rule are
+denied. Include an explicit catch-all allow rule when that is the desired fallback.
+
+Creating, updating, or deleting a rule revokes every active session for the affected application so
+that a stale token cannot retain a previous policy decision. Policy denials are written to the audit
+log without storing credentials or raw tokens.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/access-policies/applications/{applicationId}` | List rules in evaluation order |
+| POST | `/api/access-policies` | Create a policy rule |
+| PUT | `/api/access-policies/{ruleId}` | Replace a policy rule |
+| DELETE | `/api/access-policies/{ruleId}` | Delete a policy rule |
+
+Administrative access requires `AUTHCENTER_ACCESS_POLICIES_READ` or
+`AUTHCENTER_ACCESS_POLICIES_WRITE`. Priorities are unique within an application, range from 1 to
+10000, and lower numbers are evaluated first. Each included/excluded network condition accepts up
+to 50 CIDR ranges. To prevent locking every administrator out of the identity control plane,
+`AUTHCENTER` must always retain an active unconditional `Allow` fallback whenever it has active
+rules; give that fallback the lowest precedence (the largest priority number).
+
 ### Other
 
 | Method | Endpoint | Description |
