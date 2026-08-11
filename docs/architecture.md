@@ -96,4 +96,11 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   passkey raises assurance to `PhishingResistant`. Adaptive observations retain HMAC-protected
   network prefixes and device families instead of raw values, detect new contexts, failure bursts
   and impossible travel, and expire automatically.
+- **Enterprise federation**: providers are data scoped to an application. OIDC uses server-side
+  authorization-code redemption, PKCE, nonce/state, discovery and cached JWKS with forced refresh
+  after signing-key failure; client secrets are protected with shared Data Protection keys. SAML
+  emits signed Redirect-binding AuthnRequests and metadata, accepts only a signed correlated POST
+  response with one assertion, exact issuer/audience/destination, bounded clock skew and SQL-backed
+  replay protection. Routing evaluates application, email domain, directory group and canonical
+  profile value before audited JIT provisioning or explicitly configured verified-email linking.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

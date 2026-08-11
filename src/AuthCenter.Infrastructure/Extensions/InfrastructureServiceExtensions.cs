@@ -56,6 +56,8 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<IValidateOptions<PasskeySettings>, PasskeySettingsValidator>();
         services.Configure<AdaptiveAuthenticationSettings>(configuration.GetSection("AdaptiveAuth"));
         services.AddSingleton<IValidateOptions<AdaptiveAuthenticationSettings>, AdaptiveAuthenticationSettingsValidator>();
+        services.Configure<SamlSettings>(configuration.GetSection("Saml"));
+        services.AddSingleton<IValidateOptions<SamlSettings>, SamlSettingsValidator>();
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
         services.AddHostedService<RetentionCleanupService>();
@@ -66,6 +68,7 @@ public static class InfrastructureServiceExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AuthCenter/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
+        services.AddHttpClient("Federation", client => client.Timeout = TimeSpan.FromSeconds(15));
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -133,6 +136,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();
+        services.AddScoped<IFederationService, FederationService>();
 
         return services;
     }

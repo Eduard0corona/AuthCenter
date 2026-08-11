@@ -99,6 +99,10 @@ git-ignored and its values are for local use only.
 | `Passkeys:ReauthenticationMinutes` | Single-use sensitive-operation proof lifetime, from 1 to 15 minutes |
 | `Passkeys:MaxCredentialsPerUser` | Per-user resource limit, from 2 to 20 |
 | `AdaptiveAuth:SignalHashKey` | Key Vault secret used to HMAC minimized network/device signals |
+| `Saml:EntityId` | Stable SAML service-provider entity identifier |
+| `Saml:AssertionConsumerServiceUrl` | Exact public HTTPS SAML POST callback |
+| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata |
+| `Saml:SigningCertificatePassword` | Optional Key Vault password for the PKCS#12 certificate |
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |

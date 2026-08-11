@@ -20,7 +20,7 @@ y evidencia de operación.
 | Directorio universal | Usuarios, grupos, membresías, perfiles tipados y asignaciones efectivas | Reglas dinámicas de membresía y mappings en Fase 4 | Fase 1 lista |
 | Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
 | Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión | Portal de autoservicio y recuperación asistida en Fase 5 | Fase 2 lista |
-| Federación | Google, Microsoft, GitHub y Apple implementados directamente | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Pendiente |
+| Federación | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Catálogo y UX administrativa en Fase 5 | Fase 3 lista |
 | Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
 | System Log | Auditoría consultable y outbox durable para correo | Catálogo estable de eventos, correlación, exportación, event hooks firmados y reintentos observables | Pendiente |
 | Experiencia administrativa | API y Swagger | Consola admin, portal de usuario, consentimiento, branding y custom domains | Pendiente |
@@ -62,10 +62,10 @@ y evidencia de operación.
 
 ### Fase 3 — Federación empresarial
 
-- [ ] Proveedores OIDC configurables por aplicación/realm con discovery, JWKS y rotación.
-- [ ] SAML 2.0 inbound y outbound con metadata, certificados, replay protection y clock skew acotado.
-- [ ] Routing rules por dominio, aplicación, grupo y atributos.
-- [ ] JIT provisioning y account linking explícitos, configurables y auditados.
+- [x] Proveedores OIDC configurables por aplicación/realm con discovery, JWKS y rotación.
+- [x] SAML 2.0 inbound y outbound con metadata, certificados, replay protection y clock skew acotado.
+- [x] Routing rules por dominio, aplicación, grupo y atributos.
+- [x] JIT provisioning y account linking explícitos, configurables y auditados.
 
 ### Fase 4 — Lifecycle y automatización
 

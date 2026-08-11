@@ -55,10 +55,11 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(18, applied.Count);
+            Assert.Equal(19, applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
             Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
             Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
+            Assert.Contains("20260811093652_CompleteEnterpriseFederationPhase3", applied);
         }
         finally
         {

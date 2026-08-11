@@ -49,6 +49,8 @@ try
     builder.Services.AddOptions<JwtSettings>().ValidateOnStart();
     builder.Services.AddOptions<MfaSettings>().ValidateOnStart();
     builder.Services.AddOptions<PasskeySettings>().ValidateOnStart();
+    builder.Services.AddOptions<AdaptiveAuthenticationSettings>().ValidateOnStart();
+    builder.Services.AddOptions<SamlSettings>().ValidateOnStart();
 
     builder.Services.AddAuthentication(options =>
     {

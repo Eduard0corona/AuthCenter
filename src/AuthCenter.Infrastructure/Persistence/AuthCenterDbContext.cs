@@ -34,6 +34,8 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<UserProfileAttributeDefinition> UserProfileAttributeDefinitions => Set<UserProfileAttributeDefinition>();
     public DbSet<UserProfileAttributeValue> UserProfileAttributeValues => Set<UserProfileAttributeValue>();
     public DbSet<AuthenticationObservation> AuthenticationObservations => Set<AuthenticationObservation>();
+    public DbSet<FederationProvider> FederationProviders => Set<FederationProvider>();
+    public DbSet<FederationRoutingRule> FederationRoutingRules => Set<FederationRoutingRule>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

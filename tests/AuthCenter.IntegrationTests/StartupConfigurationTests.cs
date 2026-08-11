@@ -81,6 +81,10 @@ public class StartupConfigurationTests
             ["Mfa:EncryptionKey"] = "startup-test-mfa-encryption-key-32chars",
             ["Passkeys:RelyingPartyId"] = "authcenter.example.com",
             ["Passkeys:AllowedOrigins:0"] = "https://authcenter.example.com",
+            ["AdaptiveAuth:SignalHashKey"] = "startup-test-adaptive-signal-key-32chars",
+            ["Saml:EntityId"] = "https://authcenter.example.com/saml",
+            ["Saml:AssertionConsumerServiceUrl"] = "https://authcenter.example.com/api/federation/saml/acs",
+            ["Saml:SigningCertificateBase64"] = CreateCertificateBase64(),
             ["Authentication:Google:ClientId"] = string.Empty,
             ["Database:MigrateOnStartup"] = "false",
             ["Database:SeedOnStartup"] = "false"
