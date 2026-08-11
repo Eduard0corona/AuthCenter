@@ -15,6 +15,9 @@ Clean Architecture with five layers:
 | `AuthCenter.Api` | Controllers, middleware, composition root |
 
 See [docs/architecture.md](docs/architecture.md) for full details.
+The product-level capability plan is tracked in
+[OKTA-LEVEL-ROADMAP.md](OKTA-LEVEL-ROADMAP.md); the current API is a hardened foundation, not yet
+feature parity with a full Identity-as-a-Service platform.
 
 ## Requirements
 
@@ -230,8 +233,10 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 | GET | `/.well-known/openid-configuration` | Discovery document |
 | GET | `/.well-known/jwks.json` | Public signing keys |
 | GET | `/oauth/authorize` | Start an authorization request |
+| GET | `/oauth/interactions/{interactionId}` | Read safe application/scope metadata for the authenticated consent UI |
 | POST | `/oauth/authorize/complete` | Grant consent and issue the code |
 | POST | `/oauth/token` | Exchange code / refresh token / client credentials |
+| POST | `/oauth/revoke` | Revoke a refresh token and its complete rotation family |
 | GET | `/oauth/userinfo` | OIDC claims for the access token's subject |
 | GET | `/api/oauth/clients` | List registered clients |
 | POST | `/api/oauth/clients` | Register a client |
@@ -241,6 +246,15 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 
 `/oauth/userinfo` accepts only access tokens issued by `/oauth/token`; first-party login tokens are
 rejected because they are not scoped to an OAuth client.
+
+Every OAuth client belongs to exactly one active `ApplicationSystem`. Authorization-code clients
+must use an exact registered redirect URI, `state`, PKCE `S256` and `nonce` when requesting
+`openid`. AuthCenter checks the user's active application access again at consent, code exchange,
+refresh and UserInfo time. OAuth access tokens carry only that application's roles and permissions.
+Confidential clients may authenticate with either `client_secret_basic` (preferred) or
+`client_secret_post`; public clients never have a secret. New clients use 15-minute access tokens
+by default and registration rejects lifetimes above one hour. See
+[docs/authentication-flow.md](docs/authentication-flow.md#oauth-20--openid-connect-authorization-code).
 
 ### Applications
 

@@ -18,15 +18,27 @@ public class OAuthClientService : IOAuthClientService
 {
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly ICurrentUserService _currentUser;
 
-    public OAuthClientService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider)
+    public OAuthClientService(
+        AuthCenterDbContext db,
+        IDateTimeProvider dateTimeProvider,
+        ICurrentUserService currentUser)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
+        _currentUser = currentUser;
     }
 
     public async Task<OperationResult<OAuthClientCreatedResponse>> CreateAsync(CreateOAuthClientRequest request, CancellationToken ct = default)
     {
+        var application = await _db.ApplicationSystems
+            .FirstOrDefaultAsync(a => a.Id == request.ApplicationSystemId, ct);
+        if (application is null)
+            return OperationResult<OAuthClientCreatedResponse>.Failure("APPLICATION_NOT_FOUND", "Application was not found.");
+        if (!application.IsActive)
+            return OperationResult<OAuthClientCreatedResponse>.Failure("APPLICATION_INACTIVE", "OAuth clients cannot be created for an inactive application.");
+
         var exists = await _db.OAuthClients.AnyAsync(c => c.ClientId == request.ClientId, ct);
         if (exists)
             return OperationResult<OAuthClientCreatedResponse>.Failure("CLIENT_ID_TAKEN", "A client with this ClientId already exists.");
@@ -45,6 +57,8 @@ public class OAuthClientService : IOAuthClientService
         var client = new OAuthClient
         {
             Id = Guid.NewGuid(),
+            ApplicationSystemId = application.Id,
+            ApplicationSystem = application,
             ClientId = request.ClientId,
             HashedClientSecret = hashedSecret,
             DisplayName = request.DisplayName,
@@ -61,6 +75,7 @@ public class OAuthClientService : IOAuthClientService
         };
 
         _db.OAuthClients.Add(client);
+        AddAudit("OAUTH_CLIENT_CREATED", client);
         await _db.SaveChangesAsync(ct);
 
         return OperationResult<OAuthClientCreatedResponse>.Success(new OAuthClientCreatedResponse
@@ -72,7 +87,11 @@ public class OAuthClientService : IOAuthClientService
 
     public async Task<PagedResult<OAuthClientResponse>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
     {
-        var query = _db.OAuthClients.AsNoTracking().OrderBy(c => c.DisplayName).ThenBy(c => c.ClientId);
+        var query = _db.OAuthClients
+            .AsNoTracking()
+            .Include(c => c.ApplicationSystem)
+            .OrderBy(c => c.DisplayName)
+            .ThenBy(c => c.ClientId);
         var totalCount = await query.CountAsync(ct);
         var clients = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
         return PagedResult<OAuthClientResponse>.Create(
@@ -84,15 +103,21 @@ public class OAuthClientService : IOAuthClientService
 
     public async Task<OAuthClientResponse?> GetByClientIdAsync(string clientId, CancellationToken ct = default)
     {
-        var client = await _db.OAuthClients.FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
+        var client = await _db.OAuthClients
+            .Include(c => c.ApplicationSystem)
+            .FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
         return client is null ? null : MapToResponse(client);
     }
 
     public async Task<OperationResult<OAuthClientResponse>> UpdateAsync(string clientId, UpdateOAuthClientRequest request, CancellationToken ct = default)
     {
-        var client = await _db.OAuthClients.FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
+        var client = await _db.OAuthClients
+            .Include(c => c.ApplicationSystem)
+            .FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
         if (client is null)
             return OperationResult<OAuthClientResponse>.Failure("NOT_FOUND", "OAuth client not found.");
+        if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains("client_credentials"))
+            return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use client_credentials.");
 
         client.DisplayName = request.DisplayName;
         client.RedirectUrisJson = JsonSerializer.Serialize(request.RedirectUris);
@@ -105,25 +130,31 @@ public class OAuthClientService : IOAuthClientService
         client.IsActive = request.IsActive;
         client.UpdatedAt = _dateTimeProvider.UtcNow;
 
+        AddAudit("OAUTH_CLIENT_UPDATED", client);
         await _db.SaveChangesAsync(ct);
         return OperationResult<OAuthClientResponse>.Success(MapToResponse(client));
     }
 
     public async Task<OperationResult> DeactivateAsync(string clientId, CancellationToken ct = default)
     {
-        var client = await _db.OAuthClients.FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
+        var client = await _db.OAuthClients
+            .Include(c => c.ApplicationSystem)
+            .FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
         if (client is null)
             return OperationResult.Failure("NOT_FOUND", "OAuth client not found.");
 
         client.IsActive = false;
         client.UpdatedAt = _dateTimeProvider.UtcNow;
+        AddAudit("OAUTH_CLIENT_DEACTIVATED", client);
         await _db.SaveChangesAsync(ct);
         return OperationResult.Success();
     }
 
     public async Task<OperationResult<RotateClientSecretResponse>> RotateSecretAsync(string clientId, CancellationToken ct = default)
     {
-        var client = await _db.OAuthClients.FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
+        var client = await _db.OAuthClients
+            .Include(c => c.ApplicationSystem)
+            .FirstOrDefaultAsync(c => c.ClientId == clientId, ct);
         if (client is null)
             return OperationResult<RotateClientSecretResponse>.Failure("NOT_FOUND", "OAuth client not found.");
         if (client.ClientType != OAuthClientType.Confidential)
@@ -134,6 +165,7 @@ public class OAuthClientService : IOAuthClientService
         var plainSecret = Convert.ToBase64String(secretBytes);
         client.HashedClientSecret = HashSecret(plainSecret);
         client.UpdatedAt = _dateTimeProvider.UtcNow;
+        AddAudit("OAUTH_CLIENT_SECRET_ROTATED", client);
         await _db.SaveChangesAsync(ct);
 
         return OperationResult<RotateClientSecretResponse>.Success(new RotateClientSecretResponse { ClientSecret = plainSecret });
@@ -142,6 +174,9 @@ public class OAuthClientService : IOAuthClientService
     internal static OAuthClientResponse MapToResponse(OAuthClient client) => new()
     {
         Id = client.Id,
+        ApplicationSystemId = client.ApplicationSystemId,
+        ApplicationCode = client.ApplicationSystem.Code,
+        ApplicationName = client.ApplicationSystem.Name,
         ClientId = client.ClientId,
         DisplayName = client.DisplayName,
         ClientType = (int)client.ClientType,
@@ -161,5 +196,19 @@ public class OAuthClientService : IOAuthClientService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(secret));
         return Convert.ToBase64String(bytes);
+    }
+
+    private void AddAudit(string action, OAuthClient client)
+    {
+        _db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = _currentUser.UserId,
+            ApplicationCode = client.ApplicationSystem.Code,
+            Action = action,
+            EntityName = nameof(OAuthClient),
+            EntityId = client.ClientId,
+            CreatedAt = _dateTimeProvider.UtcNow
+        });
     }
 }

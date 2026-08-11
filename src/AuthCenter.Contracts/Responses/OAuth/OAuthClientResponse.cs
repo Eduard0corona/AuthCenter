@@ -3,6 +3,9 @@ namespace AuthCenter.Contracts.Responses.OAuth;
 public class OAuthClientResponse
 {
     public Guid Id { get; init; }
+    public Guid ApplicationSystemId { get; init; }
+    public string ApplicationCode { get; init; } = string.Empty;
+    public string ApplicationName { get; init; } = string.Empty;
     public string ClientId { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;
     public int ClientType { get; init; }      // 0 = Confidential, 1 = Public

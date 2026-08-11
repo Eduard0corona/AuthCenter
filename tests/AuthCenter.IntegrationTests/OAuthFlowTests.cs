@@ -8,9 +8,12 @@ using System.Text.Json;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using AuthCenter.Domain.Constants;
+using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Xunit;
@@ -36,6 +39,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var clientId = $"test-{Guid.NewGuid():N}"[..20];
         var createRequest = new CreateOAuthClientRequest
         {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "Test Confidential App",
             ClientType = (int)OAuthClientType.Confidential,
@@ -137,7 +141,8 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
                            $"&scope=openid+email+offline_access" +
                            $"&code_challenge={Uri.EscapeDataString(challenge)}" +
                            $"&code_challenge_method=S256" +
-                           $"&state=xyz123";
+                           $"&state=xyz123" +
+                           $"&nonce=nonce-xyz123";
 
         var authorizeResponse = await noRedirectClient.GetAsync(authorizeUrl);
         Assert.Equal(HttpStatusCode.Redirect, authorizeResponse.StatusCode);
@@ -146,6 +151,14 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.Contains("interaction_id=", loginUrl);
         var interactionId = ExtractQueryParam(loginUrl, "interaction_id");
         Assert.False(string.IsNullOrWhiteSpace(interactionId));
+
+        var interactionResponse = await adminClient.GetAsync($"/oauth/interactions/{interactionId}");
+        Assert.Equal(HttpStatusCode.OK, interactionResponse.StatusCode);
+        var interaction = await ReadDataAsync<OAuthInteractionResponse>(interactionResponse);
+        Assert.Equal(clientId, interaction.ClientId);
+        Assert.Equal("AUTHCENTER", interaction.ApplicationCode);
+        Assert.True(interaction.RequiresConsent);
+        Assert.Contains("offline_access", interaction.Scopes);
 
         var authClient = _factory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
@@ -182,6 +195,14 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.False(string.IsNullOrWhiteSpace(tokenBody.IdToken));
         Assert.False(string.IsNullOrWhiteSpace(tokenBody.RefreshToken));
         Assert.Contains("openid", tokenBody.Scope);
+
+        var accessJwt = new JwtSecurityTokenHandler().ReadJwtToken(tokenBody.AccessToken);
+        Assert.Contains(accessJwt.Claims, claim =>
+            claim.Type == DomainConstants.Claims.Applications && claim.Value == "AUTHCENTER");
+        Assert.Contains(accessJwt.Claims, claim => claim.Type == System.Security.Claims.ClaimTypes.Role);
+        Assert.Contains(accessJwt.Claims, claim => claim.Type == DomainConstants.Claims.Permissions);
+        Assert.Contains(accessJwt.Claims, claim =>
+            claim.Type == JwtRegisteredClaimNames.Email && claim.Value == AuthCenterWebApplicationFactory.AdminEmail);
     }
 
     [Fact]
@@ -249,11 +270,12 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var clientId = $"cc-{Guid.NewGuid():N}"[..20];
         var createReq = new CreateOAuthClientRequest
         {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "Machine Client",
             ClientType = (int)OAuthClientType.Confidential,
             RedirectUris = [],
-            AllowedScopes = ["openid", "email"],
+            AllowedScopes = ["email"],
             GrantTypes = ["client_credentials"],
             LoginUrl = "https://internal.service/",
             RequirePkce = false
@@ -292,6 +314,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var clientId = $"rsa-{Guid.NewGuid():N}"[..20];
         var createResponse = await adminClient.PostAsJsonAsync("/api/oauth/clients", new CreateOAuthClientRequest
         {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "RSA Validation Client",
             ClientType = (int)OAuthClientType.Confidential,
@@ -392,6 +415,15 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         });
         var reuseResp = await _factory.CreateClient().PostAsync("/oauth/token", reuseContent);
         Assert.Equal(HttpStatusCode.BadRequest, reuseResp.StatusCode);
+
+        var replacementAfterReplay = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshed.RefreshToken!,
+            ["client_id"] = clientId
+        });
+        var replacementResp = await _factory.CreateClient().PostAsync("/oauth/token", replacementAfterReplay);
+        Assert.Equal(HttpStatusCode.BadRequest, replacementResp.StatusCode);
     }
 
     [Fact]
@@ -449,6 +481,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var clientId = $"uicc-{Guid.NewGuid():N}"[..20];
         var createResponse = await adminClient.PostAsJsonAsync("/api/oauth/clients", new CreateOAuthClientRequest
         {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "Machine Client",
             ClientType = (int)OAuthClientType.Confidential,
@@ -482,6 +515,168 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
     }
 
     [Fact]
+    public async Task OAuthClient_Create_RejectsUnknownApplication()
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await GetAdminTokenAsync(client));
+
+        var response = await client.PostAsJsonAsync("/api/oauth/clients", new CreateOAuthClientRequest
+        {
+            ApplicationSystemId = Guid.NewGuid(),
+            ClientId = $"missing-{Guid.NewGuid():N}"[..20],
+            DisplayName = "Missing application",
+            ClientType = (int)OAuthClientType.Public,
+            RedirectUris = ["https://myapp.com/callback"],
+            AllowedScopes = ["openid"],
+            GrantTypes = ["authorization_code"],
+            LoginUrl = "https://myapp.com/login",
+            RequirePkce = true
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("APPLICATION_NOT_FOUND", body?.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Authorization_InvalidScope_RedirectsToRegisteredClientWithStateAndIssuer()
+    {
+        using var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await GetAdminTokenAsync(adminClient));
+        var clientId = $"scope-{Guid.NewGuid():N}"[..20];
+        await CreatePublicOAuthClientAsync(adminClient, clientId);
+        var (_, challenge) = GeneratePkce();
+
+        using var browser = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var response = await browser.GetAsync(
+            $"/oauth/authorize?response_type=code&client_id={clientId}" +
+            "&redirect_uri=https://myapp.com/callback" +
+            "&scope=openid+unknown" +
+            $"&code_challenge={Uri.EscapeDataString(challenge)}&code_challenge_method=S256" +
+            "&state=state-123&nonce=nonce-123");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location!.ToString();
+        Assert.StartsWith("https://myapp.com/callback", location, StringComparison.Ordinal);
+        Assert.Equal("invalid_scope", ExtractQueryParam(location, "error"));
+        Assert.Equal("state-123", ExtractQueryParam(location, "state"));
+        Assert.False(string.IsNullOrWhiteSpace(ExtractQueryParam(location, "iss")));
+    }
+
+    [Fact]
+    public async Task Authorization_UserWithoutApplicationAccess_IsDenied()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var applicationId = await CreateApplicationSystemAsync();
+        var clientId = $"isolated-{Guid.NewGuid():N}"[..20];
+        await CreatePublicOAuthClientAsync(adminClient, clientId, applicationSystemId: applicationId);
+        var (_, challenge) = GeneratePkce();
+
+        using var browser = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var authorize = await browser.GetAsync(
+            $"/oauth/authorize?response_type=code&client_id={clientId}" +
+            "&redirect_uri=https://myapp.com/callback&scope=openid+email+offline_access" +
+            $"&code_challenge={Uri.EscapeDataString(challenge)}&code_challenge_method=S256" +
+            "&state=isolated-state&nonce=isolated-nonce");
+        var interactionId = ExtractQueryParam(authorize.Headers.Location!.ToString(), "interaction_id");
+
+        using var completeClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        completeClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var complete = await completeClient.PostAsJsonAsync("/oauth/authorize/complete", new CompleteAuthorizationRequest
+        {
+            InteractionId = interactionId,
+            Consent = true
+        });
+
+        Assert.Equal(HttpStatusCode.Redirect, complete.StatusCode);
+        Assert.Equal("access_denied", ExtractQueryParam(complete.Headers.Location!.ToString(), "error"));
+    }
+
+    [Fact]
+    public async Task ClientCredentials_AcceptsHttpBasicAuthentication()
+    {
+        using var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await GetAdminTokenAsync(adminClient));
+        var clientId = $"basic-{Guid.NewGuid():N}"[..20];
+        var (_, secret) = await CreateMachineClientAsync(adminClient, clientId);
+
+        using var tokenClient = _factory.CreateClient();
+        var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{secret}"));
+        tokenClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", basic);
+        var response = await tokenClient.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["scope"] = "email"
+        }));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var token = await response.Content.ReadFromJsonAsync<OAuthTokenResponse>();
+        Assert.False(string.IsNullOrWhiteSpace(token?.AccessToken));
+    }
+
+    [Fact]
+    public async Task RevocationEndpoint_RevokesRefreshTokenFamily()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var clientId = $"revoke-{Guid.NewGuid():N}"[..20];
+        await CreatePublicOAuthClientAsync(adminClient, clientId);
+        var (verifier, challenge) = GeneratePkce();
+        var code = await GetAuthorizationCodeAsync(adminClient, adminToken, clientId, challenge);
+        var issued = await (await _factory.CreateClient().PostAsync("/oauth/token", BuildTokenContent(clientId, code, verifier)))
+            .Content.ReadFromJsonAsync<OAuthTokenResponse>();
+
+        var revoke = await _factory.CreateClient().PostAsync("/oauth/revoke", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["token"] = issued!.RefreshToken!,
+            ["token_type_hint"] = "refresh_token",
+            ["client_id"] = clientId
+        }));
+        Assert.Equal(HttpStatusCode.OK, revoke.StatusCode);
+
+        var refresh = await _factory.CreateClient().PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = issued.RefreshToken!,
+            ["client_id"] = clientId
+        }));
+        Assert.Equal(HttpStatusCode.BadRequest, refresh.StatusCode);
+    }
+
+    [Fact]
+    public async Task AutoConsent_ClientCanCompleteWithoutExplicitConsent()
+    {
+        using var adminClient = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(adminClient);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var clientId = $"auto-{Guid.NewGuid():N}"[..20];
+        await CreatePublicOAuthClientAsync(adminClient, clientId, autoConsent: true);
+        var (_, challenge) = GeneratePkce();
+
+        using var browser = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var authorize = await browser.GetAsync(
+            $"/oauth/authorize?response_type=code&client_id={clientId}" +
+            "&redirect_uri=https://myapp.com/callback&scope=openid+email+offline_access" +
+            $"&code_challenge={Uri.EscapeDataString(challenge)}&code_challenge_method=S256" +
+            "&state=auto-state&nonce=auto-nonce");
+        var interactionId = ExtractQueryParam(authorize.Headers.Location!.ToString(), "interaction_id");
+
+        using var completeClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        completeClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var complete = await completeClient.PostAsJsonAsync("/oauth/authorize/complete", new CompleteAuthorizationRequest
+        {
+            InteractionId = interactionId,
+            Consent = false
+        });
+
+        Assert.Equal(HttpStatusCode.Redirect, complete.StatusCode);
+        Assert.False(string.IsNullOrWhiteSpace(ExtractQueryParam(complete.Headers.Location!.ToString(), "code")));
+    }
+
+    [Fact]
     public async Task WellKnown_DiscoveryEndpoint_ReturnsValidDocument()
     {
         using var client = _factory.CreateClient();
@@ -492,12 +687,16 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("issuer").GetString()));
         Assert.Contains("/oauth/authorize", body.GetProperty("authorization_endpoint").GetString());
         Assert.Contains("/oauth/token", body.GetProperty("token_endpoint").GetString());
+        Assert.Contains("/oauth/revoke", body.GetProperty("revocation_endpoint").GetString());
         Assert.Contains("jwks.json", body.GetProperty("jwks_uri").GetString());
+        Assert.Contains("S256", body.GetProperty("code_challenge_methods_supported").EnumerateArray().Select(value => value.GetString()));
+        Assert.True(body.GetProperty("authorization_response_iss_parameter_supported").GetBoolean());
     }
 
     [Theory]
     [InlineData("authorization_endpoint")]
     [InlineData("token_endpoint")]
+    [InlineData("revocation_endpoint")]
     [InlineData("userinfo_endpoint")]
     [InlineData("jwks_uri")]
     public async Task WellKnown_DiscoveryEndpoint_PublishesAbsoluteEndpointUrls(string property)
@@ -543,6 +742,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
     {
         var req = new CreateOAuthClientRequest
         {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "Test Client",
             ClientType = (int)OAuthClientType.Confidential,
@@ -558,10 +758,15 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         return (created.Client.ClientId, created.ClientSecret);
     }
 
-    private async Task<(string clientId, string? secret)> CreatePublicOAuthClientAsync(HttpClient client, string clientId)
+    private async Task<(string clientId, string? secret)> CreatePublicOAuthClientAsync(
+        HttpClient client,
+        string clientId,
+        bool autoConsent = false,
+        Guid? applicationSystemId = null)
     {
         var req = new CreateOAuthClientRequest
         {
+            ApplicationSystemId = applicationSystemId ?? await GetApplicationSystemIdAsync(),
             ClientId = clientId,
             DisplayName = "Public Test Client",
             ClientType = (int)OAuthClientType.Public,
@@ -569,12 +774,52 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             AllowedScopes = ["openid", "email", "offline_access"],
             GrantTypes = ["authorization_code", "refresh_token"],
             LoginUrl = "https://myapp.com/login",
-            RequirePkce = true
+            RequirePkce = true,
+            AutoConsent = autoConsent
         };
         var resp = await client.PostAsJsonAsync("/api/oauth/clients", req);
         resp.EnsureSuccessStatusCode();
         var created = await ReadDataAsync<OAuthClientCreatedResponse>(resp);
         return (created.Client.ClientId, created.ClientSecret);
+    }
+
+    private async Task<(string clientId, string? secret)> CreateMachineClientAsync(HttpClient client, string clientId)
+    {
+        var req = new CreateOAuthClientRequest
+        {
+            ApplicationSystemId = await GetApplicationSystemIdAsync(),
+            ClientId = clientId,
+            DisplayName = "Machine Test Client",
+            ClientType = (int)OAuthClientType.Confidential,
+            RedirectUris = [],
+            AllowedScopes = ["email"],
+            GrantTypes = ["client_credentials"],
+            LoginUrl = "https://myapp.com/login",
+            RequirePkce = false
+        };
+        var resp = await client.PostAsJsonAsync("/api/oauth/clients", req);
+        resp.EnsureSuccessStatusCode();
+        var created = await ReadDataAsync<OAuthClientCreatedResponse>(resp);
+        return (created.Client.ClientId, created.ClientSecret);
+    }
+
+    private async Task<Guid> CreateApplicationSystemAsync()
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var suffix = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+        var application = new ApplicationSystem
+        {
+            Id = Guid.NewGuid(),
+            Code = $"ISO{suffix}",
+            Name = $"Isolated application {suffix}",
+            Description = "Application used to verify OAuth access isolation.",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.ApplicationSystems.Add(application);
+        await db.SaveChangesAsync();
+        return application.Id;
     }
 
     private async Task<string> GetAuthorizationCodeAsync(HttpClient adminClient, string adminToken, string clientId, string challenge)
@@ -584,7 +829,9 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
                            $"&redirect_uri=https://myapp.com/callback" +
                            $"&scope=openid+email+offline_access" +
                            $"&code_challenge={Uri.EscapeDataString(challenge)}" +
-                           $"&code_challenge_method=S256";
+                           $"&code_challenge_method=S256" +
+                           $"&state={Uri.EscapeDataString(Guid.NewGuid().ToString("N"))}" +
+                           $"&nonce={Uri.EscapeDataString(Guid.NewGuid().ToString("N"))}";
 
         var authorizeResp = await noRedirect.GetAsync(authorizeUrl);
         Assert.Equal(HttpStatusCode.Redirect, authorizeResp.StatusCode);
@@ -613,6 +860,16 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             ["client_id"] = clientId,
             ["code_verifier"] = verifier
         });
+
+    private async Task<Guid> GetApplicationSystemIdAsync()
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        return await db.ApplicationSystems
+            .Where(application => application.Code == "AUTHCENTER")
+            .Select(application => application.Id)
+            .SingleAsync();
+    }
 
     private static (string verifier, string challenge) GeneratePkce()
     {

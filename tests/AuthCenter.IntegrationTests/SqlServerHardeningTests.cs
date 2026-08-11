@@ -30,6 +30,7 @@ public sealed class SqlServerHardeningTests
         {
             var userId = Guid.NewGuid();
             var refreshId = Guid.NewGuid();
+            var applicationSystemId = Guid.NewGuid();
             var clientId = Guid.NewGuid();
             var authorizationCodeId = Guid.NewGuid();
             var mfaCredentialId = Guid.NewGuid();
@@ -55,9 +56,18 @@ public sealed class SqlServerHardeningTests
                     CreatedAt = DateTime.UtcNow,
                     ExpiresAt = DateTime.UtcNow.AddDays(1)
                 });
+                seedDb.ApplicationSystems.Add(new ApplicationSystem
+                {
+                    Id = applicationSystemId,
+                    Code = "RELATIONAL",
+                    Name = "Relational test application",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                });
                 seedDb.OAuthClients.Add(new OAuthClient
                 {
                     Id = clientId,
+                    ApplicationSystemId = applicationSystemId,
                     ClientId = "relational-client",
                     DisplayName = "Relational client",
                     LoginUrl = "https://client.example.com/login",

@@ -124,6 +124,21 @@ try
                 ClockSkew = TimeSpan.Zero,
                 ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
             };
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =>
+                {
+                    var clientId = context.Principal?.FindFirst("client_id")?.Value;
+                    var audienceMatches = context.Principal?
+                        .FindAll(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Aud)
+                        .Any(claim => string.Equals(claim.Value, clientId, StringComparison.Ordinal)) == true;
+
+                    if (string.IsNullOrWhiteSpace(clientId) || !audienceMatches)
+                        context.Fail("The OAuth token audience does not match its client_id.");
+
+                    return Task.CompletedTask;
+                }
+            };
         });
 
     // Authorization — dynamic permission policies

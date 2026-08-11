@@ -17,10 +17,19 @@ public class AppleAuthService : IAppleAuthService
             new OpenIdConnectConfigurationRetriever());
 
     private readonly AppleAuthSettings _settings;
+    private readonly IConfigurationManager<OpenIdConnectConfiguration> _configurationManager;
 
     public AppleAuthService(IOptions<AppleAuthSettings> settings)
+        : this(settings, AppleConfigManager)
+    {
+    }
+
+    public AppleAuthService(
+        IOptions<AppleAuthSettings> settings,
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager)
     {
         _settings = settings.Value;
+        _configurationManager = configurationManager;
     }
 
     public async Task<ExternalTokenPayload?> ValidateIdTokenAsync(string idToken, CancellationToken ct = default)
@@ -30,7 +39,7 @@ public class AppleAuthService : IAppleAuthService
 
         try
         {
-            var config = await AppleConfigManager.GetConfigurationAsync(ct);
+            var config = await _configurationManager.GetConfigurationAsync(ct);
             var handler = new JwtSecurityTokenHandler();
             handler.InboundClaimTypeMap.Clear();
 

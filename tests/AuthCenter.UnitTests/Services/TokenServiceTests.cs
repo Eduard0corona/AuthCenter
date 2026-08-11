@@ -101,7 +101,7 @@ public class TokenServiceTests : IDisposable
         var tokenService = CreateTokenServiceWithoutRsa();
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            tokenService.GenerateOAuthAccessToken(null, "test-client", ["email"], 300));
+            tokenService.GenerateOAuthAccessToken(null, "test-client", "TEST_APP", ["email"], [], [], 300));
 
         Assert.Contains("Jwt:RsaPrivateKeyPem", exception.Message);
     }

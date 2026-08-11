@@ -17,10 +17,19 @@ public class MicrosoftAuthService : IMicrosoftAuthService
             new OpenIdConnectConfigurationRetriever());
 
     private readonly MicrosoftAuthSettings _settings;
+    private readonly IConfigurationManager<OpenIdConnectConfiguration> _configurationManager;
 
     public MicrosoftAuthService(IOptions<MicrosoftAuthSettings> settings)
+        : this(settings, CommonConfigurationManager)
+    {
+    }
+
+    public MicrosoftAuthService(
+        IOptions<MicrosoftAuthSettings> settings,
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager)
     {
         _settings = settings.Value;
+        _configurationManager = configurationManager;
     }
 
     public async Task<ExternalTokenPayload?> ValidateIdTokenAsync(string idToken, CancellationToken ct = default)
@@ -30,7 +39,7 @@ public class MicrosoftAuthService : IMicrosoftAuthService
 
         try
         {
-            var config = await CommonConfigurationManager.GetConfigurationAsync(ct);
+            var config = await _configurationManager.GetConfigurationAsync(ct);
             var handler = new JwtSecurityTokenHandler();
             handler.InboundClaimTypeMap.Clear();
 
