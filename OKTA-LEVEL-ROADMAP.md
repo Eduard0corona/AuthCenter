@@ -22,10 +22,10 @@ y evidencia de operación.
 | Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión | Portal de autoservicio y recuperación asistida en Fase 5 | Fase 2 lista |
 | Federación | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Catálogo y UX administrativa en Fase 5 | Fase 3 lista |
 | Lifecycle | SCIM 2.0 Users/Groups, tokens acotados, deprovisioning, mappings y reglas dinámicas | Importaciones masivas y conectores en Fase 5 | Fase 4 lista |
-| System Log | Auditoría consultable, outbox durable y event hooks firmados con dead-letter observable | Exportación/streaming en Fase 6 | Fase 4 lista |
-| Experiencia administrativa | API y Swagger | Consola admin, portal de usuario, consentimiento, branding y custom domains | Pendiente |
-| Plataforma para desarrolladores | Discovery, JWKS y documentación HTTP | SDKs, middleware de referencia, widget/login hospedado, quickstarts y pruebas de conformidad | Pendiente |
-| Operación | CI/CD, Key Vault, health, limpieza y rate limiting distribuido | Métricas/SLO, tracing, alertas, capacity tests, DR probado y runbooks automáticos | Parcial |
+| System Log | Auditoría consultable correlacionada con W3C trace IDs, outbox y event hooks con métricas/dead-letter | Exportación analítica de largo plazo según retención corporativa | Fase 6 lista |
+| Experiencia administrativa | Consola admin, portal de usuario y login hospedado accesibles, con branding y consentimiento revocable | Custom domains administrados | Fase 5 lista |
+| Plataforma para desarrolladores | Discovery/JWKS, SDKs .NET/TypeScript, quickstarts y perfil de conformidad OIDC/SCIM | Publicación automatizada de paquetes cuando exista un registry organizacional | Fase 5 lista |
+| Operación | OpenTelemetry/Azure Monitor, SLO/burn rate, capacity/soak, scripts DR y runbooks además de CI/CD/Key Vault/health | Failover regional cuando se apruebe una segunda región | Fase 6 lista |
 | Gobierno | RBAC por aplicación | Entitlements, owners, solicitudes, revisiones periódicas y segregación de funciones | Pendiente |
 
 ## Fases de entrega
@@ -77,19 +77,23 @@ y evidencia de operación.
 
 ### Fase 5 — Consolas y experiencia del desarrollador
 
-- [ ] Consola administrativa accesible con separación clara de duties.
-- [ ] Portal de usuario para sesiones, factores, passkeys, dispositivos, consentimientos y apps.
-- [ ] Login hospedado con branding por aplicación y accesibilidad WCAG 2.2 AA.
-- [ ] SDKs/middleware de referencia para .NET y TypeScript, más quickstarts de SPA, web y API.
-- [ ] Suite automática de conformidad OIDC/SCIM y ejemplos ejecutables sin secretos.
+- [x] Consola administrativa accesible con separación clara de duties.
+- [x] Portal de usuario para sesiones, factores, passkeys, dispositivos, consentimientos y apps.
+- [x] Login hospedado con branding por aplicación y accesibilidad WCAG 2.2 AA.
+- [x] SDKs/middleware de referencia para .NET y TypeScript, más quickstarts de SPA, web y API.
+- [x] Suite automática de conformidad OIDC/SCIM y ejemplos ejecutables sin secretos.
 
 ### Fase 6 — Operación de plataforma
 
-- [ ] OpenTelemetry para traces, métricas y correlación con System Log sin datos sensibles.
-- [ ] SLO definidos para login, token, directory y hooks; alertas basadas en burn rate.
-- [ ] Pruebas de carga, soak, caos, failover y recuperación documentadas y repetibles.
-- [ ] Backups/restores y rotaciones de llaves probados con RTO/RPO registrados.
-- [ ] Runbooks de incidentes de credenciales, proveedor externo, correo, SQL y Key Vault.
+- [x] OpenTelemetry para traces, métricas y correlación con System Log sin datos sensibles.
+- [x] SLO definidos para login, token, directory y hooks; alertas basadas en burn rate.
+- [x] Pruebas de carga, soak, caos y recuperación documentadas y repetibles; el arnés de
+  failover rechaza topologías incompletas y la ejecución regional queda condicionada a aprobar
+  una segunda región.
+- [x] Backups/restores y rotaciones de llaves probados con RTO/RPO registrados. Evidencia Azure
+  del 2026-08-11: restore point-in-time verificado en 1,175.5 s (objetivo 1,800 s), base temporal
+  eliminada; restart de App Service recuperado en 8.2 s (objetivo 300 s).
+- [x] Runbooks de incidentes de credenciales, proveedor externo, correo, SQL y Key Vault.
 
 ## Decisiones de arquitectura
 

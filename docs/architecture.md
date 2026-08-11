@@ -113,4 +113,22 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   headers allow consumer deduplication. Audit creation and delivery enqueue share one database
   save; workers claim rows across instances, retry exponentially and expose terminal dead letters
   for explicit replay.
+- **First-party web experience**: the hosted login, self-service portal and administrative console
+  use an encrypted `HttpOnly`, `Secure`, `SameSite=Strict` cookie selected independently from API
+  bearer authentication. Unsafe cookie-authenticated requests require a same-origin CSRF header;
+  every administrative API still authorizes effective permissions server-side. Per-application
+  branding accepts only bounded colors and HTTPS links, while CSP disallows inline scripts and
+  custom CSS. OAuth consent is persisted per user/client/scope and revocation also invalidates the
+  affected refresh sessions.
+- **Developer platform**: the .NET SDK generates PKCE and configures strict RS256 resource-server
+  validation through discovery/JWKS. The dependency-free TypeScript SDK keeps token storage as an
+  explicit consumer decision. Executable SPA/web/API quickstarts contain only public example
+  values, and a CI conformance profile exercises OIDC and SCIM contracts.
+- **Observability and reliability**: OpenTelemetry emits ASP.NET Core, outbound HTTP, runtime and
+  bounded platform metrics to Azure Monitor when its Key Vault connection reference is present.
+  Custom dimensions are a fixed low-cardinality allowlist and never contain identity, credentials,
+  raw URLs or network values. The DbContext attaches the current W3C trace ID to every new audit
+  entry, including event-hook envelopes, so operators can move between a request trace and System
+  Log without widening the log payload. SLOs, multi-window burn alerts, k6 profiles and guarded
+  restart/restore/failover scripts are versioned under `ops/` and `scripts/ops/`.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.

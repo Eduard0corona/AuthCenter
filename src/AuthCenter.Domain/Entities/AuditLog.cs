@@ -11,5 +11,6 @@ public class AuditLog
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
     public string? MetadataJson { get; set; }
+    public string? TraceId { get; set; }
     public DateTime CreatedAt { get; set; }
 }

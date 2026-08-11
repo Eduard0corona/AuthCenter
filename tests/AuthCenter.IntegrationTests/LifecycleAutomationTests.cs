@@ -18,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AuthCenter.IntegrationTests;
 
+[Trait("Category", "Conformance")]
 public sealed class LifecycleAutomationTests : IClassFixture<AuthCenterWebApplicationFactory>
 {
     private readonly AuthCenterWebApplicationFactory _factory;

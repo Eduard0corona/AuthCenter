@@ -10,6 +10,7 @@ using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Persistence.Seed;
 using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Settings;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -39,6 +40,7 @@ try
 
     // Application (validators)
     builder.Services.AddApplication();
+    builder.Services.AddPlatformObservability(builder.Configuration, builder.Environment);
 
     // CurrentUserService
     builder.Services.AddHttpContextAccessor();
@@ -54,11 +56,59 @@ try
 
     builder.Services.AddAuthentication(options =>
     {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultScheme = AuthenticationSchemes.Smart;
+        options.DefaultAuthenticateScheme = AuthenticationSchemes.Smart;
+        options.DefaultChallengeScheme = AuthenticationSchemes.Smart;
     })
+    .AddPolicyScheme(AuthenticationSchemes.Smart, AuthenticationSchemes.Smart, options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? JwtBearerDefaults.AuthenticationScheme
+                : AuthenticationSchemes.UiCookie;
+    })
+    .AddCookie(AuthenticationSchemes.UiCookie)
     .AddJwtBearer()
     .AddJwtBearer(AuthenticationSchemes.OAuthBearer);
+
+    builder.Services.AddOptions<CookieAuthenticationOptions>(AuthenticationSchemes.UiCookie)
+        .Configure(options =>
+        {
+            options.Cookie.Name = "__Host-AuthCenter.Ui";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SameSite = SameSiteMode.Strict;
+            options.Cookie.Path = "/";
+            options.SlidingExpiration = false;
+            options.Events.OnRedirectToLogin = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            };
+            options.Events.OnRedirectToAccessDenied = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            };
+            options.Events.OnValidatePrincipal = async context =>
+            {
+                var subject = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                    ?? context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var session = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sid)?.Value
+                    ?? context.Principal?.FindFirst("sid")?.Value;
+                if (!Guid.TryParse(subject, out var userId) || !Guid.TryParse(session, out var sessionId))
+                {
+                    context.RejectPrincipal();
+                    return;
+                }
+                var db = context.HttpContext.RequestServices.GetRequiredService<AuthCenterDbContext>();
+                var active = await db.RefreshTokens.AsNoTracking().AnyAsync(item =>
+                    item.Id == sessionId && item.UserId == userId && item.RevokedAt == null &&
+                    item.ExpiresAt > DateTime.UtcNow && item.User.IsActive,
+                    context.HttpContext.RequestAborted);
+                if (!active) context.RejectPrincipal();
+            };
+        });
 
     builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
         .Configure<IOptions<JwtSettings>, RsaSigningKeyRing>((options, jwtOptions, keyRing) =>
@@ -308,6 +358,7 @@ try
     if (forwardedHeadersEnabled)
         app.UseForwardedHeaders();
 
+    app.UseMiddleware<PlatformTelemetryMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     app.Use(async (ctx, next) =>
@@ -315,6 +366,14 @@ try
         ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
         ctx.Response.Headers.Append("X-Frame-Options", "DENY");
         ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+        ctx.Response.Headers.Append("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
+        if (ctx.Request.Path.StartsWithSegments("/login") ||
+            ctx.Request.Path.StartsWithSegments("/portal") ||
+            ctx.Request.Path.StartsWithSegments("/admin") ||
+            ctx.Request.Path.StartsWithSegments("/ui"))
+        {
+            ctx.Response.Headers.Append("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
+        }
         if (ctx.Request.Path.StartsWithSegments("/api/auth") ||
             ctx.Request.Path.StartsWithSegments("/oauth/token"))
         {
@@ -339,10 +398,24 @@ try
     }
 
     app.UseHttpsRedirection();
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        OnPrepareResponse = context =>
+        {
+            context.Context.Response.Headers.CacheControl = context.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                ? "no-store"
+                : "public,max-age=86400";
+        }
+    });
     app.UseCors("Default");
     app.UseAuthentication();
+    app.UseMiddleware<UiCsrfMiddleware>();
     app.UseAuthorization();
     app.MapControllers();
+    app.MapGet("/", () => Results.Redirect("/login"));
+    app.MapGet("/login", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "login.html")));
+    app.MapGet("/portal", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "portal.html")));
+    app.MapGet("/admin", async context => await context.Response.SendFileAsync(Path.Combine(app.Environment.WebRootPath, "admin.html")));
     app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
     var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
     if (!string.IsNullOrWhiteSpace(readinessHost))
@@ -442,6 +515,14 @@ public partial class Program
             mfaKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Mfa:EncryptionKey must be at least 32 characters and not use a placeholder value outside Development.");
+        }
+
+        var azureMonitorConnection = configuration["AzureMonitor:ConnectionString"];
+        if (string.IsNullOrWhiteSpace(azureMonitorConnection) ||
+            azureMonitorConnection.Contains("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase) ||
+            !azureMonitorConnection.Contains("InstrumentationKey=", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("AzureMonitor:ConnectionString must be supplied by Key Vault outside Development/Testing.");
         }
     }
 }

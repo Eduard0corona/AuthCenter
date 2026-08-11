@@ -16,10 +16,12 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.Property(a => a.IpAddress).HasMaxLength(45);
         builder.Property(a => a.UserAgent).HasMaxLength(512);
         builder.Property(a => a.MetadataJson).HasColumnType("nvarchar(max)");
+        builder.Property(a => a.TraceId).HasMaxLength(32).IsUnicode(false);
         builder.Property(a => a.CreatedAt).IsRequired();
 
         builder.HasIndex(a => a.CreatedAt).IsDescending();
         builder.HasIndex(a => a.UserId);
         builder.HasIndex(a => a.Action);
+        builder.HasIndex(a => a.TraceId).HasFilter("[TraceId] IS NOT NULL");
     }
 }

@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
+using AuthCenter.Application.Telemetry;
 using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Security;
 using Microsoft.AspNetCore.DataProtection;
@@ -23,6 +25,9 @@ public sealed class EventHookDispatcherService : BackgroundService
         {
             var claimed = await db.EventHookDeliveries.Where(x => x.Id == id && x.DeliveredAt == null && x.DeadLetteredAt == null && (x.LockedUntil == null || x.LockedUntil < now)).ExecuteUpdateAsync(s => s.SetProperty(x => x.LockedUntil, now.AddMinutes(2)), ct); if (claimed != 1) continue;
             var delivery = await db.EventHookDeliveries.Include(x => x.EventHook).SingleAsync(x => x.Id == id, ct);
+            using var activity = PlatformTelemetry.ActivitySource.StartActivity("event_hook.deliver", ActivityKind.Producer);
+            var started = Stopwatch.GetTimestamp();
+            var outcome = "delivered";
             try
             {
                 if (!delivery.EventHook.IsActive || !delivery.EventHook.IsVerified) throw new InvalidOperationException("Event hook is inactive or unverified.");
@@ -33,9 +38,10 @@ public sealed class EventHookDispatcherService : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                delivery.AttemptCount++; delivery.LockedUntil = null; delivery.LastError = ex.Message.Length <= 2000 ? ex.Message : ex.Message[..2000]; if (delivery.AttemptCount >= 10) delivery.DeadLetteredAt = DateTime.UtcNow; else delivery.NextAttemptAt = DateTime.UtcNow.AddMinutes(Math.Min(60, Math.Pow(2, Math.Min(delivery.AttemptCount, 5)))); _logger.LogWarning(ex, "Event hook delivery {DeliveryId} failed on attempt {Attempt}", id, delivery.AttemptCount);
+                delivery.AttemptCount++; delivery.LockedUntil = null; delivery.LastError = ex.Message.Length <= 2000 ? ex.Message : ex.Message[..2000]; if (delivery.AttemptCount >= 10) delivery.DeadLetteredAt = DateTime.UtcNow; else delivery.NextAttemptAt = DateTime.UtcNow.AddMinutes(Math.Min(60, Math.Pow(2, Math.Min(delivery.AttemptCount, 5)))); outcome = delivery.DeadLetteredAt.HasValue ? "dead_letter" : "retry"; activity?.SetStatus(ActivityStatusCode.Error, outcome); _logger.LogWarning(ex, "Event hook delivery {DeliveryId} failed on attempt {Attempt}", id, delivery.AttemptCount);
             }
             await db.SaveChangesAsync(ct);
+            PlatformTelemetry.EventHookCompleted(outcome, delivery.AttemptCount, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
     }
 }

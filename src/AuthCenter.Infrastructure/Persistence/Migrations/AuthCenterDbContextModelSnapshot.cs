@@ -172,6 +172,60 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("ApplicationAccessPolicyVersions");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationBrandingSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BackgroundColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PrimaryColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<string>("PrivacyUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SupportUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("TermsUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId")
+                        .IsUnique();
+
+                    b.ToTable("ApplicationBrandingSettings");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -452,6 +506,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Property<string>("MetadataJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("UserAgent")
                         .HasMaxLength(512)
                         .HasColumnType("nvarchar(512)");
@@ -465,6 +524,9 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CreatedAt")
                         .IsDescending();
+
+                    b.HasIndex("TraceId")
+                        .HasFilter("[TraceId] IS NOT NULL");
 
                     b.HasIndex("UserId");
 
@@ -1060,6 +1122,39 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("OAuthClients");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthConsentGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("OAuthClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ScopesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OAuthClientId");
+
+                    b.HasIndex("UserId", "OAuthClientId")
+                        .IsUnique();
+
+                    b.ToTable("OAuthConsentGrants");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.OutboxMessage", b =>
@@ -1818,6 +1913,17 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("PublishedByUser");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationBrandingSettings", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithOne("BrandingSettings")
+                        .HasForeignKey("AuthCenter.Domain.Entities.ApplicationBrandingSettings", "ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
@@ -2003,6 +2109,25 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthConsentGrant", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.OAuthClient", "OAuthClient")
+                        .WithMany("ConsentGrants")
+                        .HasForeignKey("OAuthClientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("OAuthClient");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>
@@ -2286,6 +2411,8 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
                     b.Navigation("AccessPolicyVersions");
 
+                    b.Navigation("BrandingSettings");
+
                     b.Navigation("GroupAssignments");
 
                     b.Navigation("OAuthClients");
@@ -2340,6 +2467,8 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("AuthCenter.Domain.Entities.OAuthClient", b =>
                 {
                     b.Navigation("AuthorizationCodes");
+
+                    b.Navigation("ConsentGrants");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.Permission", b =>

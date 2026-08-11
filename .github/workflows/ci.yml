@@ -53,6 +53,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Setup Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+
       - name: Restore dependencies
         run: dotnet restore
 
@@ -70,6 +77,17 @@ jobs:
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
+
+      - name: OIDC and SCIM conformance profile
+        run: dotnet test tests/AuthCenter.IntegrationTests/AuthCenter.IntegrationTests.csproj --configuration Release --no-build --filter Category=Conformance --verbosity normal
+
+      - name: TypeScript SDK
+        working-directory: sdk/typescript
+        run: npm ci && npm test
+
+      - name: SPA quickstart
+        working-directory: samples/spa
+        run: npm ci && npm run build
 
       - name: Audit vulnerable dependencies
         run: dotnet list package --vulnerable --include-transitive

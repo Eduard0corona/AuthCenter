@@ -20,6 +20,27 @@ public class ApplicationsController : ControllerBase
         _applicationService = applicationService;
     }
 
+    [AllowAnonymous]
+    [HttpGet("branding/{code}")]
+    [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Any)]
+    public async Task<IActionResult> GetBranding(string code, CancellationToken ct)
+    {
+        var branding = await _applicationService.GetBrandingAsync(code.Trim(), ct);
+        return branding is null
+            ? NotFound(ApiResponse<object>.Fail("NOT_FOUND", "Active application branding was not found."))
+            : Ok(ApiResponse<object>.Ok(branding));
+    }
+
+    [AllowAnonymous]
+    [HttpGet("branding/{code}/theme.css")]
+    [ResponseCache(Duration = 300, Location = ResponseCacheLocation.Any)]
+    public async Task<IActionResult> GetBrandingCss(string code, CancellationToken ct)
+    {
+        var branding = await _applicationService.GetBrandingAsync(code.Trim(), ct);
+        if (branding is null) return NotFound();
+        return Content($":root{{--brand-primary:{branding.PrimaryColor};--brand-background:{branding.BackgroundColor};}}", "text/css");
+    }
+
     [HttpGet]
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
     public async Task<IActionResult> GetAll([FromQuery] PaginationQuery pagination, CancellationToken ct)
@@ -55,6 +76,16 @@ public class ApplicationsController : ControllerBase
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
+    }
+
+    [HttpPut("{id:guid}/branding")]
+    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    public async Task<IActionResult> UpdateBranding(Guid id, [FromBody] UpdateApplicationBrandingRequest request, CancellationToken ct)
+    {
+        var result = await _applicationService.UpdateBrandingAsync(id, request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
     [HttpPatch("{id:guid}/activate")]

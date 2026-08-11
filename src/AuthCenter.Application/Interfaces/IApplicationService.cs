@@ -13,6 +13,8 @@ public interface IApplicationService
     Task<ApplicationDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<ApplicationSystem?> GetByCodeAsync(string code, CancellationToken ct = default);
     Task<ApplicationSystem?> GetByCodeWithSettingsAsync(string code, CancellationToken ct = default);
+    Task<ApplicationBrandingDto?> GetBrandingAsync(string code, CancellationToken ct = default);
+    Task<OperationResult<ApplicationBrandingDto>> UpdateBrandingAsync(Guid applicationId, UpdateApplicationBrandingRequest request, CancellationToken ct = default);
     Task<OperationResult<ApplicationDto>> CreateAsync(CreateApplicationRequest request, CancellationToken ct = default);
     Task<OperationResult<ApplicationDto>> UpdateAsync(Guid id, UpdateApplicationRequest request, CancellationToken ct = default);
     Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default);

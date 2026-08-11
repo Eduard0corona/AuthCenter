@@ -106,6 +106,7 @@ git-ignored and its values are for local use only.
 | `Cors:AllowedOrigins` | Array of allowed CORS origins |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
+| `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |
 | `Database:SeedOnStartup` | Seed the `AUTHCENTER` application, roles, permissions, and admin user at startup (default: on only in Development) |
 | `Seed:AdminEmail` | Initial admin user email |
 | `Seed:AdminPassword` | Initial admin user password |
@@ -173,7 +174,29 @@ The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRI
 `CI_MSSQL_SA_PASSWORD` as secrets, plus `AZURE_WEBAPP_NAME` and `AZURE_WEBAPP_SLOT` as variables.
 After deployment, `/health/live` must return HTTP 200 or the workflow is marked failed.
 
+OpenTelemetry exports traces, metrics and bounded custom SLI dimensions to Azure Monitor. System
+Log entries contain only the W3C `traceId` correlation key, not telemetry payloads. SLOs and burn-
+rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident procedures are in
+`ops/load/`, `scripts/ops/` and [docs/operations](docs/operations/).
+
 ## Key Endpoints
+
+### First-party experience
+
+| Route | Purpose |
+|---|---|
+| `/login` | Hosted password, MFA, passkey and OAuth consent flow with application branding |
+| `/portal` | Self-service sessions, trusted devices, passkeys, linked identities and consent grants |
+| `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
+
+These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
+written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
+submit token and every API repeats authorization server-side. Branding is public but accepts only
+bounded colors and absolute HTTPS links.
+
+SDKs and executable integration examples live under `sdk/` and `samples/`. See
+[docs/integration-quickstarts.md](docs/integration-quickstarts.md) and run
+`./scripts/Invoke-Conformance.ps1` for the automated OIDC/SCIM profile.
 
 ### Authentication
 

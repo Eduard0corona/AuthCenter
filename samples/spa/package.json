@@ -1,0 +1,9 @@
+{
+  "name": "authcenter-spa-quickstart",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "dependencies": { "@authcenter/client": "file:../../sdk/typescript" },
+  "devDependencies": { "typescript": "7.0.2", "vite": "8.1.5" }
+}

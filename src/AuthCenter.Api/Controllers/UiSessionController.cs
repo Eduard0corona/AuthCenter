@@ -1,0 +1,134 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using AuthCenter.Api.Authorization;
+using AuthCenter.Api.Extensions;
+using AuthCenter.Api.Middleware;
+using AuthCenter.Application.Interfaces;
+using AuthCenter.Contracts.Requests.Auth;
+using AuthCenter.Contracts.Responses;
+using AuthCenter.Contracts.Responses.Auth;
+using AuthCenter.Domain.Constants;
+using AuthCenter.Infrastructure.Settings;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+
+namespace AuthCenter.Api.Controllers;
+
+[ApiController]
+[Route("ui-api/session")]
+public sealed class UiSessionController : ControllerBase
+{
+    private readonly IAuthService _auth;
+    private readonly IAccountManagementService _accounts;
+    private readonly IPasskeyService _passkeys;
+    private readonly MfaSettings _mfa;
+
+    public UiSessionController(IAuthService auth, IAccountManagementService accounts, IPasskeyService passkeys, IOptions<MfaSettings> mfa)
+    {
+        _auth = auth;
+        _accounts = accounts;
+        _passkeys = passkeys;
+        _mfa = mfa.Value;
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("passkey/options")]
+    public async Task<IActionResult> PasskeyOptions([FromBody] BeginPasskeyLoginRequest request, CancellationToken ct)
+    {
+        var result = await _passkeys.GetLoginOptionsAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("passkey/complete")]
+    public async Task<IActionResult> PasskeyComplete([FromBody] CompletePasskeyLoginRequest request, CancellationToken ct)
+    {
+        var result = await _passkeys.LoginAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        if (!result.IsSuccess)
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        await CreateSessionAsync(result.Data!);
+        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response))));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("login")]
+    public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
+    {
+        var result = await _auth.LoginAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        if (!result.IsSuccess && result.ErrorCode == "MFA_REQUIRED")
+            return Ok(ApiResponse<object>.Ok(new { requiresMfa = true, mfaPendingToken = result.Message, expiresIn = _mfa.MfaTokenExpirySeconds }));
+        if (!result.IsSuccess)
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        await CreateSessionAsync(result.Data!);
+        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response))));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.MfaVerify)]
+    [HttpPost("mfa")]
+    public async Task<IActionResult> VerifyMfa([FromBody] VerifyMfaRequest request, CancellationToken ct)
+    {
+        var result = await _auth.VerifyMfaAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        if (!result.IsSuccess)
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        await CreateSessionAsync(result.Data!);
+        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response))));
+    }
+
+    [Authorize]
+    [HttpGet]
+    public IActionResult Current()
+    {
+        var userId = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Ok(ApiResponse<object>.Ok(new
+        {
+            user = new
+            {
+                id = userId,
+                name = User.FindFirstValue(JwtRegisteredClaimNames.Name) ?? User.FindFirstValue(ClaimTypes.Name),
+                email = User.FindFirstValue(JwtRegisteredClaimNames.Email) ?? User.FindFirstValue(ClaimTypes.Email),
+                applications = User.FindAll(DomainConstants.Claims.Applications).Select(item => item.Value).Distinct().ToArray(),
+                roles = User.FindAll(ClaimTypes.Role).Select(item => item.Value).Distinct().ToArray(),
+                permissions = User.FindAll(DomainConstants.Claims.Permissions).Select(item => item.Value).Distinct().ToArray()
+            },
+            csrfToken = UiCsrfMiddleware.IssueToken(Response)
+        }));
+    }
+
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        var subject = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var session = User.FindFirstValue(JwtRegisteredClaimNames.Sid) ?? User.FindFirstValue("sid");
+        if (Guid.TryParse(subject, out var userId) && Guid.TryParse(session, out var sessionId))
+            await _accounts.RevokeSessionAsync(userId, sessionId, ct);
+        await HttpContext.SignOutAsync(AuthenticationSchemes.UiCookie);
+        Response.Cookies.Delete(UiCsrfMiddleware.CookieName, new CookieOptions { Secure = true, SameSite = SameSiteMode.Strict, Path = "/" });
+        return Ok(ApiResponse.Ok("Signed out."));
+    }
+
+    private async Task CreateSessionAsync(AuthResponse response)
+    {
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(response.AccessToken);
+        var claims = jwt.Claims.Where(claim => claim.Type is not "exp" and not "nbf" and not "iat").ToList();
+        var identity = new ClaimsIdentity(claims, AuthenticationSchemes.UiCookie, JwtRegisteredClaimNames.Name, ClaimTypes.Role);
+        await HttpContext.SignInAsync(AuthenticationSchemes.UiCookie, new ClaimsPrincipal(identity), new AuthenticationProperties
+        {
+            IsPersistent = false,
+            AllowRefresh = false,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, response.ExpiresIn))
+        });
+    }
+
+    private static object ToSession(AuthenticatedUserDto user, string csrfToken) => new { user, csrfToken };
+    private string? IpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
+}

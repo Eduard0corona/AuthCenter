@@ -1,0 +1,29 @@
+version: 1
+window_days: 30
+services:
+  login:
+    sli: successful_requests / eligible_requests
+    availability_target: 0.999
+    latency_p95_ms: 750
+    latency_p99_ms: 1500
+  token:
+    sli: successful_requests / eligible_requests
+    availability_target: 0.9995
+    latency_p95_ms: 400
+    latency_p99_ms: 900
+  directory:
+    sli: non_server_error_requests / eligible_requests
+    availability_target: 0.999
+    latency_p95_ms: 800
+    latency_p99_ms: 1800
+  event_hook:
+    sli: delivered_before_deadline / accepted_deliveries
+    availability_target: 0.995
+    delivery_deadline_seconds: 300
+alerting:
+  fast_burn: { long_window: 1h, short_window: 5m, burn_rate: 14.4 }
+  slow_burn: { long_window: 6h, short_window: 30m, burn_rate: 6 }
+  paging_policy: both_windows_must_fire
+privacy:
+  forbidden_dimensions: [user_id, email, ip_address, user_agent, token, raw_url, query_string]
+  allowed_dimensions: [authcenter.operation, authcenter.outcome, authcenter.attempt_band, deployment.environment.name]
