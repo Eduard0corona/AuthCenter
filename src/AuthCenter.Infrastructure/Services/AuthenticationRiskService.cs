@@ -70,10 +70,15 @@ public sealed class AuthenticationRiskService : IAuthenticationRiskService
 
         db.AuthenticationObservations.Add(new AuthenticationObservation
         {
-            Id = Guid.NewGuid(), UserId = userId, NetworkHash = networkHash, DeviceHash = deviceHash,
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            NetworkHash = networkHash,
+            DeviceHash = deviceHash,
             Latitude = latitude.HasValue ? decimal.Round(latitude.Value, 2) : null,
             Longitude = longitude.HasValue ? decimal.Round(longitude.Value, 2) : null,
-            RiskLevel = risk, ReasonCodesJson = JsonSerializer.Serialize(reasons), ObservedAt = now,
+            RiskLevel = risk,
+            ReasonCodesJson = JsonSerializer.Serialize(reasons),
+            ObservedAt = now,
             ExpiresAt = now.AddDays(_settings.ObservationRetentionDays)
         });
         await db.SaveChangesAsync(ct);

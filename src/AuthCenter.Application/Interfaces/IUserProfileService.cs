@@ -12,4 +12,5 @@ public interface IUserProfileService
     Task<OperationResult> DeactivateDefinitionAsync(Guid definitionId, CancellationToken ct = default);
     Task<OperationResult<UserProfileDto>> GetUserProfileAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult<UserProfileDto>> UpdateUserProfileAsync(Guid userId, UpdateUserProfileRequest request, CancellationToken ct = default);
+    Task<OperationResult<UserProfileDto>> UpdateUserProfileFromSourceAsync(Guid userId, UpdateUserProfileRequest request, string sourceSystem, CancellationToken ct = default);
 }

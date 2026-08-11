@@ -21,8 +21,8 @@ y evidencia de operación.
 | Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
 | Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión | Portal de autoservicio y recuperación asistida en Fase 5 | Fase 2 lista |
 | Federación | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Catálogo y UX administrativa en Fase 5 | Fase 3 lista |
-| Lifecycle | CRUD e invitaciones administrativas | SCIM 2.0, importación, deprovisioning, grupos y profile mappings | Pendiente |
-| System Log | Auditoría consultable y outbox durable para correo | Catálogo estable de eventos, correlación, exportación, event hooks firmados y reintentos observables | Pendiente |
+| Lifecycle | SCIM 2.0 Users/Groups, tokens acotados, deprovisioning, mappings y reglas dinámicas | Importaciones masivas y conectores en Fase 5 | Fase 4 lista |
+| System Log | Auditoría consultable, outbox durable y event hooks firmados con dead-letter observable | Exportación/streaming en Fase 6 | Fase 4 lista |
 | Experiencia administrativa | API y Swagger | Consola admin, portal de usuario, consentimiento, branding y custom domains | Pendiente |
 | Plataforma para desarrolladores | Discovery, JWKS y documentación HTTP | SDKs, middleware de referencia, widget/login hospedado, quickstarts y pruebas de conformidad | Pendiente |
 | Operación | CI/CD, Key Vault, health, limpieza y rate limiting distribuido | Métricas/SLO, tracing, alertas, capacity tests, DR probado y runbooks automáticos | Parcial |
@@ -69,11 +69,11 @@ y evidencia de operación.
 
 ### Fase 4 — Lifecycle y automatización
 
-- [ ] SCIM 2.0 Users y Groups: filtros `eq`, paginación, PATCH, activación y deprovisioning.
-- [ ] Tokens de provisioning con scopes, rotación y expiración.
-- [ ] Profile mappings y fuentes de verdad configurables.
-- [ ] Group rules y asignación automática de aplicaciones/roles.
-- [ ] Event hooks HTTPS verificados, firmados, at-least-once, idempotentes y con dead-letter.
+- [x] SCIM 2.0 Users y Groups: filtros `eq`, paginación, PATCH, activación y deprovisioning.
+- [x] Tokens de provisioning con scopes, rotación y expiración.
+- [x] Profile mappings y fuentes de verdad configurables.
+- [x] Group rules y asignación automática de aplicaciones/roles.
+- [x] Event hooks HTTPS verificados, firmados, at-least-once, idempotentes y con dead-letter.
 
 ### Fase 5 — Consolas y experiencia del desarrollador
 

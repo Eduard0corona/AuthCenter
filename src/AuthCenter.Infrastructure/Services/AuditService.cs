@@ -57,6 +57,34 @@ public class AuditService : IAuditService
             // not any pending changes in the caller's unit-of-work
             await using var auditDb = await _dbFactory.CreateDbContextAsync(ct);
             auditDb.AuditLogs.Add(log);
+            var hooks = await auditDb.EventHooks
+                .Where(hook => hook.IsActive && hook.IsVerified &&
+                    (!hook.ApplicationSystemId.HasValue || hook.ApplicationSystem!.Code == applicationCode))
+                .ToListAsync(ct);
+            foreach (var hook in hooks)
+            {
+                var eventTypes = JsonSerializer.Deserialize<string[]>(hook.EventTypesJson) ?? [];
+                if (!eventTypes.Contains(action, StringComparer.Ordinal) && !eventTypes.Contains("*", StringComparer.Ordinal))
+                    continue;
+                auditDb.EventHookDeliveries.Add(new EventHookDelivery
+                {
+                    Id = Guid.NewGuid(),
+                    EventHookId = hook.Id,
+                    EventId = log.Id,
+                    EventType = action,
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        id = log.Id,
+                        type = action,
+                        occurredAt = log.CreatedAt,
+                        subjectId = userId,
+                        applicationCode,
+                        entity = entityName,
+                        entityId
+                    }),
+                    NextAttemptAt = log.CreatedAt
+                });
+            }
             await auditDb.SaveChangesAsync(ct);
         }
         catch (Exception ex)

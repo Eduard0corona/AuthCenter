@@ -188,10 +188,22 @@ public sealed class UserProfileService : IUserProfileService
         return OperationResult<UserProfileDto>.Success(await BuildProfileAsync(userId, ct));
     }
 
-    public async Task<OperationResult<UserProfileDto>> UpdateUserProfileAsync(
+    public Task<OperationResult<UserProfileDto>> UpdateUserProfileAsync(
         Guid userId,
         UpdateUserProfileRequest request,
-        CancellationToken ct = default)
+        CancellationToken ct = default) => UpdateUserProfileCoreAsync(userId, request, null, ct);
+
+    public Task<OperationResult<UserProfileDto>> UpdateUserProfileFromSourceAsync(
+        Guid userId,
+        UpdateUserProfileRequest request,
+        string sourceSystem,
+        CancellationToken ct = default) => UpdateUserProfileCoreAsync(userId, request, sourceSystem, ct);
+
+    private async Task<OperationResult<UserProfileDto>> UpdateUserProfileCoreAsync(
+        Guid userId,
+        UpdateUserProfileRequest request,
+        string? sourceSystem,
+        CancellationToken ct)
     {
         if (request.Attributes.Count > MaxDefinitions)
             return OperationResult<UserProfileDto>.Failure("TOO_MANY_PROFILE_ATTRIBUTES", $"At most {MaxDefinitions} attributes can be updated at once.");
@@ -205,6 +217,13 @@ public sealed class UserProfileService : IUserProfileService
         var unknown = request.Attributes.Keys.Where(key => !byKey.ContainsKey(key)).OrderBy(key => key).ToList();
         if (unknown.Count > 0)
             return OperationResult<UserProfileDto>.Failure("UNKNOWN_PROFILE_ATTRIBUTE", $"Unknown or inactive profile attributes: {string.Join(", ", unknown)}.");
+
+        var requestedDefinitionIds = request.Attributes.Keys.Select(key => byKey[key].Id).ToArray();
+        var authoritativeMappings = await _db.ProfileMappings.AsNoTracking()
+            .Where(mapping => mapping.IsActive && mapping.IsAuthoritative && requestedDefinitionIds.Contains(mapping.TargetAttributeDefinitionId))
+            .ToListAsync(ct);
+        if (authoritativeMappings.Any(mapping => !string.Equals(mapping.SourceSystem, sourceSystem, StringComparison.OrdinalIgnoreCase)))
+            return OperationResult<UserProfileDto>.Failure("AUTHORITATIVE_PROFILE_SOURCE", "One or more attributes can only be updated by their configured authoritative source.");
 
         var normalized = new Dictionary<Guid, string?>();
         foreach (var (key, value) in request.Attributes)
@@ -275,7 +294,7 @@ public sealed class UserProfileService : IUserProfileService
             Action = "USER_PROFILE_UPDATED",
             EntityName = nameof(ApplicationUser),
             EntityId = userId.ToString(),
-            MetadataJson = JsonSerializer.Serialize(new { keys = request.Attributes.Keys.OrderBy(key => key) }),
+            MetadataJson = JsonSerializer.Serialize(new { keys = request.Attributes.Keys.OrderBy(key => key), sourceSystem }),
             CreatedAt = now
         });
         await _db.SaveChangesAsync(ct);

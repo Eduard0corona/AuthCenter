@@ -396,6 +396,32 @@ to 50 CIDR ranges. To prevent locking every administrator out of the identity co
 `AUTHCENTER` must always retain an active unconditional `Allow` fallback whenever it has active
 rules; give that fallback the lowest precedence (the largest priority number).
 
+### Enterprise federation
+
+`/api/federation/providers` and `/api/federation/routing-rules` configure OIDC/SAML providers per
+application. OIDC callbacks are exact registered HTTPS values and upstream client secrets are
+protected at rest. SAML publishes metadata at `/api/federation/saml/{providerId}/metadata` and the
+POST ACS is `/api/federation/saml/acs`. Keep the SAML PKCS#12 certificate and password in Key Vault.
+
+### SCIM and lifecycle automation
+
+Provisioning tokens are created at `/api/provisioning-tokens`; the raw value is returned once.
+Send it as `Authorization: Bearer acp_...` to `/scim/v2/Users` or `/scim/v2/Groups`. Tokens are
+application-bound and use separate read/write scopes. Filters support bounded `userName`,
+`externalId`, or `displayName eq`; pagination accepts `startIndex` and `count` up to 200. DELETE
+deprovisions rather than erasing identity history.
+
+Profile mappings and dynamic group rules are managed under `/api/lifecycle`. An authoritative
+mapping prevents other sources from overwriting its target attribute. Group membership immediately
+feeds existing application/role assignments and invalidates stale entitlement sessions.
+
+Event hooks are managed at `/api/event-hooks`. The endpoint must be public HTTPS and echo the
+verification challenge before delivery is enabled. Deliveries include `X-AuthCenter-Event-Id`,
+`X-AuthCenter-Idempotency-Key`, `X-AuthCenter-Timestamp`, and
+`X-AuthCenter-Signature: v1=<hex-hmac-sha256>`. Consumers should verify the signature over
+`<timestamp>.<raw-body>`, reject stale timestamps, and deduplicate by event ID. Failed deliveries
+retry and appear in `/api/event-hooks/deliveries?deadLettersOnly=true` for controlled replay.
+
 ### Other
 
 | Method | Endpoint | Description |
@@ -441,7 +467,7 @@ curl -X POST https://localhost:7001/api/auth/google \
 The `AUTHCENTER` application is seeded automatically with:
 - **SuperAdmin** role (all permissions)
 - **Admin** role (read + write users, read apps/roles/permissions)
-- All 8 default permissions under `AUTHCENTER_*`
+- All permissions enumerated under `AUTHCENTER_*`
 
 ## Running Tests
 

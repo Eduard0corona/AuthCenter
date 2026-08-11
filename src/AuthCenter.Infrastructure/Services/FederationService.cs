@@ -97,10 +97,15 @@ public sealed partial class FederationService : IFederationService
 
         var rule = new FederationRoutingRule
         {
-            Id = Guid.NewGuid(), FederationProviderId = request.FederationProviderId, Priority = request.Priority,
-            EmailDomain = NormalizeDomain(request.EmailDomain), DirectoryGroupId = request.DirectoryGroupId,
+            Id = Guid.NewGuid(),
+            FederationProviderId = request.FederationProviderId,
+            Priority = request.Priority,
+            EmailDomain = NormalizeDomain(request.EmailDomain),
+            DirectoryGroupId = request.DirectoryGroupId,
             ProfileAttributeDefinitionId = request.ProfileAttributeDefinitionId,
-            ExpectedProfileValueJson = request.ExpectedProfileValueJson, IsActive = request.IsActive, CreatedAt = _clock.UtcNow
+            ExpectedProfileValueJson = request.ExpectedProfileValueJson,
+            IsActive = request.IsActive,
+            CreatedAt = _clock.UtcNow
         };
         _db.FederationRoutingRules.Add(rule);
         await _db.SaveChangesAsync(ct);
@@ -284,9 +289,17 @@ public sealed partial class FederationService : IFederationService
         {
             var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
             {
-                ValidateIssuer = true, ValidIssuer = provider.Issuer, ValidateAudience = true, ValidAudience = provider.ClientId,
-                ValidateLifetime = true, RequireExpirationTime = true, RequireSignedTokens = true, ValidateIssuerSigningKey = true,
-                IssuerSigningKeys = configuration.SigningKeys, ClockSkew = TimeSpan.FromMinutes(2), NameClaimType = "name"
+                ValidateIssuer = true,
+                ValidIssuer = provider.Issuer,
+                ValidateAudience = true,
+                ValidAudience = provider.ClientId,
+                ValidateLifetime = true,
+                RequireExpirationTime = true,
+                RequireSignedTokens = true,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeys = configuration.SigningKeys,
+                ClockSkew = TimeSpan.FromMinutes(2),
+                NameClaimType = "name"
             }, out var validated);
             if (validated is not JwtSecurityToken jwt || !FixedEquals(jwt.Claims.FirstOrDefault(item => item.Type == "nonce")?.Value, nonce)) return null;
             return principal;
@@ -296,10 +309,20 @@ public sealed partial class FederationService : IFederationService
 
     private static FederationProviderDto Map(FederationProvider item) => new()
     {
-        Id = item.Id, ApplicationSystemId = item.ApplicationSystemId, Name = item.Name, Protocol = item.Protocol.ToString(), Issuer = item.Issuer,
-        DiscoveryEndpoint = item.DiscoveryEndpoint, ClientId = item.ClientId, OidcCallbackUrl = item.OidcCallbackUrl, HasClientSecret = !string.IsNullOrWhiteSpace(item.ProtectedClientSecret),
-        SamlSingleSignOnUrl = item.SamlSingleSignOnUrl, SamlSigningCertificateThumbprint = TryCertificate(item.SamlSigningCertificatePem, out var certificate) ? certificate!.Thumbprint : null,
-        JitProvisioningEnabled = item.JitProvisioningEnabled, AccountLinkingMode = item.AccountLinkingMode.ToString(), IsActive = item.IsActive
+        Id = item.Id,
+        ApplicationSystemId = item.ApplicationSystemId,
+        Name = item.Name,
+        Protocol = item.Protocol.ToString(),
+        Issuer = item.Issuer,
+        DiscoveryEndpoint = item.DiscoveryEndpoint,
+        ClientId = item.ClientId,
+        OidcCallbackUrl = item.OidcCallbackUrl,
+        HasClientSecret = !string.IsNullOrWhiteSpace(item.ProtectedClientSecret),
+        SamlSingleSignOnUrl = item.SamlSingleSignOnUrl,
+        SamlSigningCertificateThumbprint = TryCertificate(item.SamlSigningCertificatePem, out var certificate) ? certificate!.Thumbprint : null,
+        JitProvisioningEnabled = item.JitProvisioningEnabled,
+        AccountLinkingMode = item.AccountLinkingMode.ToString(),
+        IsActive = item.IsActive
     };
     private static bool IsHttps(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.Fragment);
     private static string? NormalizeDomain(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().TrimStart('@').ToLowerInvariant();

@@ -36,6 +36,12 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<AuthenticationObservation> AuthenticationObservations => Set<AuthenticationObservation>();
     public DbSet<FederationProvider> FederationProviders => Set<FederationProvider>();
     public DbSet<FederationRoutingRule> FederationRoutingRules => Set<FederationRoutingRule>();
+    public DbSet<ProvisioningToken> ProvisioningTokens => Set<ProvisioningToken>();
+    public DbSet<ScimResourceLink> ScimResourceLinks => Set<ScimResourceLink>();
+    public DbSet<ProfileMapping> ProfileMappings => Set<ProfileMapping>();
+    public DbSet<DynamicGroupRule> DynamicGroupRules => Set<DynamicGroupRule>();
+    public DbSet<EventHook> EventHooks => Set<EventHook>();
+    public DbSet<EventHookDelivery> EventHookDeliveries => Set<EventHookDelivery>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

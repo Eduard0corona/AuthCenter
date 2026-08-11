@@ -69,6 +69,7 @@ public static class InfrastructureServiceExtensions
             client.Timeout = TimeSpan.FromSeconds(10);
         });
         services.AddHttpClient("Federation", client => client.Timeout = TimeSpan.FromSeconds(15));
+        services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10));
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -137,6 +138,11 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();
         services.AddScoped<IFederationService, FederationService>();
+        services.AddScoped<IProvisioningTokenService, ProvisioningTokenService>();
+        services.AddScoped<IScimService, ScimService>();
+        services.AddScoped<ILifecycleAutomationService, LifecycleAutomationService>();
+        services.AddScoped<IEventHookService, EventHookService>();
+        services.AddHostedService<EventHookDispatcherService>();
 
         return services;
     }

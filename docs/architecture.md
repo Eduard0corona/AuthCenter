@@ -103,4 +103,14 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
   response with one assertion, exact issuer/audience/destination, bounded clock skew and SQL-backed
   replay protection. Routing evaluates application, email domain, directory group and canonical
   profile value before audited JIT provisioning or explicitly configured verified-email linking.
+- **Lifecycle automation**: SCIM provisioning tokens are random, stored only as SHA-256 hashes,
+  scoped per application/resource/action, expiring and rotatable. SCIM Users/Groups enforce
+  application boundaries, bounded `eq` filters and pagination, PATCH allowlists, deprovisioning and
+  entitlement-session invalidation. Authoritative profile mappings reject writes from other
+  sources; dynamic group rules feed the existing group application/role model.
+- **Event hooks**: verified public HTTPS destinations receive a minimized event envelope. The body
+  is signed with a per-hook HMAC secret protected by Data Protection, and stable event/idempotency
+  headers allow consumer deduplication. Audit creation and delivery enqueue share one database
+  save; workers claim rows across instances, retry exponentially and expose terminal dead letters
+  for explicit replay.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.
