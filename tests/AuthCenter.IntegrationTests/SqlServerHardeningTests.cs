@@ -17,6 +17,55 @@ namespace AuthCenter.IntegrationTests;
 public sealed class SqlServerHardeningTests
 {
     [Fact]
+    public async Task IdempotentDeploymentScript_UpgradesProductionBaseline()
+    {
+        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
+            return;
+
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            string deploymentScript;
+            await using (var db = new AuthCenterDbContext(options))
+            {
+                var migrator = db.Database.GetService<IMigrator>();
+                await migrator.MigrateAsync("20260808033000_AddOutbox");
+                deploymentScript = migrator.GenerateScript(
+                    options: MigrationsSqlGenerationOptions.Idempotent);
+            }
+
+            await using (var connection = new SqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                foreach (var batch in System.Text.RegularExpressions.Regex.Split(
+                    deploymentScript,
+                    "(?im)^\\s*GO\\s*$"))
+                {
+                    if (string.IsNullOrWhiteSpace(batch))
+                        continue;
+                    await using var command = connection.CreateCommand();
+                    command.CommandTimeout = 180;
+                    command.CommandText = batch;
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
+
+            await using var verifyDb = new AuthCenterDbContext(options);
+            var applied = await verifyDb.Database
+                .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
+                .ToListAsync();
+            Assert.Equal(16, applied.Count);
+            Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Fact]
     public async Task Phase1Migration_PreservesExistingRulesAsPublishedVersion()
     {
         if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))

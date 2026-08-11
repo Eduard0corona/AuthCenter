@@ -31,55 +31,47 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
             migrationBuilder.Sql(
                 """
-                UPDATE tokens
-                SET AbsoluteExpiresAt = tokens.ExpiresAt,
-                    TokenFamilyId = NEWID()
-                FROM dbo.RefreshTokens AS tokens
-                WHERE tokens.OAuthClientId IS NOT NULL;
+                -- Generated idempotent scripts place ADD COLUMN and data backfill in one SQL
+                -- batch. Dynamic SQL defers name resolution until the new columns exist; direct
+                -- statements work through IMigrator but fail when the deployment script is run as
+                -- a batch against Azure SQL.
+                EXEC(N'
+                    UPDATE tokens
+                    SET AbsoluteExpiresAt = tokens.ExpiresAt,
+                        TokenFamilyId = NEWID()
+                    FROM dbo.RefreshTokens AS tokens
+                    WHERE tokens.OAuthClientId IS NOT NULL;
 
-                UPDATE clients
-                SET ApplicationSystemId = matched.Id
-                FROM dbo.OAuthClients AS clients
-                CROSS APPLY
-                (
-                    SELECT TOP (1) applications.Id
-                    FROM dbo.ApplicationSystems AS applications
-                    WHERE LOWER(clients.ClientId) = LOWER(applications.Code)
-                       OR LOWER(clients.ClientId) LIKE LOWER(applications.Code) + '-%'
-                       OR LOWER(clients.ClientId) LIKE LOWER(applications.Code) + '[_]%'
-                    ORDER BY LEN(applications.Code) DESC
-                ) AS matched;
+                    UPDATE clients
+                    SET ApplicationSystemId = matched.Id
+                    FROM dbo.OAuthClients AS clients
+                    CROSS APPLY
+                    (
+                        SELECT TOP (1) applications.Id
+                        FROM dbo.ApplicationSystems AS applications
+                        WHERE LOWER(clients.ClientId) = LOWER(applications.Code)
+                           OR LOWER(clients.ClientId) LIKE LOWER(applications.Code) + ''-%''
+                           OR LOWER(clients.ClientId) LIKE LOWER(applications.Code) + ''[_]%''
+                        ORDER BY LEN(applications.Code) DESC
+                    ) AS matched;
 
-                IF EXISTS (SELECT 1 FROM dbo.OAuthClients WHERE ApplicationSystemId IS NULL)
-                    THROW 51000, 'Every existing OAuth client must be named with its application-code prefix or linked manually before this migration can continue.', 1;
+                    IF EXISTS (SELECT 1 FROM dbo.OAuthClients WHERE ApplicationSystemId IS NULL)
+                        THROW 51000, ''Every existing OAuth client must be named with its application-code prefix or linked manually before this migration can continue.'', 1;
+                ');
                 """);
 
-            migrationBuilder.AlterColumn<Guid>(
-                name: "ApplicationSystemId",
-                table: "OAuthClients",
-                type: "uniqueidentifier",
-                nullable: false,
-                oldClrType: typeof(Guid),
-                oldType: "uniqueidentifier",
-                oldNullable: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RefreshTokens_OAuthClientId_TokenFamilyId_RevokedAt",
-                table: "RefreshTokens",
-                columns: new[] { "OAuthClientId", "TokenFamilyId", "RevokedAt" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_OAuthClients_ApplicationSystemId",
-                table: "OAuthClients",
-                column: "ApplicationSystemId");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_OAuthClients_ApplicationSystems_ApplicationSystemId",
-                table: "OAuthClients",
-                column: "ApplicationSystemId",
-                principalTable: "ApplicationSystems",
-                principalColumn: "Id",
-                onDelete: ReferentialAction.Restrict);
+            migrationBuilder.Sql(
+                """
+                EXEC(N'ALTER TABLE dbo.OAuthClients ALTER COLUMN ApplicationSystemId uniqueidentifier NOT NULL;');
+                EXEC(N'CREATE INDEX IX_RefreshTokens_OAuthClientId_TokenFamilyId_RevokedAt
+                    ON dbo.RefreshTokens (OAuthClientId, TokenFamilyId, RevokedAt);');
+                EXEC(N'CREATE INDEX IX_OAuthClients_ApplicationSystemId
+                    ON dbo.OAuthClients (ApplicationSystemId);');
+                EXEC(N'ALTER TABLE dbo.OAuthClients
+                    ADD CONSTRAINT FK_OAuthClients_ApplicationSystems_ApplicationSystemId
+                    FOREIGN KEY (ApplicationSystemId) REFERENCES dbo.ApplicationSystems (Id)
+                    ON DELETE NO ACTION;');
+                """);
         }
 
         /// <inheritdoc />
