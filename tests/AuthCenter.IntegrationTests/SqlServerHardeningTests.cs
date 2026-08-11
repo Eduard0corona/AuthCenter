@@ -55,7 +55,7 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(22, applied.Count);
+            Assert.Equal(23, applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
             Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
             Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
@@ -63,6 +63,16 @@ public sealed class SqlServerHardeningTests
             Assert.Contains("20260811095011_CompleteLifecycleAutomationPhase4", applied);
             Assert.Contains("20260811104737_CompleteDeveloperExperiencePhase5", applied);
             Assert.Contains("20260811105540_CompleteOperationalExcellencePhase6", applied);
+            Assert.Contains("20260811120003_EnsureFirstPartyApplicationAvailability", applied);
+
+            var firstPartyApplication = await verifyDb.ApplicationSystems
+                .Include(application => application.RegistrationSettings)
+                .Include(application => application.BrandingSettings)
+                .SingleAsync(application => application.Code == "AUTHCENTER");
+            Assert.True(firstPartyApplication.IsActive);
+            Assert.NotNull(firstPartyApplication.RegistrationSettings);
+            Assert.NotNull(firstPartyApplication.BrandingSettings);
+            Assert.Equal("AuthCenter", firstPartyApplication.BrandingSettings.DisplayName);
         }
         finally
         {

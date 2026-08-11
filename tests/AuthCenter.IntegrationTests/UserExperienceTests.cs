@@ -21,6 +21,29 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
     private readonly AuthCenterWebApplicationFactory _factory;
     public UserExperienceTests(AuthCenterWebApplicationFactory factory) => _factory = factory;
 
+    [Theory]
+    [InlineData("/login")]
+    [InlineData("/login.html")]
+    [InlineData("/portal")]
+    [InlineData("/portal.html")]
+    [InlineData("/admin")]
+    [InlineData("/admin.html")]
+    public async Task FirstPartyUiDocuments_AlwaysApplyContentSecurityPolicy(string path)
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false
+        });
+
+        var response = await client.GetAsync(path);
+
+        response.EnsureSuccessStatusCode();
+        Assert.True(response.Headers.TryGetValues("Content-Security-Policy", out var values));
+        Assert.Contains(values, value => value.Contains("default-src 'self'", StringComparison.Ordinal));
+        Assert.Contains(values, value => value.Contains("frame-ancestors 'none'", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task UiSession_UsesSecureCookieAndRejectsMissingCsrf()
     {
@@ -83,6 +106,19 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
         var css = await client.GetStringAsync("/api/applications/branding/AUTHCENTER/theme.css");
         Assert.Contains("--brand-primary:#123456", css, StringComparison.Ordinal);
         Assert.DoesNotContain("javascript", css, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task FirstPartyApplication_CannotBeDeactivated()
+    {
+        var client = await CreateAdminClientAsync();
+        var appId = await GetAuthCenterApplicationIdAsync();
+
+        var response = await client.PatchAsync($"/api/applications/{appId}/deactivate", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse>();
+        Assert.Equal("SYSTEM_APPLICATION_REQUIRED", body!.ErrorCode);
     }
 
     [Fact]

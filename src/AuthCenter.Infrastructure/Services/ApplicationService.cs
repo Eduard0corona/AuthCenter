@@ -5,6 +5,7 @@ using AuthCenter.Contracts.Requests.Applications;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Applications;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
@@ -223,6 +224,12 @@ public class ApplicationService : IApplicationService
     {
         var app = await _db.ApplicationSystems.FindAsync([id], ct)
             ?? throw new NotFoundException(nameof(ApplicationSystem), id);
+        if (string.Equals(app.Code, DomainConstants.SystemCodes.AuthCenter, StringComparison.OrdinalIgnoreCase))
+        {
+            return OperationResult.Failure(
+                "SYSTEM_APPLICATION_REQUIRED",
+                "The first-party AuthCenter application cannot be deactivated.");
+        }
         var now = _dateTimeProvider.UtcNow;
         if (_db.Database.IsRelational())
         {
