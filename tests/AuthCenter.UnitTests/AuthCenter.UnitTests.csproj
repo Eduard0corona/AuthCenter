@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\sdk\dotnet\AuthCenter.Client\AuthCenter.Client.csproj" />
     <ProjectReference Include="..\..\src\AuthCenter.Application\AuthCenter.Application.csproj" />
     <ProjectReference Include="..\..\src\AuthCenter.Domain\AuthCenter.Domain.csproj" />
     <ProjectReference Include="..\..\src\AuthCenter.Contracts\AuthCenter.Contracts.csproj" />

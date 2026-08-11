@@ -195,7 +195,8 @@ submit token and every API repeats authorization server-side. Branding is public
 bounded colors and absolute HTTPS links.
 
 SDKs and executable integration examples live under `sdk/` and `samples/`. See
-[docs/integration-quickstarts.md](docs/integration-quickstarts.md) and run
+[docs/integration-quickstarts.md](docs/integration-quickstarts.md), follow the
+[production integration runbook](docs/production-idp-integration.md), and run
 `./scripts/Invoke-Conformance.ps1` for the automated OIDC/SCIM profile.
 
 ### Authentication

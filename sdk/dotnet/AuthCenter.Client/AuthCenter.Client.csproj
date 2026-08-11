@@ -6,10 +6,20 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <PackageId>AuthCenter.Client</PackageId>
-    <Description>Typed OAuth/OIDC client and ASP.NET Core resource-server integration for AuthCenter.</Description>
+    <Version>1.0.0</Version>
+    <Authors>AuthCenter</Authors>
+    <Description>Production OAuth/OIDC client, BFF session middleware and ASP.NET Core resource-server integration for AuthCenter.</Description>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/Eduard0corona/AuthCenter</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>oauth2;openid-connect;oidc;bff;authentication;authorization</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.10" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

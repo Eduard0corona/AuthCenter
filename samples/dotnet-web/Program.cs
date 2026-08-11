@@ -1,27 +1,40 @@
 using AuthCenter.Client;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
-var section = builder.Configuration.GetSection("AuthCenter");
-builder.Services.AddAuthCenterClient(new AuthCenterClientOptions
+var section = builder.Configuration.GetRequiredSection("AuthCenter");
+
+builder.Services.AddAuthCenterBff(new AuthCenterBffOptions
 {
     Authority = new Uri(section["Authority"] ?? throw new InvalidOperationException("Set AuthCenter:Authority.")),
     ClientId = section["ClientId"] ?? throw new InvalidOperationException("Set AuthCenter:ClientId."),
-    ClientSecret = section["ClientSecret"]
+    ClientSecret = section["ClientSecret"] ?? throw new InvalidOperationException("Set AuthCenter:ClientSecret in a secret store.")
 });
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Orders.Read", policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAuthCenterPermission("ORDERS_READ"));
+});
+
 var app = builder.Build();
 app.UseHttpsRedirection();
-app.MapGet("/login", (AuthCenterClient client, HttpContext context) =>
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapAuthCenterBff();
+app.MapGet("/", () => Results.Ok(new
 {
-    var pkce = AuthCenterClient.CreatePkce();
-    context.Response.Cookies.Append("sample.pkce", pkce.Verifier, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Lax, MaxAge = TimeSpan.FromMinutes(10) });
-    var redirect = new Uri($"{context.Request.Scheme}://{context.Request.Host}/callback");
-    return Results.Redirect(client.BuildAuthorizationUri(redirect, Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), pkce).AbsoluteUri);
-});
-app.MapGet("/callback", async (string code, AuthCenterClient client, HttpContext context, CancellationToken ct) =>
+    login = "/auth/login?return_url=/",
+    session = "/auth/session",
+    note = "The browser receives only the encrypted session handle, never OAuth tokens."
+}));
+app.MapGet("/api/me", [Authorize] (HttpContext context) => Results.Ok(new
 {
-    if (!context.Request.Cookies.TryGetValue("sample.pkce", out var verifier)) return Results.BadRequest("PKCE cookie missing.");
-    var redirect = new Uri($"{context.Request.Scheme}://{context.Request.Host}/callback");
-    var tokens = await client.ExchangeCodeAsync(code, redirect, verifier, ct);
-    return Results.Ok(new { tokens.TokenType, tokens.ExpiresIn }); // Never render token material.
-});
+    subject = context.User.FindFirst("sub")?.Value,
+    name = context.User.FindFirst("name")?.Value
+}));
+app.MapGet("/api/orders", [Authorize(Policy = "Orders.Read")] () =>
+    Results.Ok(new { message = "Permission enforced from the AuthCenter access token." }));
+
 app.Run();
