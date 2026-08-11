@@ -167,8 +167,24 @@ public class ApplicationService : IApplicationService
     {
         var app = await _db.ApplicationSystems.FindAsync([id], ct)
             ?? throw new NotFoundException(nameof(ApplicationSystem), id);
+        var now = _dateTimeProvider.UtcNow;
+        if (_db.Database.IsRelational())
+        {
+            await _db.RefreshTokens
+                .Where(token => token.ApplicationCode == app.Code && token.RevokedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now), ct);
+        }
+        else
+        {
+            var activeTokens = await _db.RefreshTokens
+                .Where(token => token.ApplicationCode == app.Code && token.RevokedAt == null)
+                .ToListAsync(ct);
+            foreach (var token in activeTokens)
+                token.RevokedAt = now;
+        }
+
         app.IsActive = false;
-        app.UpdatedAt = _dateTimeProvider.UtcNow;
+        app.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
         return OperationResult.Success();

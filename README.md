@@ -282,6 +282,27 @@ by default and registration rejects lifetimes above one hour. See
 | PATCH | `/api/users/{id}/activate` | Activate user |
 | PATCH | `/api/users/{id}/deactivate` | Deactivate user |
 
+### Directory groups
+
+Groups provide effective application access and roles without copying direct assignments to every
+user. Membership, application and role changes revoke affected sessions so new tokens cannot keep
+stale entitlements.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/groups` | Search and paginate groups |
+| POST | `/api/groups` | Create a group |
+| PUT | `/api/groups/{id}` | Update name and description |
+| PATCH | `/api/groups/{id}/activate` | Activate a group |
+| PATCH | `/api/groups/{id}/deactivate` | Deactivate a group and revoke member sessions |
+| GET | `/api/groups/{id}/members` | List members |
+| POST/DELETE | `/api/groups/{id}/members/{userId}` | Add or remove a member |
+| POST/DELETE | `/api/groups/{id}/applications/{applicationId}` | Grant or remove effective application access |
+| POST/DELETE | `/api/groups/{id}/roles/{roleId}` | Grant or remove an application role |
+
+A group role is valid only after the role's application is assigned explicitly to the same group.
+Removing an application also removes every group-role assignment for that application.
+
 ### Other
 
 | Method | Endpoint | Description |
@@ -319,6 +340,8 @@ curl -X POST https://localhost:7001/api/auth/google \
 - The JWT includes `roles`, `permissions`, and `applications` claims scoped to the application used for login.
 - Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`.
 - Refresh tokens are bound to the application they were issued for.
+- Effective application access and claims are the union of active direct assignments and active
+  directory-group assignments; duplicates are removed.
 
 ### Default Seed Data
 

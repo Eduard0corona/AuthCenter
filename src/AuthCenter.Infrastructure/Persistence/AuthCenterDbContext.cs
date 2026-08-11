@@ -25,6 +25,10 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<DistributedRateLimitBucket> DistributedRateLimitBuckets => Set<DistributedRateLimitBucket>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<DirectoryGroup> DirectoryGroups => Set<DirectoryGroup>();
+    public DbSet<UserGroupMembership> UserGroupMemberships => Set<UserGroupMembership>();
+    public DbSet<GroupApplicationAssignment> GroupApplicationAssignments => Set<GroupApplicationAssignment>();
+    public DbSet<GroupRoleAssignment> GroupRoleAssignments => Set<GroupRoleAssignment>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

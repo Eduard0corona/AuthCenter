@@ -16,7 +16,8 @@ src/
 ## Layer Responsibilities
 
 ### AuthCenter.Domain
-- Contains all business entities: `ApplicationUser`, `ApplicationRole`, `ApplicationSystem`, `Permission`, `RefreshToken`, etc.
+- Contains all business entities: `ApplicationUser`, `ApplicationRole`, `ApplicationSystem`,
+  `DirectoryGroup`, group assignments, `Permission`, `RefreshToken`, etc.
 - Contains `ApplicationRegistrationMode` enum and `DomainConstants`.
 - **Has no dependencies on other layers.**
 - References `Microsoft.Extensions.Identity.Core` only to allow `ApplicationUser : IdentityUser<Guid>`.
@@ -74,4 +75,7 @@ No layer may reference a layer above it. Infrastructure must not reference Api.
 - **Configuration validation**: non-development environments fail fast when critical connection, JWT, and CORS settings are missing or still use placeholder values.
 - **Integration testing**: API integration tests run against EF Core InMemory and seed the same default `AUTHCENTER` application, roles, permissions, and admin flow used by the application seed.
 - **Application-scoped tokens**: login and refresh issue JWT roles, permissions, and application claims scoped to the requested application, preventing cross-application permission leakage.
+- **Effective group entitlements**: group membership grants access only through an explicit
+  application assignment; group roles must belong to that application. Role and permission queries
+  union direct and group-derived entitlements, and entitlement changes revoke affected sessions.
 - **Administrative workflows**: user creation, invitations, pending access approval, role/permission activation, and audit-log search are exposed through permission-protected controllers.
