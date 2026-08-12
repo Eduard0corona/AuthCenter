@@ -2,10 +2,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using AuthCenter.Contracts.Requests.Auth;
+using AuthCenter.Contracts.Requests.Applications;
 using AuthCenter.Contracts.Requests.Permissions;
 using AuthCenter.Contracts.Requests.Roles;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Auth;
+using AuthCenter.Contracts.Responses.Applications;
 using AuthCenter.Contracts.Responses.Permissions;
 using AuthCenter.Contracts.Responses.Roles;
 using AuthCenter.Domain.Entities;
@@ -110,6 +112,81 @@ public class RolesAndPermissionsTests : IClassFixture<AuthCenterWebApplicationFa
 
         var duplicate = await client.PostAsJsonAsync("/api/roles", request);
         Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdministrativeApi_CannotCreateOrMutateSystemRoles()
+    {
+        using var client = await CreateAdminClientAsync();
+        var applicationId = await GetAuthCenterApplicationIdAsync();
+        var create = await client.PostAsJsonAsync("/api/roles", new CreateRoleRequest
+        {
+            Name = "Forged system role",
+            ApplicationSystemId = applicationId,
+            IsSystemRole = true
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+
+        Guid systemRoleId;
+        Guid permissionId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+            systemRoleId = await db.Roles.Where(role => role.IsSystemRole).Select(role => role.Id).FirstAsync();
+            permissionId = await db.Permissions.Where(permission => permission.ApplicationSystemId == applicationId).Select(permission => permission.Id).FirstAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/roles/{systemRoleId}", new UpdateRoleRequest { Name = "Changed" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/roles/{systemRoleId}/permissions", new SetRolePermissionsRequest { PermissionIds = [permissionId] })).StatusCode);
+    }
+
+    [Fact]
+    public async Task RolePermissions_AreReplacedAtomicallyAndValidatedByApplication()
+    {
+        using var client = await CreateAdminClientAsync();
+        var applicationId = await GetAuthCenterApplicationIdAsync();
+        var role = await ReadDataAsync<RoleDto>(await client.PostAsJsonAsync("/api/roles", new CreateRoleRequest
+        {
+            Name = $"Matrix-{Guid.NewGuid():N}"[..20],
+            ApplicationSystemId = applicationId
+        }));
+        var permissions = await ReadDataAsync<PagedResult<PermissionDto>>(await client.GetAsync($"/api/applications/{applicationId}/permissions?pageSize=100"));
+        var selected = permissions.Items.Take(2).ToArray();
+
+        var updated = await ReadDataAsync<RoleDto>(await client.PutAsJsonAsync($"/api/roles/{role.Id}/permissions", new SetRolePermissionsRequest { PermissionIds = selected.Select(permission => permission.Id).ToArray() }));
+
+        Assert.Equal(selected.Select(permission => permission.Code).Order(), updated.Permissions.Order());
+        var idempotent = await ReadDataAsync<RoleDto>(await client.PutAsJsonAsync($"/api/roles/{role.Id}/permissions", new SetRolePermissionsRequest { PermissionIds = selected.Select(permission => permission.Id).ToArray() }));
+        Assert.Equal(updated.Permissions.Order(), idempotent.Permissions.Order());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/roles/{role.Id}/permissions", new SetRolePermissionsRequest { PermissionIds = [Guid.NewGuid()] })).StatusCode);
+        var unchanged = await ReadDataAsync<RoleDto>(await client.GetAsync($"/api/roles/{role.Id}"));
+        Assert.Equal(updated.Permissions.Order(), unchanged.Permissions.Order());
+
+        var inactivePermission = selected[0];
+        Assert.Equal(HttpStatusCode.OK, (await client.PatchAsync($"/api/permissions/{inactivePermission.Id}/deactivate", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync($"/api/roles/{role.Id}/permissions", new SetRolePermissionsRequest { PermissionIds = [inactivePermission.Id] })).StatusCode);
+    }
+
+    [Fact]
+    public async Task ApplicationDefaultRole_MustBelongToTheApplicationAndBeActive()
+    {
+        using var client = await CreateAdminClientAsync();
+        var first = await ReadDataAsync<ApplicationDto>(await client.PostAsJsonAsync("/api/applications", new CreateApplicationRequest
+        {
+            Code = "FIRST_" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), Name = "First", RegistrationMode = "Closed", AllowPasswordLogin = true
+        }));
+        var second = await ReadDataAsync<ApplicationDto>(await client.PostAsJsonAsync("/api/applications", new CreateApplicationRequest
+        {
+            Code = "SECOND_" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(), Name = "Second", RegistrationMode = "Closed", AllowPasswordLogin = true
+        }));
+        var foreignRole = await ReadDataAsync<RoleDto>(await client.PostAsJsonAsync("/api/roles", new CreateRoleRequest { Name = "Foreign", ApplicationSystemId = second.Id }));
+
+        var response = await client.PutAsJsonAsync($"/api/applications/{first.Id}", new UpdateApplicationRequest
+        {
+            Name = first.Name, RegistrationMode = "Closed", AllowPasswordLogin = true, DefaultRoleId = foreignRole.Id
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

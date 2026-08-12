@@ -80,6 +80,27 @@ export interface ApplicationSummary {
   branding: ApplicationBranding | null;
 }
 
+export interface RoleSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  applicationSystemId: string | null;
+  isSystemRole: boolean;
+  isActive: boolean;
+  createdAt: string;
+  permissions: string[];
+}
+
+export interface PermissionSummary {
+  id: string;
+  applicationSystemId: string;
+  code: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface AuditLogEntry {
   id: string;
   userId: string | null;

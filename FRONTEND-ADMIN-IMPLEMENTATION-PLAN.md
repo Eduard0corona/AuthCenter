@@ -96,6 +96,8 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Bundle actual: 132.10 KB gzip de JavaScript emitido en chunks y 4.70 KB gzip de CSS; las rutas y el editor de branding se cargan bajo demanda.
 - Cuatro pruebas de integracion verifican redirect, deep link, `no-store` e assets `immutable`.
 - Suite .NET completa exitosa: 65 pruebas unitarias y 125 pruebas de integracion.
+- Entrega RBAC: 65 pruebas unitarias, 128 de integracion, 9 frontend y 18 escenarios E2E; roles, permisos, matriz atomica y rol predeterminado cubiertos.
+- Bundle actual tras RBAC: 141.08 KB gzip de JavaScript emitido en chunks y 4.81 KB gzip de CSS; cada modulo conserva carga diferida.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -393,15 +395,15 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] Configurar modos Closed, Open, InviteOnly y ApprovalRequired.
 - [x] Configurar password, magic link, proveedores externos, email confirmation y MFA.
 - [x] Configurar dominios permitidos.
-- [ ] Seleccionar rol predeterminado; el editor conserva el valor actual hasta que exista el modulo de roles.
+- [x] Seleccionar un rol predeterminado activo de la misma aplicacion; el backend rechaza referencias cruzadas.
 - [x] Activar/desactivar con proteccion especial para `AUTHCENTER`.
 - [x] Editar todos los campos de branding sin perdida de datos.
 - [x] Preview responsive y verificacion de contraste.
 
 ### 10.3 Roles, permisos y grupos
 
-- [ ] CRUD de roles y permisos con estado activo.
-- [ ] Matriz rol-permiso por aplicacion.
+- [x] Alta, consulta, edicion y estado de roles y permisos; no hay endpoint de borrado y no se simula en UI.
+- [x] Matriz rol-permiso por aplicacion con reemplazo atomico y proteccion de roles de sistema.
 - [ ] Diferenciar asignaciones directas y heredadas.
 - [ ] CRUD de grupos y gestion paginada de miembros.
 - [ ] Asignar aplicaciones y roles a grupos.
@@ -526,6 +528,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [ ] Invitar, aprobar, asignar rol/aplicacion y desactivar usuario.
 - [ ] Bloqueo del ultimo SuperAdmin.
 - [x] Crear aplicacion y editar branding sin perder URLs.
+- [x] Crear roles/permisos, actualizar matriz RBAC y asignar rol predeterminado valido.
 - [ ] Crear y rotar OAuth client mostrando el secreto una sola vez.
 - [ ] Crear draft, simular y publicar politica con step-up.
 - [ ] Crear/verificar hook y reproducir un dead letter.
@@ -573,8 +576,8 @@ El pipeline debe ejecutar, en orden:
 ### Fase B: directorio y aplicaciones
 
 - [ ] Usuarios e invitaciones.
-- [ ] Aplicaciones y branding completo.
-- [ ] Roles, permisos y asignaciones.
+- [x] Aplicaciones y branding completo.
+- [x] Roles, permisos y matriz de asignaciones; asignaciones a usuarios/grupos siguen en sus historias correspondientes.
 - [ ] Grupos y membresias.
 - [ ] Perfil universal.
 

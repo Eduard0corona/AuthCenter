@@ -24,7 +24,11 @@ const navigation: NavigationGroup[] = [
   },
   {
     label: "Aplicaciones",
-    items: [{ label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" }]
+    items: [
+      { label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" },
+      { label: "Roles", to: "/roles", permission: "AUTHCENTER_ROLES_READ" },
+      { label: "Permisos", to: "/permissions", permission: "AUTHCENTER_PERMISSIONS_READ" }
+    ]
   },
   {
     label: "Operación",

@@ -5,6 +5,8 @@ import { PageHeader } from "../../components/PageHeader";
 const modules = [
   { title: "Usuarios", description: "Directorio, estado y acceso efectivo.", to: "/users", permission: "AUTHCENTER_USERS_READ", accent: "blue" },
   { title: "Aplicaciones", description: "Configuración, registro y branding.", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ", accent: "violet" },
+  { title: "Roles", description: "RBAC, permisos y alcance por aplicación.", to: "/roles", permission: "AUTHCENTER_ROLES_READ", accent: "blue" },
+  { title: "Permisos", description: "Catálogo de capacidades por aplicación.", to: "/permissions", permission: "AUTHCENTER_PERMISSIONS_READ", accent: "emerald" },
   { title: "System Log", description: "Eventos administrativos y trazabilidad.", to: "/system-log", permission: "AUTHCENTER_AUDIT_LOGS_READ", accent: "amber" },
   { title: "Event Hooks", description: "Entregas, errores y replay controlado.", to: "/event-hooks", permission: "AUTHCENTER_APPLICATIONS_WRITE", accent: "emerald" }
 ];

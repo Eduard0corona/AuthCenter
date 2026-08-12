@@ -25,13 +25,17 @@ public class RoleService : IRoleService
         _dateTimeProvider = dateTimeProvider;
     }
 
-    public async Task<PagedResult<RoleDto>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
+    public async Task<PagedResult<RoleDto>> GetAllAsync(PaginationQuery pagination, Guid? applicationSystemId = null, CancellationToken ct = default)
     {
         var query = _db.Roles
             .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
-            .AsNoTracking()
-            .OrderBy(r => r.DisplayName);
+            .AsNoTracking();
+
+        if (applicationSystemId.HasValue)
+            query = query.Where(role => role.ApplicationSystemId == applicationSystemId.Value);
+
+        query = query.OrderBy(r => r.DisplayName);
 
         var totalCount = await query.CountAsync(ct);
         var roles = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
@@ -51,6 +55,9 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult<RoleDto>> CreateAsync(CreateRoleRequest request, CancellationToken ct = default)
     {
+        if (request.IsSystemRole)
+            return OperationResult<RoleDto>.Failure("SYSTEM_ROLE_RESERVED", "System roles can only be provisioned by trusted server-side bootstrap operations.");
+
         if (await _db.Roles.AnyAsync(r => r.ApplicationSystemId == request.ApplicationSystemId && r.DisplayName == request.Name, ct))
             return OperationResult<RoleDto>.Failure("ROLE_EXISTS", $"Role '{request.Name}' already exists.");
 
@@ -94,6 +101,8 @@ public class RoleService : IRoleService
         var role = await _roleManager.FindByIdAsync(id.ToString());
         if (role is null)
             return OperationResult<RoleDto>.Failure("ROLE_NOT_FOUND", "Role not found.");
+        if (role.IsSystemRole)
+            return OperationResult<RoleDto>.Failure("SYSTEM_ROLE_PROTECTED", "System roles cannot be modified through the administrative API.");
 
         var applicationCode = role.ApplicationSystemId.HasValue
             ? await _db.ApplicationSystems.Where(app => app.Id == role.ApplicationSystemId).Select(app => app.Code).SingleAsync(ct)
@@ -110,7 +119,11 @@ public class RoleService : IRoleService
             return OperationResult<RoleDto>.Failure("ROLE_UPDATE_FAILED", string.Join(", ", errors));
         }
 
-        return OperationResult<RoleDto>.Success(MapToDto(role));
+        var updated = await _db.Roles
+            .Include(item => item.RolePermissions).ThenInclude(item => item.Permission)
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == role.Id, ct);
+        return OperationResult<RoleDto>.Success(MapToDto(updated));
     }
 
     public async Task<OperationResult> AddPermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
@@ -118,10 +131,14 @@ public class RoleService : IRoleService
         var role = await _db.Roles.FindAsync([roleId], ct);
         if (role is null)
             return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
+        if (role.IsSystemRole)
+            return OperationResult.Failure("SYSTEM_ROLE_PROTECTED", "System role permissions cannot be changed through the administrative API.");
 
         var permission = await _db.Permissions.FindAsync([permissionId], ct);
         if (permission is null)
             return OperationResult.Failure("PERMISSION_NOT_FOUND", "Permission not found.");
+        if (!permission.IsActive)
+            return OperationResult.Failure("INACTIVE_PERMISSION", "Inactive permissions cannot be assigned to a role.");
 
         if (role.ApplicationSystemId.HasValue && role.ApplicationSystemId.Value != permission.ApplicationSystemId)
             return OperationResult.Failure("PERMISSION_APP_MISMATCH", "Permission must belong to the same application as the role.");
@@ -144,6 +161,9 @@ public class RoleService : IRoleService
 
     public async Task<OperationResult> RemovePermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
     {
+        if (await _db.Roles.AnyAsync(role => role.Id == roleId && role.IsSystemRole, ct))
+            return OperationResult.Failure("SYSTEM_ROLE_PROTECTED", "System role permissions cannot be changed through the administrative API.");
+
         var rp = await _db.RolePermissions
             .FirstOrDefaultAsync(x => x.RoleId == roleId && x.PermissionId == permissionId, ct);
         if (rp is null)
@@ -154,11 +174,52 @@ public class RoleService : IRoleService
         return OperationResult.Success();
     }
 
+    public async Task<OperationResult<RoleDto>> SetPermissionsAsync(Guid roleId, SetRolePermissionsRequest request, CancellationToken ct = default)
+    {
+        var role = await _db.Roles
+            .Include(item => item.RolePermissions)
+            .FirstOrDefaultAsync(item => item.Id == roleId, ct);
+        if (role is null)
+            return OperationResult<RoleDto>.Failure("ROLE_NOT_FOUND", "Role not found.");
+        if (role.IsSystemRole)
+            return OperationResult<RoleDto>.Failure("SYSTEM_ROLE_PROTECTED", "System role permissions cannot be changed through the administrative API.");
+
+        var permissionIds = request.PermissionIds.Distinct().ToArray();
+        var permissions = await _db.Permissions
+            .Where(item => permissionIds.Contains(item.Id))
+            .ToListAsync(ct);
+        if (permissions.Count != permissionIds.Length)
+            return OperationResult<RoleDto>.Failure("PERMISSION_NOT_FOUND", "One or more permissions were not found.");
+        if (permissions.Any(item => !item.IsActive))
+            return OperationResult<RoleDto>.Failure("INACTIVE_PERMISSION", "Inactive permissions cannot be assigned to a role.");
+        if (role.ApplicationSystemId.HasValue && permissions.Any(item => item.ApplicationSystemId != role.ApplicationSystemId.Value))
+            return OperationResult<RoleDto>.Failure("PERMISSION_APP_MISMATCH", "Every permission must belong to the same application as the role.");
+
+        var requestedIds = permissionIds.ToHashSet();
+        var existingIds = role.RolePermissions.Select(item => item.PermissionId).ToHashSet();
+        _db.RolePermissions.RemoveRange(role.RolePermissions.Where(item => !requestedIds.Contains(item.PermissionId)));
+        _db.RolePermissions.AddRange(permissionIds.Where(permissionId => !existingIds.Contains(permissionId)).Select(permissionId => new RolePermission
+        {
+            RoleId = role.Id,
+            PermissionId = permissionId,
+            CreatedAt = _dateTimeProvider.UtcNow
+        }));
+        await _db.SaveChangesAsync(ct);
+
+        var updated = await _db.Roles
+            .Include(item => item.RolePermissions).ThenInclude(item => item.Permission)
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == role.Id, ct);
+        return OperationResult<RoleDto>.Success(MapToDto(updated));
+    }
+
     public async Task<OperationResult> ActivateAsync(Guid id, CancellationToken ct = default)
     {
         var role = await _db.Roles.FindAsync([id], ct);
         if (role is null)
             return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
+        if (role.IsSystemRole)
+            return OperationResult.Failure("SYSTEM_ROLE_PROTECTED", "System roles cannot be activated through the administrative API.");
 
         role.IsActive = true;
         await _db.SaveChangesAsync(ct);
