@@ -52,6 +52,22 @@ export interface ApplicationBranding {
   termsUrl: string | null;
 }
 
+export type ApplicationRegistrationMode = "Closed" | "Open" | "InviteOnly" | "ApprovalRequired";
+
+export interface ApplicationRegistrationSettings {
+  registrationMode: ApplicationRegistrationMode;
+  allowGoogleLogin: boolean;
+  allowMicrosoftLogin: boolean;
+  allowGitHubLogin: boolean;
+  allowAppleLogin: boolean;
+  allowMagicLink: boolean;
+  allowPasswordLogin: boolean;
+  requireEmailConfirmation: boolean;
+  requireMfa: boolean;
+  allowedEmailDomains: string | null;
+  defaultRoleId: string | null;
+}
+
 export interface ApplicationSummary {
   id: string;
   code: string;
@@ -60,6 +76,7 @@ export interface ApplicationSummary {
   isActive: boolean;
   createdAt: string;
   updatedAt: string | null;
+  registrationSettings?: ApplicationRegistrationSettings | null;
   branding: ApplicationBranding | null;
 }
 

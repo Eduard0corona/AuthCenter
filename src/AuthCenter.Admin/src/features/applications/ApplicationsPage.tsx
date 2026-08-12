@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { lazy, Suspense, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
 import type { ApplicationBranding, ApplicationSummary, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
@@ -9,8 +9,9 @@ import { PageState } from "../../components/PageState";
 import { Pagination } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
 import { buildQuery } from "../../utils/format";
-import { BrandingDialog } from "./BrandingDialog";
 import type { BrandingFormValues } from "./branding";
+
+const BrandingDialog = lazy(() => import("./BrandingDialog").then((module) => ({ default: module.BrandingDialog })));
 
 export default function ApplicationsPage() {
   const { permissions } = useSession();
@@ -54,7 +55,7 @@ export default function ApplicationsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones y branding" description="Administra la identidad visual conservando todos los campos del contrato." />
+      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones y branding" description="Administra identidad, registro y autenticación desde rutas que puedes compartir." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       {applications.isPending ? <PageState title="Cargando aplicaciones" busy /> : null}
       {applications.isError ? <PageState title="No pudimos cargar aplicaciones" detail={message(applications.error)} tone="error" action={<button className="button" type="button" onClick={() => void applications.refetch()}>Reintentar</button>} /> : null}
@@ -63,10 +64,10 @@ export default function ApplicationsPage() {
           <div className="application-card__heading"><span className="application-logo" style={{ background: application.branding?.backgroundColor ?? "#f8fafc", color: application.branding?.primaryColor ?? "#2563eb" }}>{application.branding?.logoUrl ? <img src={application.branding.logoUrl} alt="" /> : application.code.slice(0, 2)}</span><StatusBadge active={application.isActive} activeLabel="Activa" inactiveLabel="Inactiva" /></div>
           <div><p className="eyebrow">{application.code}</p><h2>{application.branding?.displayName ?? application.name}</h2><p>{application.description ?? "Sin descripción"}</p></div>
           <div className="application-card__links">{application.branding?.privacyUrl ? <span>Privacidad ✓</span> : <span>Privacidad pendiente</span>}{application.branding?.termsUrl ? <span>Términos ✓</span> : <span>Términos pendientes</span>}</div>
-          {canWrite ? <button className="button button--secondary" type="button" onClick={() => { updateBranding.reset(); setSelected(application); }}>Editar branding</button> : <span className="muted">Sólo lectura</span>}
+          <div className="application-card__actions"><Link className="button button--secondary" to={`/applications/${application.id}`}>Ver configuración</Link>{canWrite ? <button className="button button--quiet" type="button" onClick={() => { updateBranding.reset(); setSelected(application); }}>Branding</button> : null}</div>
         </article>
       ))}</div><Pagination page={applications.data.page} pageSize={applications.data.pageSize} totalCount={applications.data.totalCount} totalPages={applications.data.totalPages} onPageChange={(value) => updatePage("page", value)} onPageSizeChange={(value) => updatePage("pageSize", value)} /></> : null}
-      <BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? message(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { if (selected) await updateBranding.mutateAsync({ id: selected.id, values }); }} />
+      {selected ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? message(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { await updateBranding.mutateAsync({ id: selected.id, values }); }} /></Suspense> : null}
     </>
   );
 }

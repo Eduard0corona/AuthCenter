@@ -110,6 +110,48 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
     }
 
     [Fact]
+    public async Task UpdatingApplication_ReturnsExistingBrandingForEditorContinuity()
+    {
+        var client = await CreateAdminClientAsync();
+        var code = "EDITOR_" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
+        var createdResponse = await client.PostAsJsonAsync("/api/applications", new CreateApplicationRequest
+        {
+            Code = code,
+            Name = "Editor continuity",
+            RegistrationMode = "Closed",
+            AllowPasswordLogin = true,
+            RequireEmailConfirmation = true
+        });
+        createdResponse.EnsureSuccessStatusCode();
+        var created = (await createdResponse.Content.ReadFromJsonAsync<ApiResponse<ApplicationDto>>())!.Data!;
+
+        var brandingResponse = await client.PutAsJsonAsync($"/api/applications/{created.Id}/branding", new UpdateApplicationBrandingRequest
+        {
+            DisplayName = "Editor continuity branded",
+            PrimaryColor = "#175CD3",
+            BackgroundColor = "#FFFFFF",
+            PrivacyUrl = "https://example.test/privacy",
+            TermsUrl = "https://example.test/terms"
+        });
+        brandingResponse.EnsureSuccessStatusCode();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/applications/{created.Id}", new UpdateApplicationRequest
+        {
+            Name = "Editor continuity updated",
+            RegistrationMode = "InviteOnly",
+            AllowPasswordLogin = true,
+            RequireEmailConfirmation = true
+        });
+        updateResponse.EnsureSuccessStatusCode();
+        var updated = (await updateResponse.Content.ReadFromJsonAsync<ApiResponse<ApplicationDto>>())!.Data!;
+
+        Assert.NotNull(updated.Branding);
+        Assert.Equal("Editor continuity branded", updated.Branding.DisplayName);
+        Assert.Equal("https://example.test/privacy", updated.Branding.PrivacyUrl);
+        Assert.Equal("https://example.test/terms", updated.Branding.TermsUrl);
+    }
+
+    [Fact]
     public async Task FirstPartyApplication_CannotBeDeactivated()
     {
         var client = await CreateAdminClientAsync();

@@ -91,10 +91,11 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 
 - ADR `docs/adr/0001-admin-frontend-stack.md` y scaffold estricto en `src/AuthCenter.Admin`.
 - `npm run lint`, `npm run typecheck`, `npm test` y `npm run build` exitosos.
-- Cinco pruebas unitarias/de componente exitosas; preservacion de URLs de branding incluida.
-- Playwright y axe exitosos en Chromium desktop y emulacion Pixel 7.
-- Bundle inicial: 76.76 KB gzip de JavaScript y 4.31 KB gzip de CSS.
+- Siete pruebas unitarias/de componente exitosas; validacion del editor y preservacion de URLs de branding incluidas.
+- Doce escenarios Playwright exitosos en Chromium desktop, tablet 768x1024 y emulacion Pixel 7; axe cubre shell, rutas y dialog de branding, y el acceso read-only se prueba sin controles de escritura.
+- Bundle actual: 132.10 KB gzip de JavaScript emitido en chunks y 4.70 KB gzip de CSS; las rutas y el editor de branding se cargan bajo demanda.
 - Cuatro pruebas de integracion verifican redirect, deep link, `no-store` e assets `immutable`.
+- Suite .NET completa exitosa: 65 pruebas unitarias y 125 pruebas de integracion.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -127,7 +128,7 @@ puede borrar esos valores existentes.
 - [x] Enviar el estado completo sin reemplazar datos no editados por `null`.
 - [x] Agregar preview de logo, colores y enlaces.
 - [x] Validar contraste WCAG antes de guardar.
-- [ ] Cubrir la conservacion de todos los campos con una prueba E2E.
+- [x] Cubrir la conservacion de todos los campos con una prueba E2E.
 
 #### BE-001: no existe invariante del ultimo SuperAdmin
 
@@ -219,8 +220,9 @@ Los assets no HTML usan `Cache-Control: public,max-age=86400`, pero conservan no
 - [x] Inicializar el panel desde la ruta o hash actual.
 - [x] Soportar atras/adelante del navegador.
 - [ ] Crear rutas de detalle enlazables para usuarios, aplicaciones, grupos y politicas.
-- [ ] Mover el foco al encabezado del panel al navegar.
-- [ ] Implementar breadcrumb en vistas de detalle.
+- [x] Crear la primera ruta de detalle enlazable para aplicaciones; usuarios, grupos y politicas siguen pendientes.
+- [x] Mover el foco al encabezado del panel al navegar.
+- [x] Implementar breadcrumb en la vista de detalle de aplicaciones; se reutilizara en las siguientes vistas.
 
 #### FE-007: carga inicial excesiva
 
@@ -243,14 +245,14 @@ accesibilidad.
 - [x] Agregar baseline E2E con Playwright para shell y navegacion responsive.
 - [x] Ejecutar axe-core sobre las rutas cubiertas por el baseline.
 - [ ] Verificar teclado, foco, zoom 200/400 %, reduced motion y contraste.
-- [ ] Probar desktop, tablet y mobile en CI.
+- [x] Probar desktop, tablet y mobile en CI.
 
 ## 7. Matriz de cobertura funcional
 
 | Dominio | Backend actual | UI actual | Implementacion requerida |
 |---|---|---|---|
 | Usuarios | CRUD, invitaciones, accesos, roles, MFA, password y borrado | Lista y activar/desactivar | Gestion completa y vista de detalle |
-| Aplicaciones | CRUD, estado, registro y branding | Lista y branding parcial | Wizard completo, estado, registro y preview |
+| Aplicaciones | CRUD, estado, registro y branding | Lista, alta, detalle/edicion, estado, registro y branding completo | Selector de rol predeterminado al implementar roles |
 | Roles | CRUD y permisos | Ausente | Matriz RBAC y asignaciones |
 | Permisos | CRUD y estado | Ausente | Catalogo por aplicacion y dependencias |
 | Grupos | CRUD, miembros, apps y roles | Ausente | Directorio de grupos y asignaciones |
@@ -387,13 +389,14 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.2 Aplicaciones y branding
 
-- [ ] Crear y editar aplicacion.
-- [ ] Configurar modos Closed, Open, InviteOnly y ApprovalRequired.
-- [ ] Configurar password, magic link, proveedores externos, email confirmation y MFA.
-- [ ] Configurar dominios permitidos y rol predeterminado.
-- [ ] Activar/desactivar con proteccion especial para `AUTHCENTER`.
-- [ ] Editar todos los campos de branding sin perdida de datos.
-- [ ] Preview responsive y verificacion de contraste.
+- [x] Crear y editar aplicacion.
+- [x] Configurar modos Closed, Open, InviteOnly y ApprovalRequired.
+- [x] Configurar password, magic link, proveedores externos, email confirmation y MFA.
+- [x] Configurar dominios permitidos.
+- [ ] Seleccionar rol predeterminado; el editor conserva el valor actual hasta que exista el modulo de roles.
+- [x] Activar/desactivar con proteccion especial para `AUTHCENTER`.
+- [x] Editar todos los campos de branding sin perdida de datos.
+- [x] Preview responsive y verificacion de contraste.
 
 ### 10.3 Roles, permisos y grupos
 
@@ -522,14 +525,14 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [ ] Usuario read-only no ve ni puede ejecutar escrituras.
 - [ ] Invitar, aprobar, asignar rol/aplicacion y desactivar usuario.
 - [ ] Bloqueo del ultimo SuperAdmin.
-- [ ] Crear aplicacion y editar branding sin perder URLs.
+- [x] Crear aplicacion y editar branding sin perder URLs.
 - [ ] Crear y rotar OAuth client mostrando el secreto una sola vez.
 - [ ] Crear draft, simular y publicar politica con step-up.
 - [ ] Crear/verificar hook y reproducir un dead letter.
 - [ ] Filtrar System Log por trace ID.
 - [ ] Expiracion de sesion durante una mutacion.
 - [ ] Navegacion por teclado en rutas y dialogs principales.
-- [ ] Responsive en resoluciones mobile, tablet y desktop.
+- [x] Responsive en resoluciones mobile, tablet y desktop.
 
 ## 15. CI/CD y publicacion
 

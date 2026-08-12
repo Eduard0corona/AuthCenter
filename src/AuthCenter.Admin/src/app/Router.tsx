@@ -7,6 +7,7 @@ import { PermissionRoute } from "./PermissionRoute";
 const DashboardPage = lazy(() => import("../features/dashboard/DashboardPage"));
 const UsersPage = lazy(() => import("../features/users/UsersPage"));
 const ApplicationsPage = lazy(() => import("../features/applications/ApplicationsPage"));
+const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const SystemLogPage = lazy(() => import("../features/system-log/SystemLogPage"));
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
 const ComingSoonPage = lazy(() => import("../features/coming-soon/ComingSoonPage"));
@@ -21,6 +22,8 @@ export function AppRouter() {
           <Route index element={<DashboardPage />} />
           <Route path="users" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><UsersPage /></PermissionRoute>} />
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
+          <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
+          <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />
           <Route path="system-log" element={<PermissionRoute permission="AUTHCENTER_AUDIT_LOGS_READ"><SystemLogPage /></PermissionRoute>} />
           <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><EventHooksPage /></PermissionRoute>} />
           <Route path="groups" element={<ComingSoonPage title="Grupos" phase="Fase B" />} />
