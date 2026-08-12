@@ -101,6 +101,39 @@ export interface PermissionSummary {
   createdAt: string;
 }
 
+export interface DirectoryGroupApplication {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface DirectoryGroupRole {
+  id: string;
+  name: string;
+  applicationSystemId: string;
+  applicationCode: string;
+}
+
+export interface DirectoryGroupSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+  memberCount: number;
+  applications: DirectoryGroupApplication[];
+  roles: DirectoryGroupRole[];
+}
+
+export interface DirectoryGroupMember {
+  userId: string;
+  fullName: string;
+  email: string;
+  isActive: boolean;
+  addedAt: string;
+}
+
 export interface AuditLogEntry {
   id: string;
   userId: string | null;

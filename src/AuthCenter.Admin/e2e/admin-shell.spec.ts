@@ -5,6 +5,7 @@ const applicationId = "11111111-1111-1111-1111-111111111111";
 const roleId = "22222222-2222-4222-8222-222222222222";
 const permissionReadId = "33333333-3333-4333-8333-333333333333";
 const permissionWriteId = "44444444-4444-4444-8444-444444444444";
+const groupId = "55555555-5555-4555-8555-555555555555";
 const application = {
   id: applicationId,
   code: "TIENDITAPP",
@@ -42,6 +43,18 @@ const applicationPermissions = [
   { id: permissionReadId, applicationSystemId: applicationId, code: "TIENDIT_ORDERS_READ", name: "Consultar pedidos", description: null, isActive: true, createdAt: "2026-08-11T00:00:00Z" },
   { id: permissionWriteId, applicationSystemId: applicationId, code: "TIENDIT_ORDERS_WRITE", name: "Modificar pedidos", description: null, isActive: true, createdAt: "2026-08-11T00:00:00Z" }
 ];
+const group = {
+  id: groupId,
+  name: "TienditApp Operators",
+  description: "Acceso operativo heredado",
+  isActive: true,
+  createdAt: "2026-08-11T00:00:00Z",
+  updatedAt: null,
+  memberCount: 1,
+  applications: [{ id: applicationId, code: application.code, name: application.name }],
+  roles: [{ id: roleId, name: role.name, applicationSystemId: applicationId, applicationCode: application.code }]
+};
+const groupMember = { userId: "user-1", fullName: "Grace Hopper", email: "grace@example.test", isActive: true, addedAt: "2026-08-11T00:00:00Z" };
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/ui-api/session", async (route) => route.fulfill({
@@ -53,7 +66,7 @@ test.beforeEach(async ({ page }) => {
       email: "ada@example.test",
       applications: ["AUTHCENTER"],
       roles: ["Admin"],
-      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE"]
+      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE"]
     }, csrfToken: "e2e-csrf" } })
   }));
   await page.route("**/api/users?**", async (route) => route.fulfill({
@@ -78,6 +91,9 @@ test.beforeEach(async ({ page }) => {
   await page.route(`**/api/roles/${roleId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: role }) }));
   await page.route("**/api/roles?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [role], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
   await page.route(`**/api/applications/${applicationId}/permissions?**`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: applicationPermissions, totalCount: 2, page: 1, pageSize: 100, totalPages: 1 } }) }));
+  await page.route(`**/api/groups/${groupId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: group }) }));
+  await page.route(`**/api/groups/${groupId}/members?**`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [groupMember], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
+  await page.route("**/api/groups?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [group], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
 });
 
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
@@ -205,4 +221,37 @@ test("assigns only an application-scoped active default role", async ({ page }) 
   await page.getByRole("button", { name: "Guardar configuración" }).click();
   await expect(page.getByRole("status")).toContainText("actualizada");
   expect(updatePayload).toMatchObject({ defaultRoleId: roleId });
+});
+
+test("replaces inherited group access atomically and previews its impact", async ({ page }) => {
+  let accessPayload: { applicationSystemIds: string[]; roleIds: string[] } | null = null;
+  await page.route(`**/api/groups/${groupId}/access`, async (route) => {
+    accessPayload = route.request().postDataJSON() as { applicationSystemIds: string[]; roleIds: string[] };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...group, roles: [] } }) });
+  });
+
+  await page.goto(`/admin-v2/groups/${groupId}`);
+  await expect(page.getByRole("heading", { level: 1, name: group.name })).toBeFocused();
+  await expect(page.getByText(/1 miembros recibir.n 1 aplicaciones y 1 roles/i)).toBeVisible();
+  await page.getByRole("checkbox", { name: /Operator/ }).uncheck();
+  await page.getByRole("button", { name: "Guardar acceso heredado" }).click();
+  await expect(page.getByRole("status")).toContainText(/at.mica/);
+  expect(accessPayload).toEqual({ applicationSystemIds: [applicationId], roleIds: [] });
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("removes a group member with an explicit session-revocation warning", async ({ page }) => {
+  let removedUserId: string | null = null;
+  await page.route(`**/api/groups/${groupId}/members/user-1`, async (route) => {
+    removedUserId = route.request().url().split("/").at(-1) ?? null;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+
+  await page.goto(`/admin-v2/groups/${groupId}`);
+  await expect(page.getByText("Grace Hopper")).toBeVisible();
+  await page.getByRole("button", { name: "Retirar" }).click();
+  await expect(page.getByRole("dialog")).toContainText(/sesiones ser.n revocadas/);
+  await page.getByRole("button", { name: "Retirar miembro" }).click();
+  await expect(page.getByRole("status")).toContainText("sesiones anteriores fueron revocadas");
+  expect(removedUserId).toBe("user-1");
 });

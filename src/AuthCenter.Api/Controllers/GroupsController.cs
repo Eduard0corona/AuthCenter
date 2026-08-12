@@ -112,6 +112,19 @@ public class GroupsController : ControllerBase
     public async Task<IActionResult> RemoveRole(Guid groupId, Guid roleId, CancellationToken ct) =>
         ToActionResult(await _groups.RemoveRoleAsync(groupId, roleId, ct));
 
+    [HttpPut("{groupId:guid}/access")]
+    [Authorize(Policy = DomainConstants.Permissions.GroupsWrite)]
+    public async Task<IActionResult> SetAccess(
+        Guid groupId,
+        [FromBody] SetDirectoryGroupAccessRequest request,
+        CancellationToken ct)
+    {
+        var result = await _groups.SetAccessAsync(groupId, request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
     private IActionResult ToActionResult(OperationResult result) =>
         result.IsSuccess
             ? Ok(ApiResponse.Ok())

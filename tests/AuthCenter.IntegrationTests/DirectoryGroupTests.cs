@@ -3,10 +3,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Requests.Groups;
+using AuthCenter.Contracts.Requests.Roles;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Groups;
+using AuthCenter.Contracts.Responses.Roles;
 using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Constants;
 using AuthCenter.Infrastructure.Persistence;
@@ -75,10 +77,8 @@ public class DirectoryGroupTests : IClassFixture<AuthCenterWebApplicationFactory
         var group = await ReadDataAsync<DirectoryGroupDto>(await admin.PostAsJsonAsync("/api/groups",
             new CreateDirectoryGroupRequest { Name = $"AuthCenter admins {Guid.NewGuid():N}" }));
 
-        Assert.Equal(HttpStatusCode.OK,
-            (await admin.PostAsync($"/api/groups/{group.Id}/applications/{applicationId}", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK,
-            (await admin.PostAsync($"/api/groups/{group.Id}/roles/{adminRoleId}", null)).StatusCode);
+        await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access",
+            new SetDirectoryGroupAccessRequest { ApplicationSystemIds = [applicationId], RoleIds = [adminRoleId] }));
         Assert.Equal(HttpStatusCode.OK,
             (await admin.PostAsync($"/api/groups/{group.Id}/members/{user.Id}", null)).StatusCode);
 
@@ -97,8 +97,8 @@ public class DirectoryGroupTests : IClassFixture<AuthCenterWebApplicationFactory
             await admin.GetAsync($"/api/groups/{group.Id}/members"));
         Assert.Contains(members.Items, member => member.UserId == user.Id);
 
-        Assert.Equal(HttpStatusCode.OK,
-            (await admin.DeleteAsync($"/api/groups/{group.Id}/roles/{adminRoleId}")).StatusCode);
+        await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access",
+            new SetDirectoryGroupAccessRequest { ApplicationSystemIds = [applicationId] }));
         var revokedRefresh = await loginClient.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
             RefreshToken = login.RefreshToken,
@@ -115,8 +115,8 @@ public class DirectoryGroupTests : IClassFixture<AuthCenterWebApplicationFactory
         Assert.DoesNotContain(DomainConstants.Roles.Admin, withoutGroupRole.User.Roles);
         Assert.DoesNotContain(DomainConstants.Permissions.GroupsRead, withoutGroupRole.User.Permissions);
 
-        Assert.Equal(HttpStatusCode.OK,
-            (await admin.DeleteAsync($"/api/groups/{group.Id}/applications/{applicationId}")).StatusCode);
+        await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access",
+            new SetDirectoryGroupAccessRequest()));
         var denied = await loginClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Email = email,
@@ -138,6 +138,83 @@ public class DirectoryGroupTests : IClassFixture<AuthCenterWebApplicationFactory
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
         Assert.Equal("GROUP_APP_ACCESS_REQUIRED", body?.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GroupAccess_IsReplacedAtomicallyAndRejectsInvalidCombinations()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var applicationId = await GetAuthCenterApplicationIdAsync();
+        var group = await ReadDataAsync<DirectoryGroupDto>(await admin.PostAsJsonAsync("/api/groups",
+            new CreateDirectoryGroupRequest { Name = $"Atomic access {Guid.NewGuid():N}" }));
+        var role = await ReadDataAsync<RoleDto>(await admin.PostAsJsonAsync("/api/roles", new CreateRoleRequest
+        {
+            Name = $"Group role {Guid.NewGuid():N}"[..24],
+            ApplicationSystemId = applicationId
+        }));
+
+        var invalid = await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest
+        {
+            RoleIds = [role.Id]
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Empty((await ReadDataAsync<DirectoryGroupDto>(await admin.GetAsync($"/api/groups/{group.Id}"))).Roles);
+
+        var updated = await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest
+        {
+            ApplicationSystemIds = [applicationId],
+            RoleIds = [role.Id]
+        }));
+        Assert.Contains(updated.Applications, application => application.Id == applicationId);
+        Assert.Contains(updated.Roles, assignedRole => assignedRole.Id == role.Id);
+
+        var idempotent = await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest
+        {
+            ApplicationSystemIds = [applicationId],
+            RoleIds = [role.Id]
+        }));
+        Assert.Single(idempotent.Applications);
+        Assert.Single(idempotent.Roles);
+    }
+
+    [Fact]
+    public async Task GroupAccessReplacement_RemovesRolesWhenApplicationIsRemoved()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var applicationId = await GetAuthCenterApplicationIdAsync();
+        var group = await ReadDataAsync<DirectoryGroupDto>(await admin.PostAsJsonAsync("/api/groups", new CreateDirectoryGroupRequest { Name = $"Remove access {Guid.NewGuid():N}" }));
+        var roleId = await GetAdminRoleIdAsync();
+        await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest { ApplicationSystemIds = [applicationId], RoleIds = [roleId] }));
+
+        var cleared = await ReadDataAsync<DirectoryGroupDto>(await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest()));
+
+        Assert.Empty(cleared.Applications);
+        Assert.Empty(cleared.Roles);
+    }
+
+    [Fact]
+    public async Task GroupAccess_RejectsSuperAdminBecausePrivilegedAccessMustBeDirect()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var applicationId = await GetAuthCenterApplicationIdAsync();
+        var group = await ReadDataAsync<DirectoryGroupDto>(await admin.PostAsJsonAsync("/api/groups",
+            new CreateDirectoryGroupRequest { Name = $"No inherited super admin {Guid.NewGuid():N}" }));
+
+        var response = await admin.PutAsJsonAsync($"/api/groups/{group.Id}/access", new SetDirectoryGroupAccessRequest
+        {
+            ApplicationSystemIds = [applicationId],
+            RoleIds = [await GetSuperAdminRoleIdAsync()]
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("SUPER_ADMIN_GROUP_ASSIGNMENT_FORBIDDEN", body?.ErrorCode);
+
+        var legacyAssignment = await admin.PostAsync(
+            $"/api/groups/{group.Id}/roles/{await GetSuperAdminRoleIdAsync()}", null);
+        Assert.Equal(HttpStatusCode.BadRequest, legacyAssignment.StatusCode);
+        var legacyBody = await legacyAssignment.Content.ReadFromJsonAsync<ApiResponse<object>>();
+        Assert.Equal("SUPER_ADMIN_GROUP_ASSIGNMENT_FORBIDDEN", legacyBody?.ErrorCode);
     }
 
     private async Task<HttpClient> CreateAdminClientAsync()
@@ -170,6 +247,16 @@ public class DirectoryGroupTests : IClassFixture<AuthCenterWebApplicationFactory
         var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
         return await db.Roles
             .Where(role => role.DisplayName == DomainConstants.Roles.Admin)
+            .Select(role => role.Id)
+            .SingleAsync();
+    }
+
+    private async Task<Guid> GetSuperAdminRoleIdAsync()
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        return await db.Roles
+            .Where(role => role.DisplayName == DomainConstants.Roles.SuperAdmin)
             .Select(role => role.Id)
             .SingleAsync();
     }

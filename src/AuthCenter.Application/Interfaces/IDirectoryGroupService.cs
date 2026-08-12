@@ -20,4 +20,5 @@ public interface IDirectoryGroupService
     Task<OperationResult> RemoveApplicationAsync(Guid groupId, Guid applicationSystemId, CancellationToken ct = default);
     Task<OperationResult> AssignRoleAsync(Guid groupId, Guid roleId, CancellationToken ct = default);
     Task<OperationResult> RemoveRoleAsync(Guid groupId, Guid roleId, CancellationToken ct = default);
+    Task<OperationResult<DirectoryGroupDto>> SetAccessAsync(Guid groupId, SetDirectoryGroupAccessRequest request, CancellationToken ct = default);
 }

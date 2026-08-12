@@ -138,6 +138,11 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .permission-option strong { overflow-wrap: anywhere; color: var(--slate-700); }
 .permission-option small { color: var(--slate-500); }
 .permission-option--inactive { opacity: .65; }
+.access-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.candidate-list { display: grid; gap: .5rem; padding: .65rem; border: 1px solid var(--slate-200); border-radius: .6rem; background: var(--slate-50); }
+.candidate-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem; border-radius: .45rem; background: var(--white); }
+.candidate-item > span { display: grid; gap: .2rem; min-width: 0; }
+.candidate-item small { overflow: hidden; color: var(--slate-500); text-overflow: ellipsis; }
 
 .data-table { overflow-x: auto; border: 1px solid var(--slate-200); border-radius: .75rem; background: var(--white); }
 .data-table:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -190,6 +195,7 @@ tbody tr:hover { background: #fcfcfd; }
   .branding-layout { grid-template-columns: 1fr; }
   .checkbox-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .permission-matrix { grid-template-columns: 1fr; }
+  .access-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -204,6 +210,7 @@ tbody tr:hover { background: #fcfcfd; }
   .form-grid { grid-template-columns: 1fr; }
   .checkbox-grid { grid-template-columns: 1fr; }
   .form-footer, .application-card__actions { flex-direction: column-reverse; }
+  .candidate-item { align-items: stretch; flex-direction: column; }
   .form-footer .button, .application-card__actions .button { width: 100%; }
   .dialog__actions { flex-direction: column-reverse; }.dialog__actions .button { width: 100%; }
 }
