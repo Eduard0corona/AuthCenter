@@ -7,6 +7,6 @@ it("rejects origins and accepts a comma-separated domain allow-list", () => {
 });
 
 it("normalizes a new application without inventing a default role", () => {
-  const payload = applicationPayload({ ...applicationDefaults(), code: "shop-app", name: " Mi tienda ", description: "" });
-  expect(payload).toEqual(expect.objectContaining({ code: "SHOP-APP", name: "Mi tienda", description: null, defaultRoleId: null }));
+  const payload = applicationPayload({ ...applicationDefaults(), code: "shop_app", name: " Mi tienda ", description: "" });
+  expect(payload).toEqual(expect.objectContaining({ code: "SHOP_APP", name: "Mi tienda", description: null, defaultRoleId: null }));
 });

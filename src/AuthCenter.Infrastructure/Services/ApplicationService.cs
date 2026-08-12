@@ -130,8 +130,8 @@ public class ApplicationService : IApplicationService
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
 
-        if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == request.DefaultRoleId.Value, ct))
-            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_NOT_FOUND", "Default role was not found.");
+        if (request.DefaultRoleId.HasValue)
+            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_REQUIRES_APPLICATION", "Create the application before assigning one of its roles as the default.");
 
         var now = _dateTimeProvider.UtcNow;
         var app = new ApplicationSystem
@@ -182,8 +182,11 @@ public class ApplicationService : IApplicationService
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
 
-        if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(r => r.Id == request.DefaultRoleId.Value, ct))
-            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_NOT_FOUND", "Default role was not found.");
+        if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(
+                role => role.Id == request.DefaultRoleId.Value &&
+                    role.ApplicationSystemId == id &&
+                    role.IsActive, ct))
+            return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_INVALID", "Default role must be active and belong to this application.");
 
         app.Name = request.Name;
         app.Description = request.Description;

@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
-import type { ApplicationBranding, ApplicationSummary } from "../../api/types";
+import type { ApplicationBranding, ApplicationSummary, PagedResult, RoleSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -19,6 +19,7 @@ const BrandingDialog = lazy(() => import("./BrandingDialog").then((module) => ({
 export default function ApplicationEditorPage({ create = false }: { create?: boolean }) {
   const { permissions } = useSession();
   const canWrite = permissions.has("AUTHCENTER_APPLICATIONS_WRITE");
+  const canReadRoles = permissions.has("AUTHCENTER_ROLES_READ");
   const { applicationId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -31,6 +32,11 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
     queryFn: ({ signal }) => apiRequest<ApplicationSummary>(`/api/applications/${applicationId}`, { signal })
   });
   const form = useForm<ApplicationFormValues>({ resolver: zodResolver(applicationSchema), defaultValues: applicationDefaults() });
+  const availableRoles = useQuery({
+    queryKey: ["roles", "application-default", applicationId],
+    enabled: !create && canReadRoles && Boolean(applicationId),
+    queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?page=1&pageSize=100&applicationSystemId=${encodeURIComponent(applicationId ?? "")}`, { signal })
+  });
 
   useEffect(() => {
     if (application.data) form.reset(applicationDefaults(application.data));
@@ -92,6 +98,8 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   if (!create && application.isError) return <PageState title="No pudimos cargar la aplicación" detail={message(application.error)} tone="error" action={<Link className="button" to="/applications">Volver</Link>} />;
 
   const current = application.data;
+  const currentDefaultRoleId = current?.registrationSettings?.defaultRoleId ?? null;
+  const currentRoleListed = availableRoles.data?.items.some((role) => role.id === currentDefaultRoleId) ?? false;
   const title = create ? "Nueva aplicación" : current?.name ?? "Aplicación";
   return (
     <>
@@ -125,6 +133,9 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
             </Field>
             <Field label="Dominios permitidos" error={form.formState.errors.allowedEmailDomains?.message} help="Separados por coma; vacío permite cualquier dominio."><input {...form.register("allowedEmailDomains")} placeholder="empresa.com, filial.mx" autoComplete="off" /></Field>
           </div>
+          {!create && canReadRoles ? <Field label="Rol predeterminado" error={undefined} help="Se asignará automáticamente después del registro aprobado."><select {...form.register("defaultRoleId", { setValueAs: (value) => value || null })}><option value="">Sin rol predeterminado</option>{currentDefaultRoleId && !currentRoleListed ? <option value={currentDefaultRoleId}>Rol actual</option> : null}{availableRoles.data?.items.filter((role) => role.isActive).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></Field> : null}
+          {!create && !canReadRoles ? <p className="alert alert--info">El rol predeterminado actual se conservará. Necesitas AUTHCENTER_ROLES_READ para cambiarlo.</p> : null}
+          {create ? <p className="alert alert--info">Crea primero la aplicación; después podrás asignar uno de sus roles como predeterminado.</p> : null}
           <fieldset className="check-group"><legend>Métodos de autenticación</legend><div className="checkbox-grid">
             <Checkbox label="Contraseña" registration={form.register("allowPasswordLogin")} />
             <Checkbox label="Magic link" registration={form.register("allowMagicLink")} />
@@ -137,7 +148,6 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
             <Checkbox label="Confirmación de email" registration={form.register("requireEmailConfirmation")} />
             <Checkbox label="MFA obligatorio" registration={form.register("requireMfa")} />
           </div></fieldset>
-          {current?.registrationSettings?.defaultRoleId ? <p className="alert alert--info">Se conservará el rol predeterminado actual. Su administración se habilitará con el módulo de roles.</p> : null}
         </section>
         </fieldset>
         {canWrite ? <div className="form-footer">

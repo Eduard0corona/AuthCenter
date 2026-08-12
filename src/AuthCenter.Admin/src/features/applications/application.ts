@@ -5,7 +5,7 @@ const domainPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
 
 export const applicationSchema = z.object({
   code: z.string().trim().min(2, "Usa al menos 2 caracteres.").max(32, "Usa máximo 32 caracteres.")
-    .regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "Empieza con una letra y usa letras, números, guion o guion bajo."),
+    .regex(/^[A-Za-z][A-Za-z0-9_]*$/, "Empieza con una letra y usa letras, números o guion bajo."),
   name: z.string().trim().min(2, "El nombre es obligatorio.").max(120, "Usa máximo 120 caracteres."),
   description: z.string().trim().max(500, "Usa máximo 500 caracteres."),
   registrationMode: z.enum(["Closed", "Open", "InviteOnly", "ApprovalRequired"]),
@@ -17,6 +17,7 @@ export const applicationSchema = z.object({
   allowAppleLogin: z.boolean(),
   requireEmailConfirmation: z.boolean(),
   requireMfa: z.boolean(),
+  defaultRoleId: z.string().uuid().nullable(),
   allowedEmailDomains: z.string().trim().max(1000, "La lista de dominios es demasiado larga.").refine(
     (value) => !value || value.split(",").map((domain) => domain.trim().replace(/^@/, "")).every((domain) => domainPattern.test(domain)),
     "Usa dominios separados por coma, por ejemplo: empresa.com, filial.mx."
@@ -43,6 +44,7 @@ export function applicationDefaults(application?: ApplicationSummary): Applicati
     allowAppleLogin: settings.allowAppleLogin,
     requireEmailConfirmation: settings.requireEmailConfirmation,
     requireMfa: settings.requireMfa,
+    defaultRoleId: settings.defaultRoleId,
     allowedEmailDomains: settings.allowedEmailDomains ?? ""
   };
 }
@@ -62,7 +64,7 @@ export function applicationPayload(values: ApplicationFormValues, application?: 
     requireEmailConfirmation: values.requireEmailConfirmation,
     requireMfa: values.requireMfa,
     allowedEmailDomains: values.allowedEmailDomains.trim() || null,
-    defaultRoleId: application?.registrationSettings?.defaultRoleId ?? null
+    defaultRoleId: values.defaultRoleId
   };
 }
 

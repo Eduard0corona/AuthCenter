@@ -8,6 +8,10 @@ const DashboardPage = lazy(() => import("../features/dashboard/DashboardPage"));
 const UsersPage = lazy(() => import("../features/users/UsersPage"));
 const ApplicationsPage = lazy(() => import("../features/applications/ApplicationsPage"));
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
+const RolesPage = lazy(() => import("../features/roles/RolesPage"));
+const RoleEditorPage = lazy(() => import("../features/roles/RoleEditorPage"));
+const PermissionsPage = lazy(() => import("../features/permissions/PermissionsPage"));
+const PermissionEditorPage = lazy(() => import("../features/permissions/PermissionEditorPage"));
 const SystemLogPage = lazy(() => import("../features/system-log/SystemLogPage"));
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
 const ComingSoonPage = lazy(() => import("../features/coming-soon/ComingSoonPage"));
@@ -24,6 +28,12 @@ export function AppRouter() {
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
           <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
           <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />
+          <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />
+          <Route path="roles/new" element={<PermissionRoute permission="AUTHCENTER_ROLES_WRITE"><RoleEditorPage create /></PermissionRoute>} />
+          <Route path="roles/:roleId" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RoleEditorPage /></PermissionRoute>} />
+          <Route path="permissions" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionsPage /></PermissionRoute>} />
+          <Route path="permissions/new" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_WRITE"><PermissionEditorPage create /></PermissionRoute>} />
+          <Route path="permissions/:permissionId" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionEditorPage /></PermissionRoute>} />
           <Route path="system-log" element={<PermissionRoute permission="AUTHCENTER_AUDIT_LOGS_READ"><SystemLogPage /></PermissionRoute>} />
           <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><EventHooksPage /></PermissionRoute>} />
           <Route path="groups" element={<ComingSoonPage title="Grupos" phase="Fase B" />} />
