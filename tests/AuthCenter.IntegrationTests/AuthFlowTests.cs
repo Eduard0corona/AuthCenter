@@ -332,8 +332,16 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var adminAuth = await LoginAsync(client, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.AccessToken);
 
+        var proofResponse = await client.PostAsJsonAsync("/api/auth/reauth/password", new PasswordReauthenticationRequest
+        {
+            Purpose = "admin.mfa.reset",
+            Password = AuthCenterWebApplicationFactory.AdminPassword
+        });
+        var proof = await ReadDataAsync<ReauthenticationProofResponse>(proofResponse);
+        client.DefaultRequestHeaders.Remove("X-AuthCenter-Reauthentication");
+        client.DefaultRequestHeaders.Add("X-AuthCenter-Reauthentication", proof.ProofToken);
         var resetResponse = await client.DeleteAsync($"/api/users/{userId}/mfa");
-        resetResponse.EnsureSuccessStatusCode();
+        Assert.True(resetResponse.IsSuccessStatusCode, await resetResponse.Content.ReadAsStringAsync());
 
         client.DefaultRequestHeaders.Authorization = null;
         var loginAfterReset = await LoginAsync(client, email, password);

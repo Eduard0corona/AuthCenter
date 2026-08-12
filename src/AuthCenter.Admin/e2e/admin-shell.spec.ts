@@ -55,6 +55,17 @@ const group = {
   roles: [{ id: roleId, name: role.name, applicationSystemId: applicationId, applicationCode: application.code }]
 };
 const groupMember = { userId: "user-1", fullName: "Grace Hopper", email: "grace@example.test", isActive: true, addedAt: "2026-08-11T00:00:00Z" };
+const userDetail = {
+  id: "user-1", fullName: "Grace Hopper", email: "grace@example.test", pictureUrl: null,
+  isActive: true, isExternalUser: false, hasLocalPassword: true, mustChangePassword: false, mfaEnabled: true, createdAt: "2026-08-11T00:00:00Z", lastLoginAt: null,
+  roles: ["Operator"], applications: ["TIENDITAPP"],
+  applicationAccesses: [{ applicationId, applicationCode: application.code, applicationName: application.name, isActive: true, createdAt: "2026-08-11T00:00:00Z", revokedAt: null }],
+  applicationAssignments: [{ applicationId, applicationCode: application.code, applicationName: application.name, isApplicationActive: true, isDirect: true, directAccessStatus: "Active", isEffective: true, inheritedFromGroups: [{ groupId, groupName: group.name, isActive: true }] }],
+  roleAssignments: [{ roleId, roleName: role.name, applicationId, applicationCode: application.code, isRoleActive: true, isSystemRole: false, isDirect: false, isEffective: true, inheritedFromGroups: [{ groupId, groupName: group.name, isActive: true }] }],
+  groupMemberships: [{ groupId, groupName: group.name, isGroupActive: true, addedAt: "2026-08-11T00:00:00Z" }]
+};
+const profileSchema = [{ id: "66666666-6666-4666-8666-666666666666", key: "department", displayName: "Departamento", description: "Área organizacional", dataType: "String", isRequired: true, isActive: true, defaultValue: "Operaciones", minLength: 2, maxLength: 80, minimumNumber: null, maximumNumber: null, validationPattern: null, allowedValues: ["Operaciones", "Ingeniería"], createdAt: "2026-08-11T00:00:00Z", updatedAt: null }];
+const userProfile = { userId: "user-1", isValid: true, missingRequiredAttributes: [], attributes: [{ key: "department", value: "Operaciones", isDefault: false }] };
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/ui-api/session", async (route) => route.fulfill({
@@ -66,7 +77,7 @@ test.beforeEach(async ({ page }) => {
       email: "ada@example.test",
       applications: ["AUTHCENTER"],
       roles: ["Admin"],
-      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE"]
+      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ"]
     }, csrfToken: "e2e-csrf" } })
   }));
   await page.route("**/api/users?**", async (route) => route.fulfill({
@@ -94,6 +105,9 @@ test.beforeEach(async ({ page }) => {
   await page.route(`**/api/groups/${groupId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: group }) }));
   await page.route(`**/api/groups/${groupId}/members?**`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [groupMember], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
   await page.route("**/api/groups?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [group], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
+  await page.route("**/api/users/user-1", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userDetail }) }));
+  await page.route("**/api/users/user-1/profile", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userProfile }) }));
+  await page.route("**/api/profile-schema", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileSchema }) }));
 });
 
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
@@ -254,4 +268,51 @@ test("removes a group member with an explicit session-revocation warning", async
   await page.getByRole("button", { name: "Retirar miembro" }).click();
   await expect(page.getByRole("status")).toContainText("sesiones anteriores fueron revocadas");
   expect(removedUserId).toBe("user-1");
+});
+
+test("shows direct and inherited user access with universal profile", async ({ page }) => {
+  await page.goto("/admin-v2/users/user-1");
+  await expect(page.getByRole("heading", { level: 1, name: "Grace Hopper" })).toBeFocused();
+  await expect(page.getByText("Directo", { exact: true })).toBeVisible();
+  await expect(page.getByText(`Heredado: ${group.name}`, { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Departamento *")).toHaveValue("Operaciones");
+  await expect(page.getByRole("link", { name: "Ver grupo" })).toHaveAttribute("href", `/admin-v2/groups/${groupId}`);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("replaces direct user access atomically", async ({ page }) => {
+  let accessPayload: { applicationSystemIds: string[]; roleIds: string[] } | null = null;
+  await page.route("**/api/users/user-1/access", async (route) => {
+    accessPayload = route.request().postDataJSON() as { applicationSystemIds: string[]; roleIds: string[] };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userDetail }) });
+  });
+  await page.goto("/admin-v2/users/user-1");
+  await page.getByRole("group", { name: "Roles" }).getByRole("checkbox", { name: /^Operator/ }).check();
+  await page.getByRole("button", { name: "Guardar acceso directo" }).click();
+  await expect(page.getByRole("status")).toContainText("sesiones anteriores fueron revocadas");
+  expect(accessPayload).toEqual({ applicationSystemIds: [applicationId], roleIds: [roleId] });
+});
+
+test("requires step-up before resetting another user's MFA", async ({ page }) => {
+  let proofPurpose = "";
+  let proofHeader = "";
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    proofPurpose = (route.request().postDataJSON() as { purpose: string }).purpose;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "single-use-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+  await page.route("**/api/users/user-1/mfa", async (route) => {
+    proofHeader = route.request().headers()["x-authcenter-reauthentication"] ?? "";
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.goto("/admin-v2/users/user-1");
+  const resetButton = page.getByRole("button", { name: "Restablecer MFA" });
+  await resetButton.focus();
+  await resetButton.press("Enter");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("tu propia identidad administrativa");
+  await dialog.getByLabel("Tu contraseña actual").fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y restablecer" }).click();
+  await expect(page.getByRole("status")).toContainText("después de verificar tu identidad");
+  expect(proofPurpose).toBe("admin.mfa.reset");
+  expect(proofHeader).toBe("single-use-proof");
 });

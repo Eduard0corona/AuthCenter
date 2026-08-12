@@ -101,6 +101,8 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Entrega de grupos: 65 pruebas unitarias, 131 de integracion, 10 frontend y 24 escenarios E2E; alta, consulta, edicion, activacion, membresias paginadas y reemplazo atomico de acceso heredado cubiertos.
 - `SuperAdmin` no puede heredarse desde grupos; las mutaciones de acceso revocan sesiones afectadas dentro de la misma transaccion.
 - Bundle actual tras grupos: 24 chunks JavaScript con carga diferida (el editor de grupos pesa 4.13 KB gzip) y 4.89 KB gzip de CSS.
+- Entrega de detalle de usuario: 65 pruebas unitarias, 135 de integracion, 11 frontend y 33 escenarios E2E; origen directo/heredado, perfil universal, acceso atomico, step-up administrativo e invariante del ultimo `SuperAdmin` cubiertos.
+- Bundle actual tras detalle de usuario: el editor se mantiene como chunk diferido de 5.63 KB gzip y el CSS total en 5.09 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -137,18 +139,19 @@ puede borrar esos valores existentes.
 
 #### BE-001: no existe invariante del ultimo SuperAdmin
 
-**Estado:** pendiente; bloquea exponer eliminacion y gestion completa de roles.
+**Estado:** corregido para asignaciones directas y operaciones administrativas; pendiente prueba
+concurrente multioperacion.
 
 El backend permite desactivar o eliminar usuarios y retirar roles sin comprobar si el objetivo es
 el operador actual o el ultimo administrador efectivo.
 
-- [ ] Impedir transaccionalmente desactivar o eliminar al ultimo `AUTHCENTER:SuperAdmin` activo.
-- [ ] Impedir retirar el ultimo rol o acceso que conserva administracion efectiva.
-- [ ] Considerar roles heredados por grupos al calcular administradores efectivos.
-- [ ] Devolver codigos de error estables y accionables para la UI.
+- [x] Impedir en transaccion serializable desactivar o eliminar al ultimo `AUTHCENTER:SuperAdmin` activo.
+- [x] Impedir retirar el ultimo rol o acceso que conserva administracion efectiva.
+- [x] Requerir asignacion directa y atribuible de `SuperAdmin`; el rol no puede heredarse por grupos.
+- [x] Devolver `LAST_SUPER_ADMIN` y `SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN` como codigos estables.
 - [ ] Agregar pruebas concurrentes para evitar que dos operaciones eliminen simultaneamente a los
   dos ultimos administradores.
-- [ ] Mostrar en UI la razon por la que una accion esta bloqueada.
+- [x] Mostrar en UI el error accionable retornado por la API.
 
 #### BE-002: auditoria administrativa incompleta
 
@@ -157,7 +160,7 @@ el operador actual o el ultimo administrador efectivo.
 Los servicios de usuarios, aplicaciones, roles y permisos no integran de forma consistente
 `IAuditService`. Acciones realizadas desde la consola pueden no aparecer en System Log.
 
-- [ ] Auditar altas, ediciones, invitaciones, activaciones, desactivaciones y eliminaciones.
+- [x] Auditar altas, ediciones, invitaciones, accesos, roles, activaciones, desactivaciones y eliminaciones de usuarios.
 - [ ] Auditar grants/revokes de aplicaciones, roles y permisos.
 - [ ] Auditar cambios de configuracion y branding de aplicaciones.
 - [ ] Registrar actor, objetivo, aplicacion, resultado, trace ID y metadata no sensible.
@@ -381,16 +384,16 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.1 Usuarios
 
-- [ ] Tabla con busqueda, filtros, orden, paginacion y estado.
+- [ ] Tabla con busqueda, filtros, orden, paginacion y estado; falta orden seleccionable.
 - [ ] Crear usuario con password temporal segura.
 - [ ] Invitar usuario sin exponer tokens de invitacion.
-- [ ] Vista de detalle con perfil, roles, grupos y aplicaciones.
-- [ ] Aprobar o revocar acceso pendiente.
-- [ ] Asignar y retirar roles directos mostrando tambien roles heredados.
-- [ ] Activar/desactivar con impacto de sesiones explicado.
-- [ ] Forzar cambio de password.
-- [ ] Reset administrativo de MFA con step-up.
-- [ ] Borrado/anonymizacion con step-up y proteccion de ultimo administrador.
+- [x] Vista de detalle con perfil universal, roles, grupos y aplicaciones.
+- [x] Aprobar o revocar acceso pendiente.
+- [x] Asignar y retirar aplicaciones y roles directos mostrando cada origen heredado.
+- [x] Activar/desactivar con impacto de sesiones explicado.
+- [x] Forzar cambio de password y revocar sesiones.
+- [x] Reset administrativo de MFA con step-up de un solo uso.
+- [x] Borrado/anonymizacion con step-up y proteccion de ultimo administrador.
 
 ### 10.2 Aplicaciones y branding
 
@@ -407,7 +410,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 - [x] Alta, consulta, edicion y estado de roles y permisos; no hay endpoint de borrado y no se simula en UI.
 - [x] Matriz rol-permiso por aplicacion con reemplazo atomico y proteccion de roles de sistema.
-- [ ] Diferenciar asignaciones directas y heredadas.
+- [x] Diferenciar asignaciones directas y heredadas, incluyendo grupo de origen y estado efectivo.
 - [x] Alta, consulta, edicion y estado de grupos, con gestion paginada de miembros; no hay endpoint de borrado y no se simula en UI.
 - [x] Asignar aplicaciones y roles a grupos mediante reemplazo atomico.
 - [x] Preview del impacto sobre miembros y acceso heredado antes de confirmar.
@@ -578,11 +581,11 @@ El pipeline debe ejecutar, en orden:
 
 ### Fase B: directorio y aplicaciones
 
-- [ ] Usuarios e invitaciones.
+- [ ] Usuarios e invitaciones; detalle y operaciones estan listos, faltan formularios de alta/invitacion.
 - [x] Aplicaciones y branding completo.
 - [x] Roles, permisos y matriz de asignaciones; asignaciones a usuarios/grupos siguen en sus historias correspondientes.
 - [x] Grupos y membresias, incluyendo preview de impacto, acceso heredado atomico y revocacion de sesiones.
-- [ ] Perfil universal.
+- [x] Perfil universal tipado y editable desde el detalle de usuario.
 
 **Salida:** operacion diaria del directorio sin depender de llamadas manuales a la API.
 

@@ -143,6 +143,17 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .candidate-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .65rem; border-radius: .45rem; background: var(--white); }
 .candidate-item > span { display: grid; gap: .2rem; min-width: 0; }
 .candidate-item small { overflow: hidden; color: var(--slate-500); text-overflow: ellipsis; }
+.profile-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.profile-summary > div { display: grid; gap: .35rem; padding: .85rem 1rem; border: 1px solid var(--slate-200); border-radius: .65rem; background: var(--white); }
+.profile-summary > div > span:first-child { color: var(--slate-500); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+.assignment-list { display: grid; gap: .6rem; }
+.assignment-list h3 { margin: .25rem 0; font-size: .9rem; }
+.assignment-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; border: 1px solid var(--slate-200); border-radius: .55rem; background: var(--slate-50); }
+.assignment-item > span { display: flex; align-items: center; gap: .5rem; }
+.assignment-item > span:first-child { display: grid; gap: .2rem; }
+.assignment-item small { color: var(--slate-500); }
+.source-labels { display: flex !important; flex-wrap: wrap; gap: .25rem !important; }
+.tag--direct { color: #175cd3; background: #eff8ff; }.tag--inherited { color: #027a48; background: #ecfdf3; }.tag--inactive, .tag--warning { color: var(--amber-700); background: var(--amber-100); }
 
 .data-table { overflow-x: auto; border: 1px solid var(--slate-200); border-radius: .75rem; background: var(--white); }
 .data-table:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -196,6 +207,7 @@ tbody tr:hover { background: #fcfcfd; }
   .checkbox-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .permission-matrix { grid-template-columns: 1fr; }
   .access-grid { grid-template-columns: 1fr; }
+  .profile-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -211,6 +223,8 @@ tbody tr:hover { background: #fcfcfd; }
   .checkbox-grid { grid-template-columns: 1fr; }
   .form-footer, .application-card__actions { flex-direction: column-reverse; }
   .candidate-item { align-items: stretch; flex-direction: column; }
+  .profile-summary { grid-template-columns: 1fr; }
+  .assignment-item { align-items: stretch; flex-direction: column; }
   .form-footer .button, .application-card__actions .button { width: 100%; }
   .dialog__actions { flex-direction: column-reverse; }.dialog__actions .button { width: 100%; }
 }

@@ -21,7 +21,8 @@ public sealed class ReauthenticationService : IReauthenticationService
     private static readonly HashSet<string> AllowedPurposes = new(StringComparer.Ordinal)
     {
         "account.change-email", "account.change-password", "account.delete",
-        "factor.enroll", "factor.change", "passkey.manage", "session.revoke-all"
+        "factor.enroll", "factor.change", "passkey.manage", "session.revoke-all",
+        "admin.mfa.reset", "admin.user.delete"
     };
 
     private readonly UserManager<ApplicationUser> _users;

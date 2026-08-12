@@ -6,6 +6,7 @@ import { PermissionRoute } from "./PermissionRoute";
 
 const DashboardPage = lazy(() => import("../features/dashboard/DashboardPage"));
 const UsersPage = lazy(() => import("../features/users/UsersPage"));
+const UserEditorPage = lazy(() => import("../features/users/UserEditorPage"));
 const ApplicationsPage = lazy(() => import("../features/applications/ApplicationsPage"));
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const RolesPage = lazy(() => import("../features/roles/RolesPage"));
@@ -26,6 +27,7 @@ export function AppRouter() {
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
           <Route path="users" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><UsersPage /></PermissionRoute>} />
+          <Route path="users/:userId" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><UserEditorPage /></PermissionRoute>} />
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
           <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
           <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />

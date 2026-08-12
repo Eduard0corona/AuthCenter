@@ -14,10 +14,17 @@ namespace AuthCenter.Api.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly IUserAccessService _userAccessService;
+    private readonly IReauthenticationService _reauthentication;
+    private readonly ICurrentUserService _currentUser;
 
-    public UsersController(IUserAccessService userAccessService)
+    public UsersController(
+        IUserAccessService userAccessService,
+        IReauthenticationService reauthentication,
+        ICurrentUserService currentUser)
     {
         _userAccessService = userAccessService;
+        _reauthentication = reauthentication;
+        _currentUser = currentUser;
     }
 
     [HttpGet]
@@ -53,6 +60,16 @@ public class UsersController : ControllerBase
         var result = await _userAccessService.UpdateUserAsync(id, request, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
+    }
+
+    [HttpPut("{id:guid}/access")]
+    [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
+    public async Task<IActionResult> SetDirectAccess(Guid id, [FromBody] SetUserDirectAccessRequest request, CancellationToken ct)
+    {
+        var result = await _userAccessService.SetDirectAccessAsync(id, request, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
     [HttpPost("invitations")]
@@ -140,6 +157,8 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> AdminResetMfa(Guid id, [FromServices] IMfaService mfaService, CancellationToken ct)
     {
+        if (!await HasReauthenticationProofAsync("admin.mfa.reset", ct))
+            return ReauthenticationRequired("admin.mfa.reset");
         var result = await mfaService.AdminResetMfaAsync(id, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
@@ -149,8 +168,21 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> AdminDelete(Guid id, CancellationToken ct)
     {
+        if (!await HasReauthenticationProofAsync("admin.user.delete", ct))
+            return ReauthenticationRequired("admin.user.delete");
         var result = await _userAccessService.AdminDeleteUserAsync(id, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
     }
+
+    private async Task<bool> HasReauthenticationProofAsync(string purpose, CancellationToken ct)
+    {
+        var currentUserId = _currentUser.UserId;
+        return currentUserId.HasValue && await _reauthentication.ConsumeProofAsync(
+            currentUserId.Value, purpose, Request.Headers["X-AuthCenter-Reauthentication"].ToString(), ct);
+    }
+
+    private ObjectResult ReauthenticationRequired(string purpose) => StatusCode(
+        StatusCodes.Status403Forbidden,
+        ApiResponse.Fail("REAUTHENTICATION_REQUIRED", $"A recent single-use reauthentication proof for {purpose} is required."));
 }

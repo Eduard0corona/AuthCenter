@@ -1,3 +1,5 @@
+using System.Data;
+using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Common.Exceptions;
 using AuthCenter.Application.Interfaces;
@@ -6,6 +8,7 @@ using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Users;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -21,6 +24,7 @@ public class UserAccessService : IUserAccessService
     private readonly IEmailService _emailService;
     private readonly IActionLinkService _actionLinkService;
     private readonly IRefreshTokenService _refreshTokens;
+    private readonly ICurrentUserService _currentUser;
 
     public UserAccessService(
         AuthCenterDbContext db,
@@ -28,7 +32,8 @@ public class UserAccessService : IUserAccessService
         IDateTimeProvider dateTimeProvider,
         IEmailService emailService,
         IActionLinkService actionLinkService,
-        IRefreshTokenService refreshTokens)
+        IRefreshTokenService refreshTokens,
+        ICurrentUserService currentUser)
     {
         _db = db;
         _userManager = userManager;
@@ -36,6 +41,7 @@ public class UserAccessService : IUserAccessService
         _emailService = emailService;
         _actionLinkService = actionLinkService;
         _refreshTokens = refreshTokens;
+        _currentUser = currentUser;
     }
 
     public async Task<PagedResult<UserDto>> GetAllUsersAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -45,6 +51,7 @@ public class UserAccessService : IUserAccessService
     {
         var query = _db.Users
             .Where(u => u.DeletedAt == null)
+            .Include(u => u.MfaCredential)
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
             .Include(u => u.GroupMemberships)
@@ -131,6 +138,8 @@ public class UserAccessService : IUserAccessService
 
         if (request.RoleIds.Count > 0)
         {
+            if (!request.GrantApplicationAccess || !request.ApplicationSystemId.HasValue)
+                return OperationResult<UserDto>.Failure("ROLE_APP_ACCESS_REQUIRED", "Direct roles require direct application access.");
             foreach (var roleId in request.RoleIds.Distinct())
             {
                 var role = await _db.Roles.FindAsync([roleId], ct);
@@ -141,6 +150,10 @@ public class UserAccessService : IUserAccessService
                     role.ApplicationSystemId.HasValue &&
                     role.ApplicationSystemId.Value != request.ApplicationSystemId.Value)
                     return OperationResult<UserDto>.Failure("ROLE_APP_MISMATCH", "Role must belong to the selected application.");
+                if (!role.IsActive || !role.ApplicationSystemId.HasValue)
+                    return OperationResult<UserDto>.Failure("ROLE_INVALID", "Only active application roles can be assigned directly.");
+                if (role.IsSystemRole && !await CurrentUserIsEffectiveSuperAdminAsync(ct))
+                    return OperationResult<UserDto>.Failure("SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN", "Only an effective SuperAdmin can assign a system role.");
             }
         }
 
@@ -173,12 +186,18 @@ public class UserAccessService : IUserAccessService
                 return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(error => error.Description)));
 
             if (request.GrantApplicationAccess)
-                await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
+            {
+                var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
+                if (!accessResult.IsSuccess)
+                    return OperationResult<UserDto>.Failure(accessResult.ErrorCode, accessResult.Message);
+            }
 
             var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
             if (!roleResult.IsSuccess)
                 return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
 
+            AddAudit("USER_CREATED", user.Id, new { request.ApplicationSystemId, roleCount = request.RoleIds.Count });
+            await _db.SaveChangesAsync(ct);
             var response = OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
             if (transaction is not null)
                 await transaction.CommitAsync(ct);
@@ -197,6 +216,13 @@ public class UserAccessService : IUserAccessService
 
         if (!IsEmailDomainAllowed(request.Email, app.RegistrationSettings?.AllowedEmailDomains))
             return OperationResult<UserDto>.Failure("EMAIL_DOMAIN_NOT_ALLOWED", "Email domain is not allowed for this application.");
+        var requestedRoles = await _db.Roles.Where(role => request.RoleIds.Contains(role.Id)).ToListAsync(ct);
+        if (requestedRoles.Count != request.RoleIds.Distinct().Count())
+            return OperationResult<UserDto>.Failure("ROLE_NOT_FOUND", "One or more roles were not found.");
+        if (requestedRoles.Any(role => !role.IsActive || role.ApplicationSystemId != request.ApplicationSystemId))
+            return OperationResult<UserDto>.Failure("ROLE_APP_MISMATCH", "Only active roles from the invitation application can be assigned.");
+        if (requestedRoles.Any(role => role.IsSystemRole) && !await CurrentUserIsEffectiveSuperAdminAsync(ct))
+            return OperationResult<UserDto>.Failure("SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN", "Only an effective SuperAdmin can assign a system role.");
 
         var strategy = _db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -227,7 +253,9 @@ public class UserAccessService : IUserAccessService
                     return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", createResult.Errors.Select(error => error.Description)));
             }
 
-            await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
+            var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
+            if (!accessResult.IsSuccess)
+                return OperationResult<UserDto>.Failure(accessResult.ErrorCode, accessResult.Message);
 
             var roleResult = await AssignRolesAsync(user, request.RoleIds, request.ApplicationSystemId, ct);
             if (!roleResult.IsSuccess)
@@ -237,6 +265,8 @@ public class UserAccessService : IUserAccessService
             var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.Invitation, app.Code);
             await _emailService.SendInvitationAsync(user.Email!, user.FullName, app.Name, token, actionUrl, ct);
 
+            AddAudit("USER_INVITED", user.Id, new { request.ApplicationSystemId, roleCount = request.RoleIds.Count, request.GrantActiveAccess });
+            await _db.SaveChangesAsync(ct);
             var response = OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
             if (transaction is not null)
                 await transaction.CommitAsync(ct);
@@ -258,29 +288,120 @@ public class UserAccessService : IUserAccessService
         if (!result.Succeeded)
             return OperationResult<UserDto>.Failure("USER_UPDATE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
 
+        AddAudit("USER_PROFILE_CORE_UPDATED", userId, new { request.FullName, hasPicture = request.PictureUrl is not null });
+        await _db.SaveChangesAsync(ct);
         return OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
     }
 
     public async Task<UserDto?> GetUserByIdAsync(Guid userId, CancellationToken ct = default)
     {
         var user = await _db.Users
+            .Include(u => u.MfaCredential)
             .Include(u => u.ApplicationAccesses)
                 .ThenInclude(a => a.ApplicationSystem)
+            .Include(u => u.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.ApplicationAssignments)
+                        .ThenInclude(assignment => assignment.ApplicationSystem)
+            .Include(u => u.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.RoleAssignments)
+                        .ThenInclude(assignment => assignment.Role)
+                            .ThenInclude(role => role.ApplicationSystem)
+            .AsSplitQuery()
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == userId, ct);
 
         if (user is null) return null;
 
-        var roles = await _db.UserRoles
+        var directRoles = await _db.UserRoles
             .Where(ur => ur.UserId == userId)
-            .Join(_db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.DisplayName)
+            .Join(_db.Roles.Include(role => role.ApplicationSystem), ur => ur.RoleId, role => role.Id, (_, role) => role)
+            .AsNoTracking()
             .ToListAsync(ct);
 
-        return MapToDto(user, roles);
+        return MapDetailedDto(user, directRoles);
+    }
+
+    public async Task<OperationResult<UserDto>> SetDirectAccessAsync(
+        Guid userId,
+        SetUserDirectAccessRequest request,
+        CancellationToken ct = default)
+    {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
+        var user = await _db.Users.FirstOrDefaultAsync(candidate => candidate.Id == userId, ct);
+        if (user is null)
+            return OperationResult<UserDto>.Failure("USER_NOT_FOUND", "User not found.");
+
+        var applicationIds = request.ApplicationSystemIds.Distinct().ToHashSet();
+        var roleIds = request.RoleIds.Distinct().ToHashSet();
+        var applications = await _db.ApplicationSystems.Where(application => applicationIds.Contains(application.Id)).ToListAsync(ct);
+        if (applications.Count != applicationIds.Count)
+            return OperationResult<UserDto>.Failure("APP_NOT_FOUND", "One or more applications were not found.");
+        if (applications.Any(application => !application.IsActive))
+            return OperationResult<UserDto>.Failure("APP_INACTIVE", "Inactive applications cannot be assigned directly.");
+
+        var roles = await _db.Roles.Where(role => roleIds.Contains(role.Id)).ToListAsync(ct);
+        if (roles.Count != roleIds.Count)
+            return OperationResult<UserDto>.Failure("ROLE_NOT_FOUND", "One or more roles were not found.");
+        if (roles.Any(role => !role.IsActive || !role.ApplicationSystemId.HasValue))
+            return OperationResult<UserDto>.Failure("ROLE_INVALID", "Only active application roles can be assigned directly.");
+        if (roles.Any(role => !applicationIds.Contains(role.ApplicationSystemId!.Value)))
+            return OperationResult<UserDto>.Failure("ROLE_APP_ACCESS_REQUIRED", "Every direct role requires direct application access in the same operation.");
+        var existingRoleIds = await _db.UserRoles.Where(userRole => userRole.UserId == userId).Select(userRole => userRole.RoleId).ToListAsync(ct);
+        var existingSystemRoleIds = await _db.Roles.Where(role => role.IsSystemRole && existingRoleIds.Contains(role.Id)).Select(role => role.Id).ToListAsync(ct);
+        var requestedSystemRoleIds = roles.Where(role => role.IsSystemRole).Select(role => role.Id).ToHashSet();
+        if (!requestedSystemRoleIds.SetEquals(existingSystemRoleIds) && !await CurrentUserIsEffectiveSuperAdminAsync(ct))
+            return OperationResult<UserDto>.Failure("SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN", "Only an effective SuperAdmin can change direct system-role assignments.");
+
+        var superAdminRoleId = await GetSuperAdminRoleIdAsync(ct);
+        var authCenterApplicationId = await GetAuthCenterApplicationIdAsync(ct);
+        var keepsSuperAdmin = superAdminRoleId.HasValue && roleIds.Contains(superAdminRoleId.Value);
+        var keepsAuthCenter = authCenterApplicationId.HasValue && applicationIds.Contains(authCenterApplicationId.Value);
+        if (await IsEffectiveSuperAdminAsync(userId, ct) && (!keepsSuperAdmin || !keepsAuthCenter) &&
+            !await HasAnotherEffectiveSuperAdminAsync(userId, ct))
+            return OperationResult<UserDto>.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin cannot lose AuthCenter access or its privileged role.");
+
+        var existingAccess = await _db.UserApplicationAccesses.Where(access => access.UserId == userId).ToListAsync(ct);
+        var now = _dateTimeProvider.UtcNow;
+        foreach (var access in existingAccess)
+        {
+            if (applicationIds.Contains(access.ApplicationSystemId))
+            {
+                access.IsActive = true;
+                access.RevokedAt = null;
+            }
+            else if (access.IsActive)
+            {
+                access.IsActive = false;
+                access.RevokedAt = now;
+            }
+        }
+        _db.UserApplicationAccesses.AddRange(applicationIds
+            .Where(id => existingAccess.All(access => access.ApplicationSystemId != id))
+            .Select(id => new UserApplicationAccess { Id = Guid.NewGuid(), UserId = userId, ApplicationSystemId = id, IsActive = true, CreatedAt = now }));
+        _db.UserRoles.RemoveRange(_db.UserRoles.Where(userRole => userRole.UserId == userId && !roleIds.Contains(userRole.RoleId)));
+        _db.UserRoles.AddRange(roleIds.Where(id => !existingRoleIds.Contains(id)).Select(id => new IdentityUserRole<Guid> { UserId = userId, RoleId = id }));
+        AddAudit("USER_DIRECT_ACCESS_REPLACED", userId, new { applicationCount = applicationIds.Count, roleCount = roleIds.Count });
+        await _db.SaveChangesAsync(ct);
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
+
+        return OperationResult<UserDto>.Success((await GetUserByIdAsync(userId, ct))!);
     }
 
     public async Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default)
     {
+        if (!await _db.Users.AnyAsync(user => user.Id == userId, ct))
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+        var application = await _db.ApplicationSystems.FirstOrDefaultAsync(candidate => candidate.Id == applicationSystemId, ct);
+        if (application is null)
+            return OperationResult.Failure("APP_NOT_FOUND", "Application not found.");
+        if (isActive && !application.IsActive)
+            return OperationResult.Failure("APP_INACTIVE", "Inactive applications cannot be assigned.");
         var existing = await _db.UserApplicationAccesses
             .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
 
@@ -301,7 +422,9 @@ public class UserAccessService : IUserAccessService
             });
         }
 
+        AddAudit(isActive ? "USER_APPLICATION_ACCESS_GRANTED" : "USER_APPLICATION_ACCESS_PENDING", userId, new { applicationSystemId });
         await _db.SaveChangesAsync(ct);
+        await _refreshTokens.RevokeAllForUserAsync(userId, application.Code, ct);
         return OperationResult.Success();
     }
 
@@ -318,25 +441,39 @@ public class UserAccessService : IUserAccessService
 
         access.IsActive = true;
         access.RevokedAt = null;
-        await _db.SaveChangesAsync(ct);
-        return OperationResult.Success();
-    }
-
-    public async Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
-    {
-        var access = await _db.UserApplicationAccesses
-            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
-        if (access is null)
-            return OperationResult.Failure("ACCESS_NOT_FOUND", "User does not have access to this application.");
-
-        access.IsActive = false;
-        access.RevokedAt = _dateTimeProvider.UtcNow;
+        AddAudit("USER_APPLICATION_ACCESS_APPROVED", userId, new { applicationSystemId });
         await _db.SaveChangesAsync(ct);
         var applicationCode = await _db.ApplicationSystems
             .Where(application => application.Id == applicationSystemId)
             .Select(application => application.Code)
             .SingleAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, applicationCode, ct);
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
+    {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
+        var access = await _db.UserApplicationAccesses
+            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
+        if (access is null)
+            return OperationResult.Failure("ACCESS_NOT_FOUND", "User does not have access to this application.");
+        if (await WouldRemoveLastSuperAdminAsync(userId, applicationSystemId, null, deactivateUser: false, ct))
+            return OperationResult.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin cannot lose AuthCenter access.");
+
+        access.IsActive = false;
+        access.RevokedAt = _dateTimeProvider.UtcNow;
+        AddAudit("USER_APPLICATION_ACCESS_REVOKED", userId, new { applicationSystemId });
+        await _db.SaveChangesAsync(ct);
+        var applicationCode = await _db.ApplicationSystems
+            .Where(application => application.Id == applicationSystemId)
+            .Select(application => application.Code)
+            .SingleAsync(ct);
+        await _refreshTokens.RevokeAllForUserAsync(userId, applicationCode, ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
         return OperationResult.Success();
     }
 
@@ -352,6 +489,13 @@ public class UserAccessService : IUserAccessService
 
         if (role.Name is null)
             return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
+        if (!role.IsActive || !role.ApplicationSystemId.HasValue)
+            return OperationResult.Failure("ROLE_INVALID", "Only active application roles can be assigned directly.");
+        if (role.IsSystemRole && !await CurrentUserIsEffectiveSuperAdminAsync(ct))
+            return OperationResult.Failure("SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN", "Only an effective SuperAdmin can assign a system role.");
+        if (!await _db.UserApplicationAccesses.AnyAsync(access => access.UserId == userId &&
+            access.ApplicationSystemId == role.ApplicationSystemId.Value && access.IsActive && access.ApplicationSystem.IsActive, ct))
+            return OperationResult.Failure("ROLE_APP_ACCESS_REQUIRED", "Grant direct application access before assigning this direct role.");
 
         var result = await _userManager.AddToRoleAsync(user, role.Name);
         if (!result.Succeeded)
@@ -360,6 +504,8 @@ public class UserAccessService : IUserAccessService
             return OperationResult.Failure("ROLE_ASSIGN_FAILED", string.Join(", ", errors));
         }
 
+        AddAudit("USER_ROLE_ASSIGNED", userId, new { roleId });
+        await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
 
         return OperationResult.Success();
@@ -367,6 +513,9 @@ public class UserAccessService : IUserAccessService
 
     public async Task<OperationResult> RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default)
     {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
@@ -377,6 +526,10 @@ public class UserAccessService : IUserAccessService
 
         if (role.Name is null)
             return OperationResult.Failure("INVALID_ROLE", "Role name is null.");
+        if (role.IsSystemRole && !await CurrentUserIsEffectiveSuperAdminAsync(ct))
+            return OperationResult.Failure("SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN", "Only an effective SuperAdmin can remove a system role.");
+        if (await WouldRemoveLastSuperAdminAsync(userId, null, roleId, deactivateUser: false, ct))
+            return OperationResult.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin role cannot be removed.");
 
         var result = await _userManager.RemoveFromRoleAsync(user, role.Name);
         if (!result.Succeeded)
@@ -385,8 +538,11 @@ public class UserAccessService : IUserAccessService
             return OperationResult.Failure("ROLE_REMOVE_FAILED", string.Join(", ", errors));
         }
 
-
+        AddAudit("USER_ROLE_REMOVED", userId, new { roleId });
+        await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
 
         return OperationResult.Success();
     }
@@ -399,19 +555,30 @@ public class UserAccessService : IUserAccessService
         user.IsActive = true;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
+        AddAudit("USER_ACTIVATED", userId);
+        await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         return OperationResult.Success();
     }
 
     public async Task<OperationResult> DeactivateUserAsync(Guid userId, CancellationToken ct = default)
     {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+        if (await WouldRemoveLastSuperAdminAsync(userId, null, null, deactivateUser: true, ct))
+            return OperationResult.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin cannot be deactivated.");
         user.IsActive = false;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
         await _userManager.UpdateAsync(user);
+        AddAudit("USER_DEACTIVATED", userId);
+        await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
         return OperationResult.Success();
     }
 
@@ -452,17 +619,25 @@ public class UserAccessService : IUserAccessService
         if (!result.Succeeded)
             return OperationResult.Failure("UPDATE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
 
+        AddAudit("USER_PASSWORD_CHANGE_FORCED", userId);
+        await _db.SaveChangesAsync(ct);
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         return OperationResult.Success();
     }
 
     public async Task<OperationResult> AdminDeleteUserAsync(Guid userId, CancellationToken ct = default)
     {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
 
         if (user.DeletedAt is not null)
             return OperationResult.Failure("USER_ALREADY_DELETED", "User is already deleted.");
+        if (await WouldRemoveLastSuperAdminAsync(userId, null, null, deactivateUser: true, ct))
+            return OperationResult.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin cannot be deleted.");
 
         var now = _dateTimeProvider.UtcNow;
         user.DeletedAt = now;
@@ -479,7 +654,11 @@ public class UserAccessService : IUserAccessService
         user.NormalizedUserName = anonymizedEmail.ToUpperInvariant();
 
         await _userManager.UpdateAsync(user);
+        AddAudit("USER_ANONYMIZED", userId);
+        await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
         return OperationResult.Success();
     }
 
@@ -491,6 +670,9 @@ public class UserAccessService : IUserAccessService
         PictureUrl = user.PictureUrl,
         IsActive = user.IsActive,
         IsExternalUser = user.IsExternalUser,
+        HasLocalPassword = user.HasLocalPassword,
+        MustChangePassword = user.MustChangePassword,
+        MfaEnabled = user.MfaCredential?.IsEnabled == true,
         CreatedAt = user.CreatedAt,
         LastLoginAt = user.LastLoginAt,
         Roles = roles.ToList(),
@@ -517,6 +699,186 @@ public class UserAccessService : IUserAccessService
             })
             .ToList()
     };
+
+    private static UserDto MapDetailedDto(ApplicationUser user, IReadOnlyList<ApplicationRole> directRoles)
+    {
+        var memberships = user.GroupMemberships.OrderBy(membership => membership.Group.Name).ToList();
+        var applicationIds = user.ApplicationAccesses.Select(access => access.ApplicationSystemId)
+            .Union(memberships.SelectMany(membership => membership.Group.ApplicationAssignments).Select(assignment => assignment.ApplicationSystemId))
+            .Distinct()
+            .ToList();
+        var applications = applicationIds.Select(applicationId =>
+        {
+            var direct = user.ApplicationAccesses.FirstOrDefault(access => access.ApplicationSystemId == applicationId);
+            var inherited = memberships
+                .Where(membership => membership.Group.ApplicationAssignments.Any(assignment => assignment.ApplicationSystemId == applicationId))
+                .Select(membership => new UserInheritedAccessSourceDto
+                {
+                    GroupId = membership.GroupId,
+                    GroupName = membership.Group.Name,
+                    IsActive = membership.Group.IsActive
+                })
+                .ToList();
+            var application = direct?.ApplicationSystem ?? memberships
+                .SelectMany(membership => membership.Group.ApplicationAssignments)
+                .First(assignment => assignment.ApplicationSystemId == applicationId).ApplicationSystem;
+            return new UserApplicationAssignmentDto
+            {
+                ApplicationId = application.Id,
+                ApplicationCode = application.Code,
+                ApplicationName = application.Name,
+                IsApplicationActive = application.IsActive,
+                IsDirect = direct is not null,
+                DirectAccessStatus = direct is null ? null : direct.IsActive ? "Active" : direct.RevokedAt.HasValue ? "Revoked" : "Pending",
+                IsEffective = application.IsActive && (direct?.IsActive == true || inherited.Any(source => source.IsActive)),
+                InheritedFromGroups = inherited
+            };
+        }).OrderBy(assignment => assignment.ApplicationCode).ToList();
+        var effectiveApplicationIds = applications.Where(assignment => assignment.IsEffective).Select(assignment => assignment.ApplicationId).ToHashSet();
+
+        var inheritedRoleAssignments = memberships.SelectMany(membership => membership.Group.RoleAssignments.Select(assignment => new
+        {
+            Membership = membership,
+            Role = assignment.Role,
+            HasGroupApplication = assignment.Role.ApplicationSystemId.HasValue && membership.Group.ApplicationAssignments.Any(application =>
+                application.ApplicationSystemId == assignment.Role.ApplicationSystemId.Value && application.ApplicationSystem.IsActive)
+        })).ToList();
+        var roleIds = directRoles.Select(role => role.Id).Union(inheritedRoleAssignments.Select(assignment => assignment.Role.Id)).Distinct().ToList();
+        var roleAssignments = roleIds.Select(roleId =>
+        {
+            var direct = directRoles.FirstOrDefault(role => role.Id == roleId);
+            var inheritedRoles = inheritedRoleAssignments.Where(assignment => assignment.Role.Id == roleId).ToList();
+            var role = direct ?? inheritedRoles[0].Role;
+            var inherited = inheritedRoles.Select(assignment => new UserInheritedAccessSourceDto
+            {
+                GroupId = assignment.Membership.GroupId,
+                GroupName = assignment.Membership.Group.Name,
+                IsActive = assignment.Membership.Group.IsActive && assignment.HasGroupApplication && role.IsActive
+            }).ToList();
+            var hasEffectiveApplication = !role.ApplicationSystemId.HasValue || effectiveApplicationIds.Contains(role.ApplicationSystemId.Value);
+            return new UserRoleAssignmentDto
+            {
+                RoleId = role.Id,
+                RoleName = role.DisplayName,
+                ApplicationId = role.ApplicationSystemId,
+                ApplicationCode = role.ApplicationSystem?.Code,
+                IsRoleActive = role.IsActive,
+                IsSystemRole = role.IsSystemRole,
+                IsDirect = direct is not null,
+                IsEffective = role.IsActive && hasEffectiveApplication && (direct is not null || inherited.Any(source => source.IsActive)),
+                InheritedFromGroups = inherited
+            };
+        }).OrderBy(assignment => assignment.ApplicationCode).ThenBy(assignment => assignment.RoleName).ToList();
+
+        return new UserDto
+        {
+            Id = user.Id,
+            FullName = user.FullName,
+            Email = user.Email ?? string.Empty,
+            PictureUrl = user.PictureUrl,
+            IsActive = user.IsActive,
+            IsExternalUser = user.IsExternalUser,
+            HasLocalPassword = user.HasLocalPassword,
+            MustChangePassword = user.MustChangePassword,
+            MfaEnabled = user.MfaCredential?.IsEnabled == true,
+            CreatedAt = user.CreatedAt,
+            LastLoginAt = user.LastLoginAt,
+            Roles = roleAssignments.Where(assignment => assignment.IsEffective).Select(assignment => assignment.RoleName).Distinct().ToList(),
+            Applications = applications.Where(assignment => assignment.IsEffective).Select(assignment => assignment.ApplicationCode).ToList(),
+            ApplicationAccesses = user.ApplicationAccesses.OrderBy(access => access.ApplicationSystem.Code).Select(access => new UserApplicationAccessDto
+            {
+                ApplicationId = access.ApplicationSystemId,
+                ApplicationCode = access.ApplicationSystem.Code,
+                ApplicationName = access.ApplicationSystem.Name,
+                IsActive = access.IsActive,
+                CreatedAt = access.CreatedAt,
+                RevokedAt = access.RevokedAt
+            }).ToList(),
+            ApplicationAssignments = applications,
+            RoleAssignments = roleAssignments,
+            GroupMemberships = memberships.Select(membership => new UserGroupMembershipDto
+            {
+                GroupId = membership.GroupId,
+                GroupName = membership.Group.Name,
+                IsGroupActive = membership.Group.IsActive,
+                AddedAt = membership.CreatedAt
+            }).ToList()
+        };
+    }
+
+    private Task<Guid?> GetSuperAdminRoleIdAsync(CancellationToken ct) => _db.Roles
+        .Where(role => role.IsSystemRole && role.DisplayName == DomainConstants.Roles.SuperAdmin)
+        .Select(role => (Guid?)role.Id)
+        .SingleOrDefaultAsync(ct);
+
+    private Task<Guid?> GetAuthCenterApplicationIdAsync(CancellationToken ct) => _db.ApplicationSystems
+        .Where(application => application.Code == DomainConstants.SystemCodes.AuthCenter)
+        .Select(application => (Guid?)application.Id)
+        .SingleOrDefaultAsync(ct);
+
+    private Task<bool> HasInheritedApplicationAccessAsync(Guid userId, Guid applicationId, CancellationToken ct) =>
+        _db.UserGroupMemberships.AnyAsync(membership => membership.UserId == userId && membership.Group.IsActive &&
+            membership.Group.ApplicationAssignments.Any(assignment => assignment.ApplicationSystemId == applicationId && assignment.ApplicationSystem.IsActive), ct);
+
+    private async Task<bool> IsEffectiveSuperAdminAsync(Guid userId, CancellationToken ct)
+    {
+        var roleId = await GetSuperAdminRoleIdAsync(ct);
+        var applicationId = await GetAuthCenterApplicationIdAsync(ct);
+        return roleId.HasValue && applicationId.HasValue && await IsEffectiveSuperAdminQuery(roleId.Value, applicationId.Value)
+            .AnyAsync(user => user.Id == userId, ct);
+    }
+
+    private async Task<bool> HasAnotherEffectiveSuperAdminAsync(Guid userId, CancellationToken ct)
+    {
+        var roleId = await GetSuperAdminRoleIdAsync(ct);
+        var applicationId = await GetAuthCenterApplicationIdAsync(ct);
+        return roleId.HasValue && applicationId.HasValue && await IsEffectiveSuperAdminQuery(roleId.Value, applicationId.Value)
+            .AnyAsync(user => user.Id != userId, ct);
+    }
+
+    private async Task<bool> WouldRemoveLastSuperAdminAsync(
+        Guid userId,
+        Guid? applicationId,
+        Guid? roleId,
+        bool deactivateUser,
+        CancellationToken ct)
+    {
+        if (!await IsEffectiveSuperAdminAsync(userId, ct) || await HasAnotherEffectiveSuperAdminAsync(userId, ct))
+            return false;
+        if (deactivateUser)
+            return true;
+        if (applicationId.HasValue)
+        {
+            var authCenterApplicationId = await GetAuthCenterApplicationIdAsync(ct);
+            if (applicationId != authCenterApplicationId)
+                return false;
+            return !await HasInheritedApplicationAccessAsync(userId, applicationId.Value, ct);
+        }
+        if (roleId.HasValue)
+        {
+            var superAdminRoleId = await GetSuperAdminRoleIdAsync(ct);
+            return roleId == superAdminRoleId;
+        }
+        return false;
+    }
+
+    private Task<bool> CurrentUserIsEffectiveSuperAdminAsync(CancellationToken ct) =>
+        _currentUser.UserId.HasValue ? IsEffectiveSuperAdminAsync(_currentUser.UserId.Value, ct) : Task.FromResult(false);
+
+    private IQueryable<ApplicationUser> IsEffectiveSuperAdminQuery(Guid roleId, Guid applicationId) => _db.Users.Where(user => user.IsActive &&
+        user.ApplicationAccesses.Any(access => access.ApplicationSystemId == applicationId && access.IsActive && access.ApplicationSystem.IsActive) &&
+        _db.UserRoles.Any(userRole => userRole.UserId == user.Id && userRole.RoleId == roleId));
+
+    private void AddAudit(string action, Guid subjectUserId, object? metadata = null) => _db.AuditLogs.Add(new AuditLog
+    {
+        Id = Guid.NewGuid(),
+        UserId = _currentUser.UserId,
+        Action = action,
+        EntityName = nameof(ApplicationUser),
+        EntityId = subjectUserId.ToString(),
+        MetadataJson = metadata is null ? null : JsonSerializer.Serialize(metadata),
+        CreatedAt = _dateTimeProvider.UtcNow
+    });
 
     private async Task<OperationResult> AssignRolesAsync(ApplicationUser user, IReadOnlyList<Guid> roleIds, Guid? applicationSystemId, CancellationToken ct)
     {
