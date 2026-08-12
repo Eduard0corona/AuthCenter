@@ -1,9 +1,11 @@
+using System.Data;
 using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Groups;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Groups;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -253,6 +255,8 @@ public class DirectoryGroupService : IDirectoryGroupService
             return OperationResult.Failure("ROLE_NOT_FOUND", "Role not found.");
         if (!role.IsActive || !role.ApplicationSystemId.HasValue || role.ApplicationSystem is null)
             return OperationResult.Failure("ROLE_INVALID", "Only active application roles can be assigned to groups.");
+        if (role.IsSystemRole && role.DisplayName == DomainConstants.Roles.SuperAdmin)
+            return OperationResult.Failure("SUPER_ADMIN_GROUP_ASSIGNMENT_FORBIDDEN", "SuperAdmin must be assigned directly to a named user.");
         if (!await _db.GroupApplicationAssignments.AnyAsync(
                 assignment => assignment.GroupId == groupId && assignment.ApplicationSystemId == role.ApplicationSystemId.Value, ct))
             return OperationResult.Failure("GROUP_APP_ACCESS_REQUIRED", "Assign the role's application to the group first.");
@@ -287,6 +291,85 @@ public class DirectoryGroupService : IDirectoryGroupService
         AddAudit("DIRECTORY_GROUP_ROLE_REMOVED", assignment.Group, roleId: roleId);
         await _db.SaveChangesAsync(ct);
         return OperationResult.Success();
+    }
+
+    public async Task<OperationResult<DirectoryGroupDto>> SetAccessAsync(
+        Guid groupId,
+        SetDirectoryGroupAccessRequest request,
+        CancellationToken ct = default)
+    {
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
+            : null;
+        var group = await BaseQuery(tracking: true).FirstOrDefaultAsync(candidate => candidate.Id == groupId, ct);
+        if (group is null)
+            return OperationResult<DirectoryGroupDto>.Failure("GROUP_NOT_FOUND", "Group not found.");
+        if (!group.IsActive)
+            return OperationResult<DirectoryGroupDto>.Failure("GROUP_INACTIVE", "Access cannot be changed for an inactive group.");
+
+        var applicationIds = request.ApplicationSystemIds.Distinct().ToHashSet();
+        var roleIds = request.RoleIds.Distinct().ToHashSet();
+        var applications = await _db.ApplicationSystems
+            .Where(application => applicationIds.Contains(application.Id))
+            .ToListAsync(ct);
+        if (applications.Count != applicationIds.Count)
+            return OperationResult<DirectoryGroupDto>.Failure("APP_NOT_FOUND", "One or more applications were not found.");
+        if (applications.Any(application => !application.IsActive))
+            return OperationResult<DirectoryGroupDto>.Failure("APP_INACTIVE", "Inactive applications cannot be assigned.");
+
+        var roles = await _db.Roles
+            .Where(role => roleIds.Contains(role.Id))
+            .ToListAsync(ct);
+        if (roles.Count != roleIds.Count)
+            return OperationResult<DirectoryGroupDto>.Failure("ROLE_NOT_FOUND", "One or more roles were not found.");
+        if (roles.Any(role => !role.IsActive || !role.ApplicationSystemId.HasValue))
+            return OperationResult<DirectoryGroupDto>.Failure("ROLE_INVALID", "Only active application roles can be assigned to groups.");
+        if (roles.Any(role => role.IsSystemRole && role.DisplayName == DomainConstants.Roles.SuperAdmin))
+            return OperationResult<DirectoryGroupDto>.Failure("SUPER_ADMIN_GROUP_ASSIGNMENT_FORBIDDEN", "SuperAdmin must be assigned directly to a named user.");
+        if (roles.Any(role => !applicationIds.Contains(role.ApplicationSystemId!.Value)))
+            return OperationResult<DirectoryGroupDto>.Failure("GROUP_APP_ACCESS_REQUIRED", "Every role requires its application to be assigned in the same operation.");
+
+        var existingApplicationIds = group.ApplicationAssignments.Select(assignment => assignment.ApplicationSystemId).ToHashSet();
+        var existingRoleIds = group.RoleAssignments.Select(assignment => assignment.RoleId).ToHashSet();
+        var affectedApplicationCodes = group.ApplicationAssignments
+            .Where(assignment => !applicationIds.Contains(assignment.ApplicationSystemId))
+            .Select(assignment => assignment.ApplicationSystem.Code)
+            .Concat(applications
+                .Where(application => !existingApplicationIds.Contains(application.Id))
+                .Select(application => application.Code))
+            .Concat(roles
+                .Where(role => !existingRoleIds.Contains(role.Id))
+                .Join(applications, role => role.ApplicationSystemId, application => application.Id, (_, application) => application.Code))
+            .Concat(group.RoleAssignments
+                .Where(assignment => !roleIds.Contains(assignment.RoleId) && assignment.Role.ApplicationSystem is not null)
+                .Select(assignment => assignment.Role.ApplicationSystem!.Code))
+            .Distinct()
+            .ToArray();
+
+        foreach (var applicationCode in affectedApplicationCodes)
+            await RevokeMemberSessionsAsync(groupId, applicationCode, ct);
+
+        _db.GroupRoleAssignments.RemoveRange(group.RoleAssignments.Where(assignment => !roleIds.Contains(assignment.RoleId)));
+        _db.GroupApplicationAssignments.RemoveRange(group.ApplicationAssignments.Where(assignment => !applicationIds.Contains(assignment.ApplicationSystemId)));
+        _db.GroupApplicationAssignments.AddRange(applicationIds.Where(id => !existingApplicationIds.Contains(id)).Select(id => new GroupApplicationAssignment
+        {
+            GroupId = group.Id,
+            ApplicationSystemId = id,
+            CreatedAt = _clock.UtcNow
+        }));
+        _db.GroupRoleAssignments.AddRange(roleIds.Where(id => !existingRoleIds.Contains(id)).Select(id => new GroupRoleAssignment
+        {
+            GroupId = group.Id,
+            RoleId = id,
+            CreatedAt = _clock.UtcNow
+        }));
+        AddAudit("DIRECTORY_GROUP_ACCESS_REPLACED", group);
+        await _db.SaveChangesAsync(ct);
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
+
+        var updated = await BaseQuery().SingleAsync(candidate => candidate.Id == group.Id, ct);
+        return OperationResult<DirectoryGroupDto>.Success(Map(updated));
     }
 
     private IQueryable<DirectoryGroup> BaseQuery(bool tracking = false)

@@ -98,6 +98,9 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Suite .NET completa exitosa: 65 pruebas unitarias y 125 pruebas de integracion.
 - Entrega RBAC: 65 pruebas unitarias, 128 de integracion, 9 frontend y 18 escenarios E2E; roles, permisos, matriz atomica y rol predeterminado cubiertos.
 - Bundle actual tras RBAC: 141.08 KB gzip de JavaScript emitido en chunks y 4.81 KB gzip de CSS; cada modulo conserva carga diferida.
+- Entrega de grupos: 65 pruebas unitarias, 131 de integracion, 10 frontend y 24 escenarios E2E; alta, consulta, edicion, activacion, membresias paginadas y reemplazo atomico de acceso heredado cubiertos.
+- `SuperAdmin` no puede heredarse desde grupos; las mutaciones de acceso revocan sesiones afectadas dentro de la misma transaccion.
+- Bundle actual tras grupos: 24 chunks JavaScript con carga diferida (el editor de grupos pesa 4.13 KB gzip) y 4.89 KB gzip de CSS.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -221,8 +224,8 @@ Los assets no HTML usan `Cache-Control: public,max-age=86400`, pero conservan no
 
 - [x] Inicializar el panel desde la ruta o hash actual.
 - [x] Soportar atras/adelante del navegador.
-- [ ] Crear rutas de detalle enlazables para usuarios, aplicaciones, grupos y politicas.
-- [x] Crear la primera ruta de detalle enlazable para aplicaciones; usuarios, grupos y politicas siguen pendientes.
+- [ ] Crear rutas de detalle enlazables para usuarios, aplicaciones, grupos y politicas; usuarios y politicas siguen pendientes.
+- [x] Crear rutas de detalle enlazables para aplicaciones y grupos.
 - [x] Mover el foco al encabezado del panel al navegar.
 - [x] Implementar breadcrumb en la vista de detalle de aplicaciones; se reutilizara en las siguientes vistas.
 
@@ -405,9 +408,9 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] Alta, consulta, edicion y estado de roles y permisos; no hay endpoint de borrado y no se simula en UI.
 - [x] Matriz rol-permiso por aplicacion con reemplazo atomico y proteccion de roles de sistema.
 - [ ] Diferenciar asignaciones directas y heredadas.
-- [ ] CRUD de grupos y gestion paginada de miembros.
-- [ ] Asignar aplicaciones y roles a grupos.
-- [ ] Preview de acceso efectivo antes de confirmar.
+- [x] Alta, consulta, edicion y estado de grupos, con gestion paginada de miembros; no hay endpoint de borrado y no se simula en UI.
+- [x] Asignar aplicaciones y roles a grupos mediante reemplazo atomico.
+- [x] Preview del impacto sobre miembros y acceso heredado antes de confirmar.
 
 ### 10.4 Politicas de acceso
 
@@ -578,7 +581,7 @@ El pipeline debe ejecutar, en orden:
 - [ ] Usuarios e invitaciones.
 - [x] Aplicaciones y branding completo.
 - [x] Roles, permisos y matriz de asignaciones; asignaciones a usuarios/grupos siguen en sus historias correspondientes.
-- [ ] Grupos y membresias.
+- [x] Grupos y membresias, incluyendo preview de impacto, acceso heredado atomico y revocacion de sesiones.
 - [ ] Perfil universal.
 
 **Salida:** operacion diaria del directorio sin depender de llamadas manuales a la API.

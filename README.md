@@ -380,6 +380,10 @@ stale entitlements.
 | POST/DELETE | `/api/groups/{id}/members/{userId}` | Add or remove a member |
 | POST/DELETE | `/api/groups/{id}/applications/{applicationId}` | Grant or remove effective application access |
 | POST/DELETE | `/api/groups/{id}/roles/{roleId}` | Grant or remove an application role |
+| PUT | `/api/groups/{id}/access` | Atomically replace group applications and roles, then revoke affected member sessions |
+
+`SuperAdmin` cannot be inherited through a directory group. Assign that role directly to a named user
+so privileged access remains attributable and auditable.
 
 A group role is valid only after the role's application is assigned explicitly to the same group.
 Removing an application also removes every group-role assignment for that application.

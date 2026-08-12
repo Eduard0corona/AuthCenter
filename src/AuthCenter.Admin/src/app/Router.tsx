@@ -12,9 +12,10 @@ const RolesPage = lazy(() => import("../features/roles/RolesPage"));
 const RoleEditorPage = lazy(() => import("../features/roles/RoleEditorPage"));
 const PermissionsPage = lazy(() => import("../features/permissions/PermissionsPage"));
 const PermissionEditorPage = lazy(() => import("../features/permissions/PermissionEditorPage"));
+const GroupsPage = lazy(() => import("../features/groups/GroupsPage"));
+const GroupEditorPage = lazy(() => import("../features/groups/GroupEditorPage"));
 const SystemLogPage = lazy(() => import("../features/system-log/SystemLogPage"));
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
-const ComingSoonPage = lazy(() => import("../features/coming-soon/ComingSoonPage"));
 
 const loading = <PageState title="Cargando módulo" detail="Estamos preparando esta sección." busy />;
 
@@ -36,7 +37,9 @@ export function AppRouter() {
           <Route path="permissions/:permissionId" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionEditorPage /></PermissionRoute>} />
           <Route path="system-log" element={<PermissionRoute permission="AUTHCENTER_AUDIT_LOGS_READ"><SystemLogPage /></PermissionRoute>} />
           <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><EventHooksPage /></PermissionRoute>} />
-          <Route path="groups" element={<ComingSoonPage title="Grupos" phase="Fase B" />} />
+          <Route path="groups" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupsPage /></PermissionRoute>} />
+          <Route path="groups/new" element={<PermissionRoute permission="AUTHCENTER_GROUPS_WRITE"><GroupEditorPage create /></PermissionRoute>} />
+          <Route path="groups/:groupId" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupEditorPage /></PermissionRoute>} />
           <Route path="404" element={<PageState title="Ruta no encontrada" detail="La sección solicitada no existe o cambió de ubicación." />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Route>
