@@ -175,6 +175,7 @@ public class ApplicationService : IApplicationService
     {
         var app = await _db.ApplicationSystems
             .Include(a => a.RegistrationSettings)
+            .Include(a => a.BrandingSettings)
             .FirstOrDefaultAsync(a => a.Id == id, ct)
             ?? throw new NotFoundException(nameof(ApplicationSystem), id);
 

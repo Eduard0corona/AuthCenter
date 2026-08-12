@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -41,6 +42,11 @@ try
     // Application (validators)
     builder.Services.AddApplication();
     builder.Services.AddPlatformObservability(builder.Configuration, builder.Environment);
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.MimeTypes = ["text/css", "text/javascript", "application/javascript"];
+    });
 
     // CurrentUserService
     builder.Services.AddHttpContextAccessor();
@@ -293,6 +299,18 @@ try
         .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"]);
 
     var app = builder.Build();
+    var publishedAdminFrontendRoot = Path.Combine(app.Environment.WebRootPath, "admin-v2");
+    var developmentAdminFrontendRoot = Path.GetFullPath(Path.Combine(
+        app.Environment.ContentRootPath,
+        "..",
+        "AuthCenter.Admin",
+        "dist"));
+    var adminFrontendRoot = Directory.Exists(publishedAdminFrontendRoot)
+        ? publishedAdminFrontendRoot
+        : (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing")) &&
+          Directory.Exists(developmentAdminFrontendRoot)
+            ? developmentAdminFrontendRoot
+            : null;
 
     // Validated after the host is built so that every configuration source is in play, including
     // ones contributed by the host itself.
@@ -401,15 +419,51 @@ try
     }
 
     app.UseHttpsRedirection();
+    app.UseResponseCompression();
+    app.Use(async (context, next) =>
+    {
+        if (string.Equals(context.Request.Path.Value, "/admin-v2", StringComparison.Ordinal))
+        {
+            context.Response.Redirect("/admin-v2/");
+            return;
+        }
+
+        if (context.Request.Path.StartsWithSegments("/admin-v2") &&
+            !context.Request.Path.StartsWithSegments("/admin-v2/assets"))
+        {
+            context.Response.Headers.CacheControl = "no-store";
+        }
+
+        await next();
+    });
     app.UseStaticFiles(new StaticFileOptions
     {
         OnPrepareResponse = context =>
         {
+            var requestPath = context.Context.Request.Path;
             context.Context.Response.Headers.CacheControl = context.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
                 ? "no-store"
-                : "public,max-age=86400";
+                : requestPath.StartsWithSegments("/admin-v2/assets")
+                    ? "public,max-age=31536000,immutable"
+                    : "public,max-age=86400";
         }
     });
+    if (string.Equals(adminFrontendRoot, developmentAdminFrontendRoot, StringComparison.OrdinalIgnoreCase))
+    {
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(developmentAdminFrontendRoot),
+            RequestPath = "/admin-v2",
+            OnPrepareResponse = context =>
+            {
+                context.Context.Response.Headers.CacheControl = context.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                    ? "no-store"
+                    : context.Context.Request.Path.StartsWithSegments("/admin-v2/assets")
+                        ? "public,max-age=31536000,immutable"
+                        : "public,max-age=86400";
+            }
+        });
+    }
     app.UseCors("Default");
     app.UseAuthentication();
     app.UseMiddleware<UiCsrfMiddleware>();
@@ -425,6 +479,13 @@ try
     app.MapGet("/admin", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "admin.html"),
         "text/html; charset=utf-8"));
+    app.MapFallback("/admin-v2/{*path:nonfile}", () =>
+    {
+        IResult result = adminFrontendRoot is not null
+            ? Results.File(Path.Combine(adminFrontendRoot, "index.html"), "text/html; charset=utf-8")
+            : Results.NotFound();
+        return result;
+    });
     app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
     var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
     if (!string.IsNullOrWhiteSpace(readinessHost))

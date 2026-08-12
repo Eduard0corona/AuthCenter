@@ -22,6 +22,7 @@ feature parity with a full Identity-as-a-Service platform.
 ## Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10)
+- Node.js 24 (required to build the administrative SPA)
 - SQL Server (LocalDB, Express, or full)
 - (Optional) Google OAuth 2.0 Client ID for Google login
 
@@ -63,6 +64,22 @@ dotnet run --project src/AuthCenter.Api
 ```
 
 Swagger UI: `https://localhost:7001/swagger`
+
+### Administrative frontend
+
+The React/TypeScript console is developed independently and published together with the API:
+
+```powershell
+cd src/AuthCenter.Admin
+npm ci
+npm run dev
+```
+
+The development server exposes `/admin-v2/` and proxies `/ui-api` to the local API. Before a
+change is submitted, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:e2e`, and
+`npm run build`. A normal `dotnet publish` performs a reproducible `npm ci` and frontend build;
+CI may set `SkipAdminFrontendBuild=true` only after producing the same assets in its quality gate.
+The existing `/admin` console remains available during the progressive route migration.
 
 ### Running with Docker Compose
 
@@ -188,6 +205,7 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 | `/login` | Hosted password, MFA, passkey and OAuth consent flow with application branding |
 | `/portal` | Self-service sessions, trusted devices, passkeys, linked identities and consent grants |
 | `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
+| `/admin-v2/` | React administrative console under progressive migration |
 
 These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
 written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
