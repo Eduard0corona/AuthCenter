@@ -121,6 +121,79 @@ test("shell and users route are keyboard-visible and axe-clean", async ({ page }
   expect(accessibility.violations).toEqual([]);
 });
 
+test("persists user ordering in the URL and server query", async ({ page }) => {
+  let requestedUrl = "";
+  await page.unroute("**/api/users?**");
+  await page.route("**/api/users?**", async (route) => {
+    requestedUrl = route.request().url();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 } }) });
+  });
+
+  await page.goto("/admin-v2/users");
+  await page.getByLabel("Orden").selectOption("createdAt-desc");
+  await expect(page).toHaveURL(/sort=createdAt-desc/);
+  await expect.poll(() => requestedUrl).toContain("sortBy=createdAt");
+  expect(requestedUrl).toContain("sortDirection=desc");
+});
+
+test("creates a local user with a generated temporary password", async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await page.route("**/api/users", async (route) => {
+    payload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...userDetail, ...payload, id: "created-user-1", roles: ["Operator"], applications: [application.code] } }) });
+  });
+
+  await page.goto("/admin-v2/users/new");
+  await page.getByLabel("Nombre completo").fill("Katherine Johnson");
+  await page.getByLabel("Correo").fill("KATHERINE@example.test");
+  await page.getByRole("button", { name: "Generar contraseña segura" }).click();
+  await expect(page.getByLabel("Contraseña temporal")).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Mostrar contraseña" }).click();
+  await expect(page.getByLabel("Contraseña temporal")).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Ocultar contraseña" }).click();
+  await page.getByRole("checkbox", { name: "Conceder acceso a una aplicación ahora" }).check();
+  await page.getByRole("combobox", { name: /Aplicación/ }).selectOption(applicationId);
+  await page.getByRole("group", { name: /Roles directos opcionales/ }).getByRole("checkbox", { name: /Operator/ }).check();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Crear usuario" }).click();
+
+  await expect(page.getByRole("status")).toContainText("reemplazar la contraseña temporal");
+  expect(payload).toMatchObject({
+    fullName: "Katherine Johnson",
+    email: "katherine@example.test",
+    isTemporaryPassword: true,
+    grantApplicationAccess: true,
+    applicationSystemId: applicationId,
+    roleIds: [roleId]
+  });
+  expect(String((payload as unknown as Record<string, unknown>)["password"])).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).{12,}$/);
+});
+
+test("invites a user without exposing an invitation token", async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await page.route("**/api/users/invitations", async (route) => {
+    payload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...userDetail, ...payload, id: "invited-user-1", hasLocalPassword: false, applicationAccesses: [] } }) });
+  });
+
+  await page.goto("/admin-v2/users/invite");
+  await page.getByLabel("Nombre completo").fill("Dorothy Vaughan");
+  await page.getByLabel("Correo").fill("dorothy@example.test");
+  await page.getByRole("combobox", { name: /Aplicación/ }).selectOption(applicationId);
+  await page.getByRole("checkbox", { name: "Conceder acceso activo inmediatamente" }).uncheck();
+  await page.getByRole("button", { name: "Enviar invitación" }).click();
+
+  await expect(page.getByRole("status")).toContainText("sin exponer su token");
+  expect(payload).toEqual({
+    fullName: "Dorothy Vaughan",
+    email: "dorothy@example.test",
+    applicationSystemId: applicationId,
+    roleIds: [],
+    grantActiveAccess: false
+  });
+  expect(JSON.stringify(payload)).not.toMatch(/password|token|secret/i);
+});
+
 test("application detail preserves the complete branding contract", async ({ page }) => {
   let brandingPayload: Record<string, unknown> | null = null;
   await page.route(`**/api/applications/${applicationId}/branding`, async (route) => {

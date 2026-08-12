@@ -25,6 +25,13 @@ public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
                 .Matches("[0-9]").WithMessage("Password must contain at least one digit.");
         });
 
+        When(x => x.IsTemporaryPassword, () =>
+        {
+            RuleFor(x => x.Password)
+                .NotEmpty().WithMessage("A temporary password is required when IsTemporaryPassword is true.")
+                .MinimumLength(12).WithMessage("A temporary password must be at least 12 characters.");
+        });
+
         When(x => x.GrantApplicationAccess, () =>
         {
             RuleFor(x => x.ApplicationSystemId)
