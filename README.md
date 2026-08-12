@@ -352,8 +352,10 @@ by default and registration rejects lifetimes above one hour. See
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/users` | List all users |
+| GET | `/api/users/{id}` | Get identity, direct/inherited applications and roles, and group sources |
 | POST | `/api/users` | Create user administratively |
 | PUT | `/api/users/{id}` | Update user profile fields |
+| PUT | `/api/users/{id}/access` | Atomically replace direct applications and roles and revoke sessions |
 | POST | `/api/users/invitations` | Invite a user to an application |
 | POST | `/api/users/{id}/applications/{appId}` | Grant application access |
 | PATCH | `/api/users/{id}/applications/{appId}/approve` | Approve pending application access |
@@ -362,6 +364,12 @@ by default and registration rejects lifetimes above one hour. See
 | DELETE | `/api/users/{id}/roles/{roleId}` | Remove role |
 | PATCH | `/api/users/{id}/activate` | Activate user |
 | PATCH | `/api/users/{id}/deactivate` | Deactivate user |
+| POST | `/api/users/{id}/force-password-change` | Require a password change and revoke sessions |
+| DELETE | `/api/users/{id}/mfa` | Reset MFA with a single-use `admin.mfa.reset` reauthentication proof |
+| DELETE | `/api/users/{id}` | Anonymize a user with a single-use `admin.user.delete` reauthentication proof |
+
+System-role changes require an effective direct `SuperAdmin`. The final effective `SuperAdmin`
+cannot be deactivated, anonymized, or stripped of the direct AuthCenter application/role pair.
 
 ### Directory groups
 

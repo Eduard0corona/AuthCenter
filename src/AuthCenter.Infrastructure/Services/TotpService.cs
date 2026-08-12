@@ -242,6 +242,7 @@ public class TotpService : IMfaService
 
         _db.UserMfaCredentials.Remove(credential);
         await _db.SaveChangesAsync(ct);
+        await _transientState.RemoveAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), ct);
         await _auditService.LogAsync("MFA_ADMIN_RESET", userId, ct: ct);
 
         return OperationResult.Success();

@@ -14,6 +14,7 @@ public interface IUserAccessService
     Task<OperationResult<UserDto>> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default);
     Task<OperationResult<UserDto>> InviteUserAsync(InviteUserRequest request, CancellationToken ct = default);
     Task<OperationResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default);
+    Task<OperationResult<UserDto>> SetDirectAccessAsync(Guid userId, SetUserDirectAccessRequest request, CancellationToken ct = default);
     Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default);
     Task<OperationResult> ApproveApplicationAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
     Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);

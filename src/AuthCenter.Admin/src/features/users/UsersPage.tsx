@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
 import type { PagedResult, UserSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
@@ -81,7 +81,7 @@ export default function UsersPage() {
               <td><StatusBadge active={user.isActive} /></td>
               <td>{user.roles.length > 0 ? user.roles.slice(0, 2).map((role) => <span className="tag" key={role}>{role}</span>) : <span className="muted">Sin roles</span>}</td>
               <td>{formatDate(user.lastLoginAt)}</td>
-              <td className="table-action">{canWrite ? <button className={`button button--small ${user.isActive ? "button--danger-quiet" : "button--secondary"}`} type="button" onClick={() => setTarget(user)}>{user.isActive ? "Desactivar" : "Activar"}</button> : <span className="muted">Sólo lectura</span>}</td>
+              <td className="table-action"><span className="button-group"><Link className="button button--small button--secondary" to={`/users/${user.id}`}>{canWrite ? "Administrar" : "Consultar"}</Link>{canWrite ? <button className={`button button--small ${user.isActive ? "button--danger-quiet" : "button--secondary"}`} type="button" onClick={() => setTarget(user)}>{user.isActive ? "Desactivar" : "Activar"}</button> : null}</span></td>
             </tr>)}
           </tbody></table></div>
           <Pagination page={users.data.page} pageSize={users.data.pageSize} totalCount={users.data.totalCount} totalPages={users.data.totalPages} onPageChange={(value) => updateParam("page", String(value))} onPageSizeChange={(value) => updateParam("pageSize", String(value))} />

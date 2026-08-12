@@ -35,11 +35,35 @@ export interface UserSummary {
   pictureUrl: string | null;
   isActive: boolean;
   isExternalUser: boolean;
+  hasLocalPassword: boolean;
+  mustChangePassword: boolean;
+  mfaEnabled: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   roles: string[];
   applications: string[];
+  applicationAccesses: UserApplicationAccess[];
+  applicationAssignments: UserApplicationAssignment[];
+  roleAssignments: UserRoleAssignment[];
+  groupMemberships: UserGroupMembership[];
 }
+
+export interface UserApplicationAccess {
+  applicationId: string;
+  applicationCode: string;
+  applicationName: string;
+  isActive: boolean;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+export interface InheritedAccessSource { groupId: string; groupName: string; isActive: boolean; }
+export interface UserApplicationAssignment { applicationId: string; applicationCode: string; applicationName: string; isApplicationActive: boolean; isDirect: boolean; directAccessStatus: "Active" | "Pending" | "Revoked" | null; isEffective: boolean; inheritedFromGroups: InheritedAccessSource[]; }
+export interface UserRoleAssignment { roleId: string; roleName: string; applicationId: string | null; applicationCode: string | null; isRoleActive: boolean; isSystemRole: boolean; isDirect: boolean; isEffective: boolean; inheritedFromGroups: InheritedAccessSource[]; }
+export interface UserGroupMembership { groupId: string; groupName: string; isGroupActive: boolean; addedAt: string; }
+export interface UserProfile { userId: string; isValid: boolean; missingRequiredAttributes: string[]; attributes: UserProfileAttributeValue[]; }
+export interface UserProfileAttributeValue { key: string; value: string | number | boolean; isDefault: boolean; }
+export interface ProfileAttributeDefinition { id: string; key: string; displayName: string; description: string | null; dataType: "String" | "Integer" | "Decimal" | "Boolean" | "Date" | "DateTime"; isRequired: boolean; isActive: boolean; defaultValue: string | number | boolean | null; minLength: number | null; maxLength: number | null; minimumNumber: number | null; maximumNumber: number | null; validationPattern: string | null; allowedValues: Array<string | number | boolean>; createdAt: string; updatedAt: string | null; }
 
 export interface ApplicationBranding {
   applicationCode: string;
