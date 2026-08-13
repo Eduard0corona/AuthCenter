@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-const applicationId = "11111111-1111-1111-1111-111111111111";
+const applicationId = "11111111-1111-4111-8111-111111111111";
 const roleId = "22222222-2222-4222-8222-222222222222";
 const permissionReadId = "33333333-3333-4333-8333-333333333333";
 const permissionWriteId = "44444444-4444-4444-8444-444444444444";
@@ -66,6 +66,25 @@ const userDetail = {
 };
 const profileSchema = [{ id: "66666666-6666-4666-8666-666666666666", key: "department", displayName: "Departamento", description: "Área organizacional", dataType: "String", isRequired: true, isActive: true, defaultValue: "Operaciones", minLength: 2, maxLength: 80, minimumNumber: null, maximumNumber: null, validationPattern: null, allowedValues: ["Operaciones", "Ingeniería"], createdAt: "2026-08-11T00:00:00Z", updatedAt: null }];
 const userProfile = { userId: "user-1", isValid: true, missingRequiredAttributes: [], attributes: [{ key: "department", value: "Operaciones", isDefault: false }] };
+const oauthClient = {
+  id: "77777777-7777-4777-8777-777777777777",
+  applicationSystemId: applicationId,
+  applicationCode: application.code,
+  applicationName: application.name,
+  clientId: "partner_portal",
+  displayName: "Partner Portal",
+  clientType: 0,
+  redirectUris: ["https://partner.example.test/callback"],
+  allowedScopes: ["openid", "profile", "email", "offline_access"],
+  grantTypes: ["authorization_code", "refresh_token"],
+  loginUrl: "https://partner.example.test/login",
+  accessTokenLifetimeSeconds: 900,
+  requirePkce: true,
+  autoConsent: false,
+  isActive: true,
+  createdAt: "2026-08-13T00:00:00Z",
+  updatedAt: null
+};
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/ui-api/session", async (route) => route.fulfill({
@@ -77,7 +96,7 @@ test.beforeEach(async ({ page }) => {
       email: "ada@example.test",
       applications: ["AUTHCENTER"],
       roles: ["Admin"],
-      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ"]
+      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ", "AUTHCENTER_OAUTH_CLIENTS_READ", "AUTHCENTER_OAUTH_CLIENTS_WRITE"]
     }, csrfToken: "e2e-csrf" } })
   }));
   await page.route("**/api/users?**", async (route) => route.fulfill({
@@ -108,6 +127,8 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/users/user-1", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userDetail }) }));
   await page.route("**/api/users/user-1/profile", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userProfile }) }));
   await page.route("**/api/profile-schema", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileSchema }) }));
+  await page.route("**/api/oauth/clients?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [oauthClient], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
+  await page.route(`**/api/oauth/clients/${oauthClient.clientId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: oauthClient }) }));
 });
 
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
@@ -388,4 +409,50 @@ test("requires step-up before resetting another user's MFA", async ({ page }) =>
   await expect(page.getByRole("status")).toContainText("después de verificar tu identidad");
   expect(proofPurpose).toBe("admin.mfa.reset");
   expect(proofHeader).toBe("single-use-proof");
+});
+
+test("creates and rotates a confidential OAuth client with one-time secret reveal", async ({ page }) => {
+  const createdCredential = ["created", "client", "credential"].join("-");
+  const rotatedCredential = ["rotated", "client", "credential"].join("-");
+  let createPayload: Record<string, unknown> | null = null;
+  let proofPurpose = "";
+  let proofHeader = "";
+  await page.route("**/api/oauth/clients", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { client: oauthClient, clientSecret: createdCredential } }) });
+  });
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    proofPurpose = (route.request().postDataJSON() as { purpose: string }).purpose;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "single-use-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+  await page.route(`**/api/oauth/clients/${oauthClient.clientId}/rotate-secret`, async (route) => {
+    proofHeader = route.request().headers()["x-authcenter-reauthentication"] ?? "";
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { clientSecret: rotatedCredential } }) });
+  });
+
+  await page.goto("/admin-v2/oauth-clients/new");
+  await page.getByLabel("Aplicación").selectOption(applicationId);
+  await page.getByLabel("Nombre").fill(oauthClient.displayName);
+  await page.getByLabel("Client ID").fill(oauthClient.clientId);
+  await page.getByLabel("Redirect URIs exactos").fill(oauthClient.redirectUris[0]);
+  await page.getByLabel("Login URL").fill(oauthClient.loginUrl);
+  await page.getByRole("button", { name: "Crear OAuth client" }).click();
+
+  const createdDialog = page.getByRole("dialog");
+  await expect(createdDialog).toContainText(createdCredential);
+  await expect(createdDialog).toContainText(/no podr. volver a mostrar/i);
+  expect(createPayload).toMatchObject({ clientId: oauthClient.clientId, clientType: 0, redirectUris: oauthClient.redirectUris });
+  await createdDialog.getByRole("button", { name: "Ya guardé el secreto" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/oauth-clients/${oauthClient.clientId}$`));
+
+  await page.getByRole("button", { name: "Rotar secreto" }).click();
+  const stepUpDialog = page.getByRole("dialog");
+  await stepUpDialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await stepUpDialog.getByRole("button", { name: "Verificar y rotar" }).click();
+  await expect(page.getByRole("dialog")).toContainText(rotatedCredential);
+  expect(proofPurpose).toBe("admin.oauth-client.rotate-secret");
+  expect(proofHeader).toBe("single-use-proof");
+
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
 });

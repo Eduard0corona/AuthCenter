@@ -88,6 +88,13 @@ first sign-in. Invitations return user metadata only; the invitation token is de
 configured email/outbox path and is never exposed in the administrative response.
 The user directory keeps its selected server-side ordering in the URL for reproducible links.
 
+The OAuth client module is available at `/admin-v2/oauth-clients`. It supports filtered,
+server-paginated administration of exact redirect URIs, grants, scopes and client state. A
+confidential client secret is revealed only after create or rotation, remains in browser memory,
+and must be copied before explicitly closing the dialog. Rotation, deactivation and reactivation
+require a short-lived, purpose-bound, single-use reauthentication proof; the API audits successful
+and rejected operations without recording the credential.
+
 ### Running with Docker Compose
 
 Brings up SQL Server and the API without installing either locally. The API waits for SQL Server

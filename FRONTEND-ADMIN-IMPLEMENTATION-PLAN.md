@@ -1,7 +1,7 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-user-create-invite`, actualizada el
-> 2026-08-12. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
+> Estado del documento: implementacion activa en `feat/admin-oauth-clients`, actualizada el
+> 2026-08-13. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
 > Este documento distingue deliberadamente entre lo que existe, los defectos confirmados, las
@@ -105,6 +105,8 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Bundle actual tras detalle de usuario: el editor se mantiene como chunk diferido de 5.63 KB gzip y el CSS total en 5.09 KB gzip.
 - Entrega de alta e invitacion: 65 pruebas unitarias, 139 de integracion, 13 frontend y 42 escenarios E2E; contraseña temporal generada en memoria, cambio obligatorio en primer acceso, asignacion inicial por aplicacion/rol, invitacion sin exponer tokens y orden estable del listado cubiertos.
 - Bundle actual tras alta e invitacion: el modulo nuevo se mantiene como chunk diferido de 3.44 KB gzip y el CSS total permanece en 5.09 KB gzip.
+- Entrega de OAuth clients: 65 pruebas unitarias, 140 de integracion, 19 frontend y 45 escenarios E2E; CRUD, filtros, redirects exactos, grants/scopes, secretos de un solo uso, step-up y auditoria sin secretos cubiertos.
+- Bundle actual tras OAuth clients: listado y editor permanecen como chunks diferidos de 1.75 KB y 5.03 KB gzip; el CSS total es 5.14 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -429,12 +431,12 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.5 OAuth y provisioning secrets
 
-- [ ] CRUD de OAuth clients, redirects exactos, grants y scopes.
-- [ ] Mostrar client secret solo en respuesta de create/rotate.
-- [ ] Boton de copia con aviso y cierre explicito del secret reveal.
+- [x] CRUD de OAuth clients, redirects exactos, grants y scopes.
+- [x] Mostrar client secret solo en respuesta de create/rotate.
+- [x] Boton de copia con aviso y cierre explicito del secret reveal.
 - [ ] CRUD de provisioning tokens con scopes y expiracion.
-- [ ] Rotacion/revocacion con step-up y auditoria.
-- [ ] No permitir recuperar el valor original de un secreto.
+- [x] Rotacion/revocacion con step-up y auditoria.
+- [x] No permitir recuperar el valor original de un secreto.
 
 ### 10.6 Federacion y lifecycle
 
@@ -538,7 +540,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [ ] Bloqueo del ultimo SuperAdmin.
 - [x] Crear aplicacion y editar branding sin perder URLs.
 - [x] Crear roles/permisos, actualizar matriz RBAC y asignar rol predeterminado valido.
-- [ ] Crear y rotar OAuth client mostrando el secreto una sola vez.
+- [x] Crear y rotar OAuth client mostrando el secreto una sola vez.
 - [ ] Crear draft, simular y publicar politica con step-up.
 - [ ] Crear/verificar hook y reproducir un dead letter.
 - [ ] Filtrar System Log por trace ID.
@@ -594,7 +596,7 @@ El pipeline debe ejecutar, en orden:
 
 ### Fase C: politicas e integraciones
 
-- [ ] OAuth clients.
+- [x] OAuth clients.
 - [ ] Access policies y simulacion.
 - [ ] Federacion OIDC/SAML.
 - [ ] Provisioning tokens y SCIM.
