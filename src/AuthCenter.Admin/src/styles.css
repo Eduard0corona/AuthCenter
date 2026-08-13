@@ -145,7 +145,8 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .candidate-item small { overflow: hidden; color: var(--slate-500); text-overflow: ellipsis; }
 .profile-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
 .profile-summary > div { display: grid; gap: .35rem; padding: .85rem 1rem; border: 1px solid var(--slate-200); border-radius: .65rem; background: var(--white); }
-.profile-summary > div > span:first-child { color: var(--slate-500); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+.profile-summary > div > :first-child { color: var(--slate-500); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
+.profile-summary dd { margin: 0; font-weight: 700; }
 .assignment-list { display: grid; gap: .6rem; }
 .assignment-list h3 { margin: .25rem 0; font-size: .9rem; }
 .assignment-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem; border: 1px solid var(--slate-200); border-radius: .55rem; background: var(--slate-50); }

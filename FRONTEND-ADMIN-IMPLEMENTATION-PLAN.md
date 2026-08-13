@@ -1,6 +1,6 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `agent/complete-admin-backend`, actualizada el
+> Estado del documento: implementacion activa en `agent/admin-provisioning-tokens-ui`, actualizada el
 > 2026-08-13. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
@@ -113,6 +113,11 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
   lifecycle, routing de federacion, dashboard, entregas y exportacion de System Log cuentan con
   contratos administrativos, migracion y pruebas negativas. Una prueba relacional concurrente
   verifica que dos operaciones simultaneas no pueden retirar a los dos ultimos SuperAdmin.
+- Entrega de provisioning tokens: 65 pruebas unitarias, 144 de integracion, 24 frontend y 54
+  escenarios E2E; listado paginado, filtros, scopes SCIM, expiracion acotada, secret reveal de un
+  solo uso, rotacion/revocacion con step-up y ausencia de secretos en metadata cubiertos.
+- Bundle actual tras provisioning tokens: listado y editor permanecen como chunks diferidos de
+  1.66 KB y 3.53 KB gzip; el CSS total es 5.38 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -281,7 +286,7 @@ accesibilidad.
 | Politicas de acceso | Versiones, reglas, publish y simulacion | Ausente | Editor visual, diff, simulacion y explicacion |
 | Federacion | Proveedores OIDC/SAML y routing | Ausente | Catalogo, formularios, metadata y pruebas |
 | Lifecycle | Mappings y reglas dinamicas | Ausente | Listado, edicion, simulacion y estado |
-| SCIM/provisioning | Tokens y endpoints SCIM | Ausente | Tokens, scopes, expiracion y rotacion |
+| SCIM/provisioning | Tokens y endpoints SCIM | Tokens con metadata, scopes, expiracion, rotacion y revocacion | Diagnostico operativo de integraciones SCIM |
 | Event Hooks | Create/verify/delete, deliveries y replay | Solo deliveries/replay | Gestion completa del hook y diagnostico |
 | System Log | Consulta filtrada y correlacion | Primeros 50 eventos | Filtros, detalle, trace, exportacion y deep links |
 | Dashboard | Datos disponibles en multiples fuentes | Tres conteos | Read model operativo y seguridad agregada |
@@ -442,7 +447,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] CRUD de OAuth clients, redirects exactos, grants y scopes.
 - [x] Mostrar client secret solo en respuesta de create/rotate.
 - [x] Boton de copia con aviso y cierre explicito del secret reveal.
-- [ ] CRUD de provisioning tokens con scopes y expiracion.
+- [x] CRUD de provisioning tokens con scopes y expiracion.
 - [x] Rotacion/revocacion con step-up y auditoria.
 - [x] No permitir recuperar el valor original de un secreto.
 
@@ -549,6 +554,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] Crear aplicacion y editar branding sin perder URLs.
 - [x] Crear roles/permisos, actualizar matriz RBAC y asignar rol predeterminado valido.
 - [x] Crear y rotar OAuth client mostrando el secreto una sola vez.
+- [x] Crear, filtrar, rotar y revocar provisioning tokens con secret reveal y step-up.
 - [x] Crear draft, simular y publicar politica con step-up.
 - [ ] Crear/verificar hook y reproducir un dead letter.
 - [ ] Filtrar System Log por trace ID.
