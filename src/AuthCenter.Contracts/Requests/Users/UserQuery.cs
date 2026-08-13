@@ -8,4 +8,6 @@ public class UserQuery : PaginationQuery
     public Guid? ApplicationSystemId { get; init; }
     public bool? IsActive { get; init; }
     public bool? HasPendingAccess { get; init; }
+    public string SortBy { get; init; } = "fullName";
+    public string SortDirection { get; init; } = "asc";
 }

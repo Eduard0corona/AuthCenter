@@ -81,6 +81,13 @@ change is submitted, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 CI may set `SkipAdminFrontendBuild=true` only after producing the same assets in its quality gate.
 The existing `/admin` console remains available during the progressive route migration.
 
+The directory module supports `/admin-v2/users/new` for local identities and
+`/admin-v2/users/invite` for email invitations. Local creation generates the temporary password in
+browser memory, sends it only in the create request, and marks it for mandatory replacement at the
+first sign-in. Invitations return user metadata only; the invitation token is delivered by the
+configured email/outbox path and is never exposed in the administrative response.
+The user directory keeps its selected server-side ordering in the URL for reproducible links.
+
 ### Running with Docker Compose
 
 Brings up SQL Server and the API without installing either locally. The API waits for SQL Server

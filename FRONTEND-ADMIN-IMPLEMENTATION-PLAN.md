@@ -1,7 +1,7 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-frontend-foundation`, actualizada el
-> 2026-08-11. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
+> Estado del documento: implementacion activa en `feat/admin-user-create-invite`, actualizada el
+> 2026-08-12. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
 > Este documento distingue deliberadamente entre lo que existe, los defectos confirmados, las
@@ -103,6 +103,8 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Bundle actual tras grupos: 24 chunks JavaScript con carga diferida (el editor de grupos pesa 4.13 KB gzip) y 4.89 KB gzip de CSS.
 - Entrega de detalle de usuario: 65 pruebas unitarias, 135 de integracion, 11 frontend y 33 escenarios E2E; origen directo/heredado, perfil universal, acceso atomico, step-up administrativo e invariante del ultimo `SuperAdmin` cubiertos.
 - Bundle actual tras detalle de usuario: el editor se mantiene como chunk diferido de 5.63 KB gzip y el CSS total en 5.09 KB gzip.
+- Entrega de alta e invitacion: 65 pruebas unitarias, 139 de integracion, 13 frontend y 42 escenarios E2E; contraseña temporal generada en memoria, cambio obligatorio en primer acceso, asignacion inicial por aplicacion/rol, invitacion sin exponer tokens y orden estable del listado cubiertos.
+- Bundle actual tras alta e invitacion: el modulo nuevo se mantiene como chunk diferido de 3.44 KB gzip y el CSS total permanece en 5.09 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -384,9 +386,9 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.1 Usuarios
 
-- [ ] Tabla con busqueda, filtros, orden, paginacion y estado; falta orden seleccionable.
-- [ ] Crear usuario con password temporal segura.
-- [ ] Invitar usuario sin exponer tokens de invitacion.
+- [x] Tabla con busqueda, filtros, orden estable y seleccionable, paginacion y estado.
+- [x] Crear usuario con password temporal segura.
+- [x] Invitar usuario sin exponer tokens de invitacion.
 - [x] Vista de detalle con perfil universal, roles, grupos y aplicaciones.
 - [x] Aprobar o revocar acceso pendiente.
 - [x] Asignar y retirar aplicaciones y roles directos mostrando cada origen heredado.
@@ -499,8 +501,9 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 - [x] Code splitting por ruta.
 - [x] Assets con hash y compresion Brotli/Gzip.
-- [x] Paginacion y filtros del lado servidor en usuarios, aplicaciones y System Log; el ordenamiento
-  queda pendiente hasta que los contratos lo publiquen.
+- [x] Paginacion y filtros del lado servidor en usuarios, aplicaciones y System Log; usuarios ya
+  publica ordenamiento por nombre, correo, alta y ultimo acceso, mientras aplicaciones y System Log
+  conservan su orden fijo hasta ampliar sus contratos.
 - [x] Debounce y `AbortController` para busquedas.
 - [x] Invalidacion selectiva despues de mutaciones.
 - [ ] Virtualizacion solo cuando el diseno realmente lo requiera.
@@ -581,7 +584,7 @@ El pipeline debe ejecutar, en orden:
 
 ### Fase B: directorio y aplicaciones
 
-- [ ] Usuarios e invitaciones; detalle y operaciones estan listos, faltan formularios de alta/invitacion.
+- [x] Usuarios e invitaciones, incluyendo contraseña temporal de cambio obligatorio e invitacion sin exponer tokens.
 - [x] Aplicaciones y branding completo.
 - [x] Roles, permisos y matriz de asignaciones; asignaciones a usuarios/grupos siguen en sus historias correspondientes.
 - [x] Grupos y membresias, incluyendo preview de impacto, acceso heredado atomico y revocacion de sesiones.

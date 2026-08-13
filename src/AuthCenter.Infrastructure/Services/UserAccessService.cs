@@ -88,7 +88,18 @@ public class UserAccessService : IUserAccessService
                 : query.Where(u => u.ApplicationAccesses.All(a => a.IsActive));
         }
 
-        query = query.OrderBy(u => u.FullName);
+        var descending = string.Equals(pagination.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
+        query = pagination.SortBy.Trim().ToLowerInvariant() switch
+        {
+            "email" when descending => query.OrderByDescending(user => user.Email).ThenBy(user => user.Id),
+            "email" => query.OrderBy(user => user.Email).ThenBy(user => user.Id),
+            "createdat" when descending => query.OrderByDescending(user => user.CreatedAt).ThenBy(user => user.Id),
+            "createdat" => query.OrderBy(user => user.CreatedAt).ThenBy(user => user.Id),
+            "lastloginat" when descending => query.OrderByDescending(user => user.LastLoginAt).ThenBy(user => user.Id),
+            "lastloginat" => query.OrderBy(user => user.LastLoginAt).ThenBy(user => user.Id),
+            _ when descending => query.OrderByDescending(user => user.FullName).ThenBy(user => user.Id),
+            _ => query.OrderBy(user => user.FullName).ThenBy(user => user.Id)
+        };
 
         var totalCount = await query.CountAsync(ct);
         var users = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
@@ -131,6 +142,10 @@ public class UserAccessService : IUserAccessService
     {
         if (await _userManager.FindByEmailAsync(request.Email) is not null)
             return OperationResult<UserDto>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
+        if (request.IsTemporaryPassword && string.IsNullOrWhiteSpace(request.Password))
+            return OperationResult<UserDto>.Failure("TEMPORARY_PASSWORD_REQUIRED", "A temporary password is required.");
+        if (request.IsTemporaryPassword && request.Password!.Length < 12)
+            return OperationResult<UserDto>.Failure("TEMPORARY_PASSWORD_WEAK", "A temporary password must be at least 12 characters.");
 
         // Validate all pre-conditions before writing anything
         if (request.GrantApplicationAccess && !request.ApplicationSystemId.HasValue)
@@ -170,6 +185,7 @@ public class UserAccessService : IUserAccessService
                 UserName = request.Email,
                 EmailConfirmed = true,
                 HasLocalPassword = !string.IsNullOrWhiteSpace(request.Password),
+                MustChangePassword = request.IsTemporaryPassword && !string.IsNullOrWhiteSpace(request.Password),
                 IsActive = true,
                 CreatedAt = now
             };
@@ -196,7 +212,7 @@ public class UserAccessService : IUserAccessService
             if (!roleResult.IsSuccess)
                 return OperationResult<UserDto>.Failure(roleResult.ErrorCode, roleResult.Message);
 
-            AddAudit("USER_CREATED", user.Id, new { request.ApplicationSystemId, roleCount = request.RoleIds.Count });
+            AddAudit("USER_CREATED", user.Id, new { request.ApplicationSystemId, roleCount = request.RoleIds.Count, request.IsTemporaryPassword });
             await _db.SaveChangesAsync(ct);
             var response = OperationResult<UserDto>.Success((await GetUserByIdAsync(user.Id, ct))!);
             if (transaction is not null)

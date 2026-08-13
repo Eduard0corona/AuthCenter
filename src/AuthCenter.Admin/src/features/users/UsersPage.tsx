@@ -20,6 +20,8 @@ export default function UsersPage() {
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = [20, 50, 100].includes(Number(params.get("pageSize"))) ? Number(params.get("pageSize")) : 20;
   const activeFilter = params.get("active") ?? "";
+  const sort = ["name-asc", "name-desc", "email-asc", "email-desc", "createdAt-desc", "createdAt-asc", "lastLoginAt-desc", "lastLoginAt-asc"].includes(params.get("sort") ?? "") ? params.get("sort")! : "name-asc";
+  const [sortBy, sortDirection] = sort.split("-");
   const [search, setSearch] = useState(params.get("search") ?? "");
   const debouncedSearch = useDebouncedValue(search);
   const [target, setTarget] = useState<UserSummary | null>(null);
@@ -35,12 +37,14 @@ export default function UsersPage() {
   }, [debouncedSearch, setParams]);
 
   const users = useQuery({
-    queryKey: ["users", page, pageSize, params.get("search") ?? "", activeFilter],
+    queryKey: ["users", page, pageSize, params.get("search") ?? "", activeFilter, sort],
     queryFn: ({ signal }) => apiRequest<PagedResult<UserSummary>>(`/api/users?${buildQuery({
       page,
       pageSize,
       search: params.get("search"),
-      isActive: activeFilter === "" ? null : activeFilter === "true"
+      isActive: activeFilter === "" ? null : activeFilter === "true",
+      sortBy: sortBy === "name" ? "fullName" : sortBy,
+      sortDirection
     })}`, { signal })
   });
   const changeStatus = useMutation({
@@ -63,10 +67,11 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Directorio" title="Usuarios" description="Consulta y administra el estado del directorio sin descargarlo completo." />
+      <PageHeader eyebrow="Directorio" title="Usuarios" description="Consulta y administra el estado del directorio sin descargarlo completo." actions={canWrite ? <span className="button-group"><Link className="button button--secondary" to="/users/invite">Invitar usuario</Link><Link className="button" to="/users/new">Crear usuario</Link></span> : null} />
       <section className="toolbar" aria-label="Filtros de usuarios">
         <label className="field field--search"><span>Buscar</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre o correo" /></label>
         <label className="field"><span>Estado</span><select value={activeFilter} onChange={(event) => updateParam("active", event.target.value)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Inactivos</option></select></label>
+        <label className="field"><span>Orden</span><select value={sort} onChange={(event) => updateParam("sort", event.target.value)}><option value="name-asc">Nombre A–Z</option><option value="name-desc">Nombre Z–A</option><option value="email-asc">Correo A–Z</option><option value="email-desc">Correo Z–A</option><option value="createdAt-desc">Más recientes</option><option value="createdAt-asc">Más antiguos</option><option value="lastLoginAt-desc">Acceso más reciente</option><option value="lastLoginAt-asc">Acceso más antiguo</option></select></label>
       </section>
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       {changeStatus.error ? <p className="alert alert--error" role="alert">{errorMessage(changeStatus.error)}</p> : null}
