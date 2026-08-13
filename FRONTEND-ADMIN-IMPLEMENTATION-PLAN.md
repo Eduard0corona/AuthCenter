@@ -1,6 +1,6 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-access-policies`, actualizada el
+> Estado del documento: implementacion activa en `agent/complete-admin-backend`, actualizada el
 > 2026-08-13. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
@@ -109,6 +109,10 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Bundle actual tras OAuth clients: listado y editor permanecen como chunks diferidos de 1.75 KB y 5.03 KB gzip; el CSS total es 5.14 KB gzip.
 - Entrega de politicas de acceso: 65 pruebas unitarias, 140 de integracion, 22 frontend y 48 escenarios E2E; drafts/versiones inmutables, reglas ordenadas, condiciones completas, simulacion explicable, diff, fallback de `AUTHCENTER`, step-up y revocacion de sesiones cubiertos.
 - Bundle actual tras politicas: listado y editor permanecen como chunks diferidos de 0.97 KB y 6.49 KB gzip; el CSS total es 5.37 KB gzip.
+- Cierre de dependencias backend: 65 pruebas unitarias y 144 de integracion; provisioning, hooks,
+  lifecycle, routing de federacion, dashboard, entregas y exportacion de System Log cuentan con
+  contratos administrativos, migracion y pruebas negativas. Una prueba relacional concurrente
+  verifica que dos operaciones simultaneas no pueden retirar a los dos ultimos SuperAdmin.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -145,8 +149,8 @@ puede borrar esos valores existentes.
 
 #### BE-001: no existe invariante del ultimo SuperAdmin
 
-**Estado:** corregido para asignaciones directas y operaciones administrativas; pendiente prueba
-concurrente multioperacion.
+**Estado:** corregido para asignaciones directas y operaciones administrativas, incluida
+serializacion relacional multioperacion mediante un application lock transaccional.
 
 El backend permite desactivar o eliminar usuarios y retirar roles sin comprobar si el objetivo es
 el operador actual o el ultimo administrador efectivo.
@@ -155,37 +159,39 @@ el operador actual o el ultimo administrador efectivo.
 - [x] Impedir retirar el ultimo rol o acceso que conserva administracion efectiva.
 - [x] Requerir asignacion directa y atribuible de `SuperAdmin`; el rol no puede heredarse por grupos.
 - [x] Devolver `LAST_SUPER_ADMIN` y `SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN` como codigos estables.
-- [ ] Agregar pruebas concurrentes para evitar que dos operaciones eliminen simultaneamente a los
+- [x] Agregar pruebas concurrentes para evitar que dos operaciones eliminen simultaneamente a los
   dos ultimos administradores.
 - [x] Mostrar en UI el error accionable retornado por la API.
 
 #### BE-002: auditoria administrativa incompleta
 
-**Estado:** pendiente.
+**Estado:** corregido para las mutaciones administrativas soportadas; las escrituras exitosas y
+rechazadas incluyen actor, objetivo, aplicacion, resultado y trace sin capturar cuerpos.
 
 Los servicios de usuarios, aplicaciones, roles y permisos no integran de forma consistente
 `IAuditService`. Acciones realizadas desde la consola pueden no aparecer en System Log.
 
 - [x] Auditar altas, ediciones, invitaciones, accesos, roles, activaciones, desactivaciones y eliminaciones de usuarios.
-- [ ] Auditar grants/revokes de aplicaciones, roles y permisos.
-- [ ] Auditar cambios de configuracion y branding de aplicaciones.
-- [ ] Registrar actor, objetivo, aplicacion, resultado, trace ID y metadata no sensible.
-- [ ] No registrar passwords, tokens, secretos, assertion payloads ni PII innecesaria.
-- [ ] Probar eventos positivos, fallidos y rechazados.
+- [x] Auditar grants/revokes de aplicaciones, roles y permisos.
+- [x] Auditar cambios de configuracion y branding de aplicaciones.
+- [x] Registrar actor, objetivo, aplicacion, resultado, trace ID y metadata no sensible.
+- [x] No registrar passwords, tokens, secretos, assertion payloads ni PII innecesaria.
+- [x] Probar eventos positivos, fallidos y rechazados.
 
 #### SEC-001: operaciones sensibles sin step-up administrativo
 
-**Estado:** pendiente.
+**Estado:** backend corregido; los modulos frontend futuros de federacion y provisioning deberan
+reutilizar el dialog existente al implementar sus rutas.
 
 La autorizacion por permiso es correcta, pero las operaciones de mayor impacto no requieren
 reautenticacion reciente.
 
-- [ ] Definir una matriz de operaciones que requieren password/passkey step-up.
-- [ ] Exigir prueba de reautenticacion en el backend, no solo en el componente visual.
-- [ ] Incluir como minimo: eliminar usuario, reset MFA, retirar SuperAdmin, rotar secretos,
+- [x] Definir una matriz de operaciones que requieren password/passkey step-up.
+- [x] Exigir prueba de reautenticacion en el backend, no solo en el componente visual.
+- [x] Incluir como minimo: eliminar usuario, reset MFA, retirar SuperAdmin, rotar secretos,
   publicar politicas, cambiar federacion y revocar provisioning tokens.
-- [ ] Usar pruebas de un solo uso, con proposito y expiracion corta.
-- [ ] Mostrar el dialogo de step-up sin almacenar la prueba en storage persistente.
+- [x] Usar pruebas de un solo uso, con proposito y expiracion corta.
+- [x] Mostrar el dialogo de step-up sin almacenar la prueba en storage persistente.
 
 ### 6.2 P1: funcionalidad y experiencia
 
@@ -246,7 +252,7 @@ operador no visite esas secciones.
 - [x] Cargar cada modulo al navegar hacia el.
 - [x] Cancelar requests obsoletos.
 - [x] Cachear server state con invalidacion por recurso.
-- [ ] Usar paginacion en entregas en lugar de un `Take(200)` fijo.
+- [x] Usar paginacion en entregas en lugar de un `Take(200)` fijo.
 - [x] Evitar recargar listados completos despues de cada mutacion.
 
 #### FE-008: evidencia de calidad insuficiente
@@ -284,25 +290,25 @@ accesibilidad.
 
 ### 8.1 APIs que faltan o son incompletas
 
-- [ ] Provisioning tokens: listar metadata no sensible, estado, scopes y expiracion.
-- [ ] Event Hooks: listar, obtener detalle y actualizar hooks.
-- [ ] Profile mappings: listar, obtener, actualizar, validar y simular.
-- [ ] Group rules: listar, obtener, actualizar y ejecutar preview.
-- [ ] Federation routing rules: listar, actualizar, ordenar, activar y eliminar.
-- [ ] Dashboard: endpoint agregado para indicadores operativos y de postura de seguridad.
-- [ ] Event deliveries: paginacion, filtros por hook, estado, evento y rango de fecha.
-- [ ] System Log: exportacion asincrona o paginada con limites y auditoria.
-- [ ] Errores: correlation/trace ID publico para soporte sin exponer detalles internos.
+- [x] Provisioning tokens: listar metadata no sensible, estado, scopes y expiracion.
+- [x] Event Hooks: listar, obtener detalle y actualizar hooks.
+- [x] Profile mappings: listar, obtener, actualizar, validar y simular.
+- [x] Group rules: listar, obtener, actualizar y ejecutar preview.
+- [x] Federation routing rules: listar, actualizar, ordenar, activar y eliminar.
+- [x] Dashboard: endpoint agregado para indicadores operativos y de postura de seguridad.
+- [x] Event deliveries: paginacion, filtros por hook, estado, evento y rango de fecha.
+- [x] System Log: exportacion asincrona o paginada con limites y auditoria.
+- [x] Errores: correlation/trace ID publico para soporte sin exponer detalles internos.
 
 ### 8.2 Contratos transversales
 
-- [ ] Concurrencia optimista para ediciones administrativas (`ETag`/`If-Match` o version explicita).
-- [ ] Codigos de error estables y catalogados.
-- [ ] Idempotency keys para mutaciones que puedan reintentarse.
-- [ ] Respuestas paginadas consistentes.
-- [ ] Ordenamiento y filtros declarados en OpenAPI.
-- [ ] Permisos requeridos publicados por operacion.
-- [ ] Auditoria y reautenticacion integradas de forma uniforme.
+- [x] Concurrencia optimista para ediciones administrativas (`ETag`/`If-Match` o version explicita).
+- [x] Codigos de error estables y catalogados.
+- [x] Idempotency keys para mutaciones que puedan reintentarse.
+- [x] Respuestas paginadas consistentes.
+- [x] Ordenamiento y filtros declarados en OpenAPI.
+- [x] Permisos requeridos publicados por operacion.
+- [x] Auditoria y reautenticacion integradas de forma uniforme.
 
 ## 9. Arquitectura objetivo
 
@@ -568,7 +574,7 @@ El pipeline debe ejecutar, en orden:
 
 - [x] Fallar el deploy si HTML referencia un asset inexistente.
 - [x] Confirmar `Content-Type`, CSP, compresion y politica de cache post-deploy.
-- [ ] Publicar manifest de version/commit sin secretos.
+- [x] Publicar manifest de version/commit sin secretos mediante `GET /api/version` y `no-store`.
 - [x] Mantener rollback a un artefacto frontend-backend compatible y conservar `/admin` durante la
   migracion.
 
@@ -577,7 +583,7 @@ El pipeline debe ejecutar, en orden:
 ### Fase A: seguridad y fundacion
 
 - [ ] Corregir FE-001 a FE-008.
-- [ ] Implementar BE-001, BE-002 y SEC-001.
+- [x] Implementar BE-001, BE-002 y SEC-001.
 - [x] Registrar ADR de stack frontend.
 - [x] Crear scaffold TypeScript, design system y app shell.
 - [ ] Implementar cliente OpenAPI, sesion, CSRF y errores.
@@ -652,9 +658,10 @@ Una historia o modulo solo puede marcarse listo cuando:
 - [x] Aprobar React/TypeScript/Vite o registrar una alternativa en ADR.
 - [x] Decidir migracion progresiva bajo `/admin-v2` o reemplazo por modulo.
 - [ ] Definir entorno E2E y estrategia de datos de prueba.
-- [ ] Aprobar matriz de step-up administrativo.
+- [x] Aprobar matriz de step-up administrativo.
 - [ ] Aprobar budgets de rendimiento y navegadores soportados.
-- [ ] Definir retencion y mecanismo de exportacion de System Log.
+- [x] Definir retencion y mecanismo de exportacion de System Log: 365 dias configurables y CSV
+  paginado de hasta 100 eventos por solicitud, con filtros y auditoria de cada exportacion.
 - [ ] Decidir si la administracion de custom domains entra en una fase posterior.
 
 ## 20. Criterio para cerrar la Fase 5 del roadmap

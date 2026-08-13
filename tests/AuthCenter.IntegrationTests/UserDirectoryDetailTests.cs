@@ -106,14 +106,18 @@ public sealed class UserDirectoryDetailTests : IClassFixture<AuthCenterWebApplic
         var applicationId = await db.ApplicationSystems.Where(application => application.Code == DomainConstants.SystemCodes.AuthCenter).Select(application => application.Id).SingleAsync();
         var roleId = await db.Roles.Where(role => role.DisplayName == DomainConstants.Roles.SuperAdmin).Select(role => role.Id).SingleAsync();
 
+        await admin.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.super-admin.remove");
         var clear = await admin.PutAsJsonAsync($"/api/users/{adminId}/access", new SetUserDirectAccessRequest());
         Assert.Equal(HttpStatusCode.BadRequest, clear.StatusCode);
         Assert.Equal("LAST_SUPER_ADMIN", (await clear.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
+        await admin.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.super-admin.remove");
         var removeRole = await admin.DeleteAsync($"/api/users/{adminId}/roles/{roleId}");
         Assert.Equal(HttpStatusCode.BadRequest, removeRole.StatusCode);
         Assert.Equal("LAST_SUPER_ADMIN", (await removeRole.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
+        await admin.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.super-admin.remove");
         var deactivate = await admin.PatchAsync($"/api/users/{adminId}/deactivate", null);
         Assert.Equal(HttpStatusCode.BadRequest, deactivate.StatusCode);
+        await admin.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.super-admin.remove");
         var revokeApplication = await admin.DeleteAsync($"/api/users/{adminId}/applications/{applicationId}");
         Assert.Equal(HttpStatusCode.BadRequest, revokeApplication.StatusCode);
     }

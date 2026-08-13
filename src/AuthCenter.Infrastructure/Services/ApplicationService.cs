@@ -19,13 +19,15 @@ public class ApplicationService : IApplicationService
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IMemoryCache _cache;
+    private readonly IAuditService _audit;
     private static readonly TimeSpan AppCacheTtl = TimeSpan.FromMinutes(5);
 
-    public ApplicationService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider, IMemoryCache cache)
+    public ApplicationService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider, IMemoryCache cache, IAuditService audit)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
         _cache = cache;
+        _audit = audit;
     }
 
     public async Task<PagedResult<ApplicationDto>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -102,6 +104,7 @@ public class ApplicationService : IApplicationService
         app.BrandingSettings.TermsUrl = NormalizeUrl(request.TermsUrl);
         app.BrandingSettings.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("APPLICATION_BRANDING_UPDATED", applicationCode: app.Code, entityName: nameof(ApplicationBrandingSettings), entityId: app.BrandingSettings.Id.ToString(), metadata: new { result = "Success", applicationId, links = new { hasLogo = app.BrandingSettings.LogoUrl is not null, hasSupport = app.BrandingSettings.SupportUrl is not null, hasPrivacy = app.BrandingSettings.PrivacyUrl is not null, hasTerms = app.BrandingSettings.TermsUrl is not null } }, ct: ct);
         return OperationResult<ApplicationBrandingDto>.Success(MapBranding(app));
     }
 
@@ -168,6 +171,7 @@ public class ApplicationService : IApplicationService
 
         _db.ApplicationSystems.Add(app);
         await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("APPLICATION_CREATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString() }, ct: ct);
         return OperationResult<ApplicationDto>.Success(MapToDto(app));
     }
 
@@ -210,6 +214,7 @@ public class ApplicationService : IApplicationService
 
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
+        await _audit.LogAsync("APPLICATION_UPDATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString(), request.DefaultRoleId }, ct: ct);
         return OperationResult<ApplicationDto>.Success(MapToDto(app));
     }
 
@@ -221,6 +226,7 @@ public class ApplicationService : IApplicationService
         app.UpdatedAt = _dateTimeProvider.UtcNow;
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
+        await _audit.LogAsync("APPLICATION_ACTIVATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success" }, ct: ct);
         return OperationResult.Success();
     }
 
@@ -254,6 +260,7 @@ public class ApplicationService : IApplicationService
         app.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
+        await _audit.LogAsync("APPLICATION_DEACTIVATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", sessionsRevoked = true }, ct: ct);
         return OperationResult.Success();
     }
 

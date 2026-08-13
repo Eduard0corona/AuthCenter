@@ -1,5 +1,6 @@
 using AuthCenter.Api.Services;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
@@ -55,7 +56,7 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(23, applied.Count);
+            Assert.Equal(24, applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
             Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
             Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
@@ -64,6 +65,7 @@ public sealed class SqlServerHardeningTests
             Assert.Contains("20260811104737_CompleteDeveloperExperiencePhase5", applied);
             Assert.Contains("20260811105540_CompleteOperationalExcellencePhase6", applied);
             Assert.Contains("20260811120003_EnsureFirstPartyApplicationAvailability", applied);
+            Assert.Contains(applied, migration => migration.EndsWith("_CompleteAdminBackendContracts", StringComparison.Ordinal));
 
             var firstPartyApplication = await verifyDb.ApplicationSystems
                 .Include(application => application.RegistrationSettings)
@@ -274,6 +276,41 @@ public sealed class SqlServerHardeningTests
         }
     }
 
+    [Fact]
+    public async Task SuperAdminApplicationLock_SerializesConcurrentRemovalAttempts()
+    {
+        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION"))) return;
+        var connectionString = BuildIsolatedConnectionString(); var options = CreateOptions(connectionString);
+        try
+        {
+            await using (var setup = new AuthCenterDbContext(options))
+            {
+                await setup.Database.MigrateAsync(); var now = DateTime.UtcNow; var appId = await setup.ApplicationSystems.Where(x => x.Code == DomainConstants.SystemCodes.AuthCenter).Select(x => x.Id).SingleAsync(); var roleId = Guid.NewGuid();
+                setup.Roles.Add(new ApplicationRole { Id = roleId, Name = "AUTHCENTER:SuperAdmin", NormalizedName = "AUTHCENTER:SUPERADMIN", DisplayName = DomainConstants.Roles.SuperAdmin, ApplicationSystemId = appId, IsSystemRole = true, IsActive = true, CreatedAt = now });
+                foreach (var userId in new[] { Guid.NewGuid(), Guid.NewGuid() })
+                {
+                    setup.Users.Add(new ApplicationUser { Id = userId, Email = $"{userId:N}@example.com", NormalizedEmail = $"{userId:N}@EXAMPLE.COM", UserName = $"{userId:N}@example.com", NormalizedUserName = $"{userId:N}@EXAMPLE.COM", FullName = "Concurrent admin", IsActive = true, EmailConfirmed = true, CreatedAt = now, SecurityStamp = Guid.NewGuid().ToString("N"), ConcurrencyStamp = Guid.NewGuid().ToString("N") });
+                    setup.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<Guid> { UserId = userId, RoleId = roleId });
+                    setup.UserApplicationAccesses.Add(new UserApplicationAccess { Id = Guid.NewGuid(), UserId = userId, ApplicationSystemId = appId, IsActive = true, CreatedAt = now });
+                }
+                await setup.SaveChangesAsync();
+            }
+            Guid[] targets; Guid app; Guid role;
+            await using (var lookup = new AuthCenterDbContext(options)) { targets = await lookup.Users.Select(x => x.Id).ToArrayAsync(); app = await lookup.ApplicationSystems.Select(x => x.Id).SingleAsync(); role = await lookup.Roles.Select(x => x.Id).SingleAsync(); }
+            async Task<bool> TryDeactivateAsync(Guid target)
+            {
+                await using var db = new AuthCenterDbContext(options); await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+                await SuperAdminInvariantLock.AcquireAsync(db);
+                var effective = await db.Users.CountAsync(user => user.IsActive && db.UserRoles.Any(x => x.UserId == user.Id && x.RoleId == role) && db.UserApplicationAccesses.Any(x => x.UserId == user.Id && x.ApplicationSystemId == app && x.IsActive && x.RevokedAt == null));
+                if (effective <= 1) { await transaction.RollbackAsync(); return false; }
+                var user = await db.Users.SingleAsync(x => x.Id == target); user.IsActive = false; await db.SaveChangesAsync(); await transaction.CommitAsync(); return true;
+            }
+            var results = await Task.WhenAll(targets.Select(TryDeactivateAsync)); Assert.Single(results, x => x); Assert.Single(results, x => !x);
+            await using var verify = new AuthCenterDbContext(options); Assert.Equal(1, await verify.Users.CountAsync(x => x.IsActive));
+        }
+        finally { await using var cleanup = new AuthCenterDbContext(options); await cleanup.Database.EnsureDeletedAsync(); }
+    }
+
     private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
     {
         var services = new ServiceCollection();
@@ -299,7 +336,7 @@ public sealed class SqlServerHardeningTests
         return services.BuildServiceProvider();
     }
 
-    private static string BuildIsolatedConnectionString()
+    internal static string BuildIsolatedConnectionString()
     {
         var baseConnection = Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")
             ?? @"Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=true";

@@ -11,6 +11,7 @@ public sealed class FederationRoutingRule
     public string? ExpectedProfileValueJson { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
+    public long Version { get; set; } = 1;
     public FederationProvider FederationProvider { get; set; } = null!;
     public DirectoryGroup? DirectoryGroup { get; set; }
     public UserProfileAttributeDefinition? ProfileAttributeDefinition { get; set; }

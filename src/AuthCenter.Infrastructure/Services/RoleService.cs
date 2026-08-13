@@ -17,12 +17,14 @@ public class RoleService : IRoleService
     private readonly AuthCenterDbContext _db;
     private readonly RoleManager<ApplicationRole> _roleManager;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IAuditService _audit;
 
-    public RoleService(AuthCenterDbContext db, RoleManager<ApplicationRole> roleManager, IDateTimeProvider dateTimeProvider)
+    public RoleService(AuthCenterDbContext db, RoleManager<ApplicationRole> roleManager, IDateTimeProvider dateTimeProvider, IAuditService audit)
     {
         _db = db;
         _roleManager = roleManager;
         _dateTimeProvider = dateTimeProvider;
+        _audit = audit;
     }
 
     public async Task<PagedResult<RoleDto>> GetAllAsync(PaginationQuery pagination, Guid? applicationSystemId = null, CancellationToken ct = default)
@@ -93,6 +95,7 @@ public class RoleService : IRoleService
             .Include(r => r.RolePermissions).ThenInclude(rp => rp.Permission)
             .AsNoTracking()
             .FirstAsync(r => r.Id == role.Id);
+        await AuditAsync("ROLE_CREATED", created, new { result = "Success" }, ct);
         return OperationResult<RoleDto>.Success(MapToDto(created));
     }
 
@@ -123,6 +126,7 @@ public class RoleService : IRoleService
             .Include(item => item.RolePermissions).ThenInclude(item => item.Permission)
             .AsNoTracking()
             .SingleAsync(item => item.Id == role.Id, ct);
+        await AuditAsync("ROLE_UPDATED", updated, new { result = "Success" }, ct);
         return OperationResult<RoleDto>.Success(MapToDto(updated));
     }
 
@@ -156,12 +160,14 @@ public class RoleService : IRoleService
             CreatedAt = _dateTimeProvider.UtcNow
         });
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("ROLE_PERMISSION_GRANTED", role, new { result = "Success", permissionId }, ct);
         return OperationResult.Success();
     }
 
     public async Task<OperationResult> RemovePermissionAsync(Guid roleId, Guid permissionId, CancellationToken ct = default)
     {
-        if (await _db.Roles.AnyAsync(role => role.Id == roleId && role.IsSystemRole, ct))
+        var role = await _db.Roles.SingleOrDefaultAsync(item => item.Id == roleId, ct);
+        if (role?.IsSystemRole == true)
             return OperationResult.Failure("SYSTEM_ROLE_PROTECTED", "System role permissions cannot be changed through the administrative API.");
 
         var rp = await _db.RolePermissions
@@ -171,6 +177,7 @@ public class RoleService : IRoleService
 
         _db.RolePermissions.Remove(rp);
         await _db.SaveChangesAsync(ct);
+        if (role is not null) await AuditAsync("ROLE_PERMISSION_REVOKED", role, new { result = "Success", permissionId }, ct);
         return OperationResult.Success();
     }
 
@@ -210,6 +217,7 @@ public class RoleService : IRoleService
             .Include(item => item.RolePermissions).ThenInclude(item => item.Permission)
             .AsNoTracking()
             .SingleAsync(item => item.Id == role.Id, ct);
+        await AuditAsync("ROLE_PERMISSIONS_REPLACED", updated, new { result = "Success", permissionIds }, ct);
         return OperationResult<RoleDto>.Success(MapToDto(updated));
     }
 
@@ -223,6 +231,7 @@ public class RoleService : IRoleService
 
         role.IsActive = true;
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("ROLE_ACTIVATED", role, new { result = "Success" }, ct);
         return OperationResult.Success();
     }
 
@@ -237,6 +246,7 @@ public class RoleService : IRoleService
 
         role.IsActive = false;
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("ROLE_DEACTIVATED", role, new { result = "Success" }, ct);
         return OperationResult.Success();
     }
 
@@ -247,6 +257,14 @@ public class RoleService : IRoleService
             .Select(rp => rp.Permission.Code)
             .Distinct()
             .ToListAsync(ct);
+
+    private async Task AuditAsync(string action, ApplicationRole role, object metadata, CancellationToken ct)
+    {
+        var applicationCode = role.ApplicationSystemId.HasValue
+            ? await _db.ApplicationSystems.Where(x => x.Id == role.ApplicationSystemId).Select(x => x.Code).SingleOrDefaultAsync(ct)
+            : null;
+        await _audit.LogAsync(action, applicationCode: applicationCode, entityName: nameof(ApplicationRole), entityId: role.Id.ToString(), metadata: metadata, ct: ct);
+    }
 
     public async Task<IList<string>> GetPermissionCodesForUserAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
         await GetEffectiveRoleIds(userId, applicationSystemId)

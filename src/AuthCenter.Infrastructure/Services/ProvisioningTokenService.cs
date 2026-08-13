@@ -6,6 +6,7 @@ using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Lifecycle;
 using AuthCenter.Contracts.Responses.Lifecycle;
+using AuthCenter.Contracts.Responses;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.WebUtilities;
@@ -19,6 +20,29 @@ public sealed class ProvisioningTokenService : IProvisioningTokenService
     private readonly AuthCenterDbContext _db; private readonly IDateTimeProvider _clock; private readonly IAuditService _audit;
     public ProvisioningTokenService(AuthCenterDbContext db, IDateTimeProvider clock, IAuditService audit) { _db = db; _clock = clock; _audit = audit; }
 
+    public async Task<PagedResult<ProvisioningTokenMetadataDto>> GetAsync(ProvisioningTokenQuery query, CancellationToken ct = default)
+    {
+        var now = _clock.UtcNow;
+        var tokens = _db.ProvisioningTokens.AsNoTracking().Include(item => item.ApplicationSystem).AsQueryable();
+        if (query.ApplicationSystemId.HasValue) tokens = tokens.Where(item => item.ApplicationSystemId == query.ApplicationSystemId);
+        tokens = query.Status?.Trim().ToLowerInvariant() switch
+        {
+            "active" => tokens.Where(item => item.RevokedAt == null && item.ExpiresAt > now),
+            "expired" => tokens.Where(item => item.RevokedAt == null && item.ExpiresAt <= now),
+            "revoked" => tokens.Where(item => item.RevokedAt != null),
+            _ => tokens
+        };
+        var total = await tokens.CountAsync(ct);
+        var items = await tokens.OrderByDescending(item => item.CreatedAt).Skip(query.Skip).Take(query.PageSize).ToListAsync(ct);
+        return PagedResult<ProvisioningTokenMetadataDto>.Create(items.Select(item => Map(item, now)).ToList(), total, query.Page, query.PageSize);
+    }
+
+    public async Task<ProvisioningTokenMetadataDto?> GetByIdAsync(Guid tokenId, CancellationToken ct = default)
+    {
+        var item = await _db.ProvisioningTokens.AsNoTracking().Include(token => token.ApplicationSystem).SingleOrDefaultAsync(token => token.Id == tokenId, ct);
+        return item is null ? null : Map(item, _clock.UtcNow);
+    }
+
     public async Task<OperationResult<ProvisioningTokenResponse>> CreateAsync(CreateProvisioningTokenRequest request, CancellationToken ct = default)
     {
         var scopes = request.Scopes.Distinct(StringComparer.Ordinal).ToArray();
@@ -30,21 +54,21 @@ public sealed class ProvisioningTokenService : IProvisioningTokenService
 
     public async Task<OperationResult<ProvisioningTokenResponse>> RotateAsync(Guid tokenId, DateTime expiresAt, CancellationToken ct = default)
     {
-        var old = await _db.ProvisioningTokens.SingleOrDefaultAsync(item => item.Id == tokenId && item.RevokedAt == null, ct);
+        var old = await _db.ProvisioningTokens.Include(item => item.ApplicationSystem).SingleOrDefaultAsync(item => item.Id == tokenId && item.RevokedAt == null, ct);
         if (old is null) return OperationResult<ProvisioningTokenResponse>.Failure("PROVISIONING_TOKEN_NOT_FOUND", "Active token not found.");
         if (expiresAt <= _clock.UtcNow || expiresAt > _clock.UtcNow.AddDays(366)) return OperationResult<ProvisioningTokenResponse>.Failure("INVALID_TOKEN_EXPIRATION", "Expiration must be within one year.");
         old.RevokedAt = _clock.UtcNow;
         var scopes = JsonSerializer.Deserialize<string[]>(old.ScopesJson) ?? [];
         var result = await CreateStoredAsync(old.ApplicationSystemId, old.Name, scopes, expiresAt.ToUniversalTime(), ct);
-        await _audit.LogAsync("PROVISIONING_TOKEN_ROTATED", entityName: nameof(ProvisioningToken), entityId: tokenId.ToString(), ct: ct);
+        await _audit.LogAsync("PROVISIONING_TOKEN_ROTATED", applicationCode: old.ApplicationSystem.Code, entityName: nameof(ProvisioningToken), entityId: tokenId.ToString(), metadata: new { result = "Success", replacementId = result.Id, expiresAt }, ct: ct);
         return OperationResult<ProvisioningTokenResponse>.Success(result);
     }
 
     public async Task<OperationResult> RevokeAsync(Guid tokenId, CancellationToken ct = default)
     {
-        var token = await _db.ProvisioningTokens.SingleOrDefaultAsync(item => item.Id == tokenId && item.RevokedAt == null, ct);
+        var token = await _db.ProvisioningTokens.Include(item => item.ApplicationSystem).SingleOrDefaultAsync(item => item.Id == tokenId && item.RevokedAt == null, ct);
         if (token is null) return OperationResult.Failure("PROVISIONING_TOKEN_NOT_FOUND", "Active token not found.");
-        token.RevokedAt = _clock.UtcNow; await _db.SaveChangesAsync(ct); await _audit.LogAsync("PROVISIONING_TOKEN_REVOKED", entityName: nameof(ProvisioningToken), entityId: tokenId.ToString(), ct: ct); return OperationResult.Success();
+        token.RevokedAt = _clock.UtcNow; await _db.SaveChangesAsync(ct); await _audit.LogAsync("PROVISIONING_TOKEN_REVOKED", applicationCode: token.ApplicationSystem.Code, entityName: nameof(ProvisioningToken), entityId: tokenId.ToString(), metadata: new { result = "Success" }, ct: ct); return OperationResult.Success();
     }
 
     public async Task<ProvisioningPrincipal?> ValidateAsync(string? rawToken, string requiredScope, CancellationToken ct = default)
@@ -63,8 +87,15 @@ public sealed class ProvisioningTokenService : IProvisioningTokenService
     {
         var raw = $"acp_{WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32))}";
         var entity = new ProvisioningToken { Id = Guid.NewGuid(), ApplicationSystemId = applicationId, Name = name, TokenHash = Hash(raw), ScopesJson = JsonSerializer.Serialize(scopes), CreatedAt = _clock.UtcNow, ExpiresAt = expiresAt };
-        _db.ProvisioningTokens.Add(entity); await _db.SaveChangesAsync(ct); await _audit.LogAsync("PROVISIONING_TOKEN_CREATED", entityName: nameof(ProvisioningToken), entityId: entity.Id.ToString(), metadata: new { scopes, expiresAt }, ct: ct);
+        _db.ProvisioningTokens.Add(entity); await _db.SaveChangesAsync(ct); var applicationCode = await _db.ApplicationSystems.Where(x => x.Id == applicationId).Select(x => x.Code).SingleAsync(ct); await _audit.LogAsync("PROVISIONING_TOKEN_CREATED", applicationCode: applicationCode, entityName: nameof(ProvisioningToken), entityId: entity.Id.ToString(), metadata: new { result = "Success", scopes, expiresAt }, ct: ct);
         return new ProvisioningTokenResponse { Id = entity.Id, Token = raw, Scopes = scopes, ExpiresAt = expiresAt };
     }
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static ProvisioningTokenMetadataDto Map(ProvisioningToken item, DateTime now) => new()
+    {
+        Id = item.Id, ApplicationSystemId = item.ApplicationSystemId, ApplicationName = item.ApplicationSystem.Name,
+        Name = item.Name, Scopes = JsonSerializer.Deserialize<string[]>(item.ScopesJson) ?? [],
+        Status = item.RevokedAt.HasValue ? "revoked" : item.ExpiresAt <= now ? "expired" : "active",
+        CreatedAt = item.CreatedAt, ExpiresAt = item.ExpiresAt, LastUsedAt = item.LastUsedAt, RevokedAt = item.RevokedAt
+    };
 }

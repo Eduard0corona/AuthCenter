@@ -5,6 +5,8 @@ using AuthCenter.Contracts.Responses;
 using AuthCenter.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AuthCenter.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace AuthCenter.Api.Controllers;
 
@@ -16,15 +18,21 @@ public class UsersController : ControllerBase
     private readonly IUserAccessService _userAccessService;
     private readonly IReauthenticationService _reauthentication;
     private readonly ICurrentUserService _currentUser;
+    private readonly AuthCenterDbContext _db;
+    private readonly IAuditService _audit;
 
     public UsersController(
         IUserAccessService userAccessService,
         IReauthenticationService reauthentication,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        AuthCenterDbContext db,
+        IAuditService audit)
     {
         _userAccessService = userAccessService;
         _reauthentication = reauthentication;
         _currentUser = currentUser;
+        _db = db;
+        _audit = audit;
     }
 
     [HttpGet]
@@ -66,6 +74,8 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> SetDirectAccess(Guid id, [FromBody] SetUserDirectAccessRequest request, CancellationToken ct)
     {
+        if (await RemovesEffectiveSuperAdminAsync(id, request.ApplicationSystemIds, request.RoleIds, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
+            return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.SetDirectAccessAsync(id, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
@@ -103,6 +113,8 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> RevokeAccess(Guid id, Guid applicationId, CancellationToken ct)
     {
+        if (await RemovesEffectiveSuperAdminAsync(id, applicationId, null, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
+            return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.RevokeAccessAsync(id, applicationId, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
@@ -121,6 +133,8 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> RemoveRole(Guid id, Guid roleId, CancellationToken ct)
     {
+        if (await RemovesEffectiveSuperAdminAsync(id, null, roleId, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
+            return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.RemoveRoleAsync(id, roleId, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
@@ -139,6 +153,8 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> Deactivate(Guid id, CancellationToken ct)
     {
+        if (await IsEffectiveSuperAdminAsync(id, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
+            return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.DeactivateUserAsync(id, ct);
         if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse.Ok());
@@ -185,4 +201,34 @@ public class UsersController : ControllerBase
     private ObjectResult ReauthenticationRequired(string purpose) => StatusCode(
         StatusCodes.Status403Forbidden,
         ApiResponse.Fail("REAUTHENTICATION_REQUIRED", $"A recent single-use reauthentication proof for {purpose} is required."));
+
+    private async Task<ObjectResult> ReauthenticationRejectedAsync(Guid targetUserId, string purpose, CancellationToken ct)
+    {
+        await _audit.LogAsync("SUPER_ADMIN_REMOVAL_REJECTED", entityName: "ApplicationUser", entityId: targetUserId.ToString(), metadata: new { result = "Rejected", reason = "ReauthenticationRequired", purpose }, ct: ct);
+        return ReauthenticationRequired(purpose);
+    }
+
+    private async Task<bool> RemovesEffectiveSuperAdminAsync(Guid userId, IReadOnlyCollection<Guid> applicationIds, IReadOnlyCollection<Guid> roleIds, CancellationToken ct)
+    {
+        if (!await IsEffectiveSuperAdminAsync(userId, ct)) return false;
+        var authCenterId = await _db.ApplicationSystems.Where(x => x.Code == DomainConstants.SystemCodes.AuthCenter).Select(x => x.Id).SingleAsync(ct);
+        var roleId = await _db.Roles.Where(x => x.IsSystemRole && x.DisplayName == DomainConstants.Roles.SuperAdmin).Select(x => x.Id).SingleAsync(ct);
+        return !applicationIds.Contains(authCenterId) || !roleIds.Contains(roleId);
+    }
+
+    private async Task<bool> RemovesEffectiveSuperAdminAsync(Guid userId, Guid? applicationId, Guid? roleId, CancellationToken ct)
+    {
+        if (!await IsEffectiveSuperAdminAsync(userId, ct)) return false;
+        if (applicationId.HasValue) return await _db.ApplicationSystems.AnyAsync(x => x.Id == applicationId && x.Code == DomainConstants.SystemCodes.AuthCenter, ct);
+        return roleId.HasValue && await _db.Roles.AnyAsync(x => x.Id == roleId && x.IsSystemRole && x.DisplayName == DomainConstants.Roles.SuperAdmin, ct);
+    }
+
+    private async Task<bool> IsEffectiveSuperAdminAsync(Guid userId, CancellationToken ct)
+    {
+        var authCenterId = await _db.ApplicationSystems.Where(x => x.Code == DomainConstants.SystemCodes.AuthCenter).Select(x => x.Id).SingleAsync(ct);
+        var roleId = await _db.Roles.Where(x => x.IsSystemRole && x.DisplayName == DomainConstants.Roles.SuperAdmin).Select(x => x.Id).SingleAsync(ct);
+        return await _db.Users.AnyAsync(x => x.Id == userId && x.IsActive && x.DeletedAt == null, ct)
+            && await _db.UserRoles.AnyAsync(x => x.UserId == userId && x.RoleId == roleId, ct)
+            && await _db.UserApplicationAccesses.AnyAsync(x => x.UserId == userId && x.ApplicationSystemId == authCenterId && x.IsActive && x.RevokedAt == null, ct);
+    }
 }

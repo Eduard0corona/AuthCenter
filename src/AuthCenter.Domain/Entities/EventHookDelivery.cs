@@ -13,5 +13,6 @@ public sealed class EventHookDelivery
     public DateTime? DeliveredAt { get; set; }
     public DateTime? DeadLetteredAt { get; set; }
     public string? LastError { get; set; }
+    public string? LastReplayIdempotencyKey { get; set; }
     public EventHook EventHook { get; set; } = null!;
 }

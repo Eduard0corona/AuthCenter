@@ -347,6 +347,7 @@ public class UserAccessService : IUserAccessService
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
             : null;
+        await SuperAdminInvariantLock.AcquireAsync(_db, ct);
         var user = await _db.Users.FirstOrDefaultAsync(candidate => candidate.Id == userId, ct);
         if (user is null)
             return OperationResult<UserDto>.Failure("USER_NOT_FOUND", "User not found.");
@@ -472,6 +473,7 @@ public class UserAccessService : IUserAccessService
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
             : null;
+        await SuperAdminInvariantLock.AcquireAsync(_db, ct);
         var access = await _db.UserApplicationAccesses
             .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
         if (access is null)
@@ -532,6 +534,7 @@ public class UserAccessService : IUserAccessService
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
             : null;
+        await SuperAdminInvariantLock.AcquireAsync(_db, ct);
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
@@ -582,6 +585,7 @@ public class UserAccessService : IUserAccessService
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
             : null;
+        await SuperAdminInvariantLock.AcquireAsync(_db, ct);
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
@@ -646,6 +650,7 @@ public class UserAccessService : IUserAccessService
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
             : null;
+        await SuperAdminInvariantLock.AcquireAsync(_db, ct);
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
@@ -893,6 +898,7 @@ public class UserAccessService : IUserAccessService
         EntityName = nameof(ApplicationUser),
         EntityId = subjectUserId.ToString(),
         MetadataJson = metadata is null ? null : JsonSerializer.Serialize(metadata),
+        TraceId = System.Diagnostics.Activity.Current?.TraceId.ToHexString(),
         CreatedAt = _dateTimeProvider.UtcNow
     });
 

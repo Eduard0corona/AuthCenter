@@ -16,15 +16,18 @@ public class AuditService : IAuditService
     private readonly IDbContextFactory<AuthCenterDbContext> _dbFactory;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ILogger<AuditService> _logger;
+    private readonly ICurrentUserService _currentUser;
 
     public AuditService(
         IDbContextFactory<AuthCenterDbContext> dbFactory,
         IDateTimeProvider dateTimeProvider,
-        ILogger<AuditService> logger)
+        ILogger<AuditService> logger,
+        ICurrentUserService currentUser)
     {
         _dbFactory = dbFactory;
         _dateTimeProvider = dateTimeProvider;
         _logger = logger;
+        _currentUser = currentUser;
     }
 
     public async Task LogAsync(
@@ -40,6 +43,7 @@ public class AuditService : IAuditService
     {
         try
         {
+            userId ??= _currentUser.UserId;
             var log = new AuditLog
             {
                 Id = Guid.NewGuid(),
@@ -143,5 +147,18 @@ public class AuditService : IAuditService
             .ToListAsync(ct);
 
         return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
+    }
+
+    public async Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default)
+    {
+        var page = await GetAsync(query, ct);
+        await LogAsync("SYSTEM_LOG_EXPORTED", entityName: nameof(AuditLog), metadata: new
+        {
+            result = "Success",
+            query.Page,
+            query.PageSize,
+            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc }
+        }, ct: ct);
+        return page.Items;
     }
 }

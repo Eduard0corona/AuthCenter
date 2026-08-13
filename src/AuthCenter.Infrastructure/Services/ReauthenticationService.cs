@@ -24,7 +24,9 @@ public sealed class ReauthenticationService : IReauthenticationService
         "factor.enroll", "factor.change", "passkey.manage", "session.revoke-all",
         "admin.mfa.reset", "admin.user.delete",
         "admin.oauth-client.rotate-secret", "admin.oauth-client.deactivate", "admin.oauth-client.activate",
-        "admin.access-policy.publish"
+        "admin.access-policy.publish",
+        "admin.super-admin.remove", "admin.federation.change",
+        "admin.provisioning-token.rotate", "admin.provisioning-token.revoke"
     };
 
     private readonly UserManager<ApplicationUser> _users;

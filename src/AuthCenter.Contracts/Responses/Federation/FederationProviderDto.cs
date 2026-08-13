@@ -16,4 +16,5 @@ public sealed class FederationProviderDto
     public bool JitProvisioningEnabled { get; init; }
     public string AccountLinkingMode { get; init; } = string.Empty;
     public bool IsActive { get; init; }
+    public long Version { get; init; }
 }

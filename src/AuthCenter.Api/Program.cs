@@ -468,6 +468,7 @@ try
     app.UseAuthentication();
     app.UseMiddleware<UiCsrfMiddleware>();
     app.UseAuthorization();
+    app.UseMiddleware<AdministrativeMutationAuditMiddleware>();
     app.MapControllers();
     app.MapGet("/", () => Results.Redirect("/login"));
     app.MapGet("/login", () => Results.File(

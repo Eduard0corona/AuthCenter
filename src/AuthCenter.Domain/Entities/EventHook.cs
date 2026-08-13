@@ -12,6 +12,7 @@ public sealed class EventHook
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? VerifiedAt { get; set; }
+    public long Version { get; set; } = 1;
     public ApplicationSystem? ApplicationSystem { get; set; }
     public ICollection<EventHookDelivery> Deliveries { get; set; } = new List<EventHookDelivery>();
 }

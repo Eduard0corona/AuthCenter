@@ -477,6 +477,10 @@ rules; give that fallback the lowest precedence (the largest priority number).
 application. OIDC callbacks are exact registered HTTPS values and upstream client secrets are
 protected at rest. SAML publishes metadata at `/api/federation/saml/{providerId}/metadata` and the
 POST ACS is `/api/federation/saml/acs`. Keep the SAML PKCS#12 certificate and password in Key Vault.
+Administrative provider and routing mutations require a short-lived, purpose-bound, single-use
+`admin.federation.change` proof. Providers and rules expose an explicit `version`; stale updates or
+reorders return `CONCURRENCY_CONFLICT`. Routing rules can be listed by application, updated,
+activated/deactivated, reordered atomically and deleted.
 
 ### SCIM and lifecycle automation
 
@@ -486,7 +490,14 @@ application-bound and use separate read/write scopes. Filters support bounded `u
 `externalId`, or `displayName eq`; pagination accepts `startIndex` and `count` up to 200. DELETE
 deprovisions rather than erasing identity history.
 
-Profile mappings and dynamic group rules are managed under `/api/lifecycle`. An authoritative
+`GET /api/provisioning-tokens` and `GET /api/provisioning-tokens/{id}` return only metadata,
+including application, scopes, lifecycle status, expiration and last use. Rotation and revocation
+require `admin.provisioning-token.rotate` or `admin.provisioning-token.revoke`; neither endpoint can
+recover an existing raw token.
+
+Profile mappings and dynamic group rules are managed under `/api/lifecycle`. The administrative
+contract supports paginated list/detail, validation, versioned update, JSON-path simulation and a
+paginated preview of users affected by a group rule. An authoritative
 mapping prevents other sources from overwriting its target attribute. Group membership immediately
 feeds existing application/role assignments and invalidates stale entitlement sessions.
 
@@ -496,6 +507,21 @@ verification challenge before delivery is enabled. Deliveries include `X-AuthCen
 `X-AuthCenter-Signature: v1=<hex-hmac-sha256>`. Consumers should verify the signature over
 `<timestamp>.<raw-body>`, reject stale timestamps, and deduplicate by event ID. Failed deliveries
 retry and appear in `/api/event-hooks/deliveries?deadLettersOnly=true` for controlled replay.
+The full administrative API also supports paginated hook list/detail/update and delivery filters by
+hook, status, event, type and UTC range. Replay accepts `Idempotency-Key`; repeating the same key is
+safe. The legacy `deadLettersOnly` shape remains available while `/admin` is being migrated.
+
+### Administrative operations and System Log
+
+`GET /api/admin-dashboard` aggregates directory, integration, delivery and security-posture
+indicators without returning user-level data. `GET /api/audit-logs/export` exports one bounded,
+filtered CSV page and records `SYSTEM_LOG_EXPORTED`. Administrative successes and rejected writes
+record actor, target, application, result and trace without request bodies or secrets.
+
+Every supported JSON API response exposes `traceId`. `GET /api/admin-metadata` publishes the stable
+error catalog, step-up purposes, maximum page size and required permission for each new operation.
+`GET /api/version` is a public, `no-store` deployment manifest containing only the assembly version,
+source commit when available, admin base path and contract version.
 
 ### Other
 
