@@ -63,6 +63,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
 
         var getResponse = await client.GetAsync($"/api/oauth/clients/{clientId}");
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        Assert.DoesNotContain(created.ClientSecret!, await getResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var retrieved = await ReadDataAsync<OAuthClientResponse>(getResponse);
         Assert.Equal("Test Confidential App", retrieved.DisplayName);
         Assert.Equal(clientId, retrieved.ClientId);
@@ -87,15 +88,28 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             LoginUrl = "https://myapp.com/login",
             AccessTokenLifetimeSeconds = 1800,
             RequirePkce = true,
-            IsActive = true
+            IsActive = false
         };
 
+        var updateWithoutProof = await client.PutAsJsonAsync($"/api/oauth/clients/{clientId}", updateRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, updateWithoutProof.StatusCode);
+        await client.AddReauthenticationProofAsync(
+            AuthCenterWebApplicationFactory.AdminPassword,
+            "admin.oauth-client.deactivate");
         var updateResponse = await client.PutAsJsonAsync($"/api/oauth/clients/{clientId}", updateRequest);
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         var updated = await ReadDataAsync<OAuthClientResponse>(updateResponse);
         Assert.Equal("Updated Name", updated.DisplayName);
         Assert.Equal(1800, updated.AccessTokenLifetimeSeconds);
+        Assert.False(updated.IsActive);
 
+        var withoutProof = await client.DeleteAsync($"/api/oauth/clients/{clientId}");
+        Assert.Equal(HttpStatusCode.Forbidden, withoutProof.StatusCode);
+        Assert.Equal("REAUTHENTICATION_REQUIRED", (await withoutProof.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
+
+        await client.AddReauthenticationProofAsync(
+            AuthCenterWebApplicationFactory.AdminPassword,
+            "admin.oauth-client.deactivate");
         var deactivateResponse = await client.DeleteAsync($"/api/oauth/clients/{clientId}");
         Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
 
@@ -114,12 +128,52 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var clientId = $"rot-{Guid.NewGuid():N}"[..20];
         var (_, originalSecret) = await CreateOAuthClientAsync(client, clientId);
 
+        var withoutProof = await client.PostAsync($"/api/oauth/clients/{clientId}/rotate-secret", null);
+        Assert.Equal(HttpStatusCode.Forbidden, withoutProof.StatusCode);
+
+        await client.AddReauthenticationProofAsync(
+            AuthCenterWebApplicationFactory.AdminPassword,
+            "admin.oauth-client.rotate-secret");
         var rotateResponse = await client.PostAsync($"/api/oauth/clients/{clientId}/rotate-secret", null);
         Assert.Equal(HttpStatusCode.OK, rotateResponse.StatusCode);
         var rotated = await ReadDataAsync<RotateClientSecretResponse>(rotateResponse);
 
         Assert.False(string.IsNullOrWhiteSpace(rotated.ClientSecret));
         Assert.NotEqual(originalSecret, rotated.ClientSecret);
+
+        var reusedProof = await client.PostAsync($"/api/oauth/clients/{clientId}/rotate-secret", null);
+        Assert.Equal(HttpStatusCode.Forbidden, reusedProof.StatusCode);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var audits = await db.AuditLogs
+            .Where(audit => audit.EntityId == clientId)
+            .Select(audit => new { audit.Action, audit.MetadataJson })
+            .ToListAsync();
+        Assert.Contains(audits, audit => audit.Action == "OAUTH_CLIENT_SECRET_ROTATED");
+        Assert.Contains(audits, audit => audit.Action == "OAUTH_CLIENT_SECRET_ROTATION_REJECTED");
+        Assert.DoesNotContain(audits, audit =>
+            (audit.MetadataJson ?? string.Empty).Contains(rotated.ClientSecret, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OAuthClient_List_Filters_By_Search_Application_Type_And_Status()
+    {
+        using var client = _factory.CreateClient();
+        var adminToken = await GetAdminTokenAsync(client);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var clientId = $"filter-{Guid.NewGuid():N}"[..20];
+        var (createdClientId, _) = await CreateOAuthClientAsync(client, clientId);
+        var applicationId = await GetApplicationSystemIdAsync();
+
+        var response = await client.GetAsync(
+            $"/api/oauth/clients?page=1&pageSize=20&search={Uri.EscapeDataString(clientId)}&applicationSystemId={applicationId}&clientType=0&isActive=true");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await ReadDataAsync<PagedResult<OAuthClientResponse>>(response);
+        Assert.Single(page.Items);
+        Assert.Equal(createdClientId, page.Items[0].ClientId);
     }
 
     [Fact]

@@ -10,6 +10,8 @@ const UserEditorPage = lazy(() => import("../features/users/UserEditorPage"));
 const UserProvisioningPage = lazy(() => import("../features/users/UserProvisioningPage"));
 const ApplicationsPage = lazy(() => import("../features/applications/ApplicationsPage"));
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
+const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClientsPage"));
+const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
 const RolesPage = lazy(() => import("../features/roles/RolesPage"));
 const RoleEditorPage = lazy(() => import("../features/roles/RoleEditorPage"));
 const PermissionsPage = lazy(() => import("../features/permissions/PermissionsPage"));
@@ -34,6 +36,9 @@ export function AppRouter() {
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
           <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
           <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />
+          <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
+          <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
+          <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />
           <Route path="roles/new" element={<PermissionRoute permission="AUTHCENTER_ROLES_WRITE"><RoleEditorPage create /></PermissionRoute>} />
           <Route path="roles/:roleId" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RoleEditorPage /></PermissionRoute>} />

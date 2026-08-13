@@ -4,7 +4,6 @@ using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
-using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
 using AuthCenter.Domain.Entities;
@@ -85,20 +84,40 @@ public class OAuthClientService : IOAuthClientService
         });
     }
 
-    public async Task<PagedResult<OAuthClientResponse>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
+    public async Task<PagedResult<OAuthClientResponse>> GetAllAsync(OAuthClientQuery request, CancellationToken ct = default)
     {
         var query = _db.OAuthClients
             .AsNoTracking()
             .Include(c => c.ApplicationSystem)
-            .OrderBy(c => c.DisplayName)
-            .ThenBy(c => c.ClientId);
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var search = request.Search.Trim();
+            query = query.Where(client =>
+                client.DisplayName.Contains(search) ||
+                client.ClientId.Contains(search));
+        }
+
+        if (request.ApplicationSystemId.HasValue)
+            query = query.Where(client => client.ApplicationSystemId == request.ApplicationSystemId.Value);
+        if (request.ClientType.HasValue)
+            query = query.Where(client => (int)client.ClientType == request.ClientType.Value);
+        if (request.IsActive.HasValue)
+            query = query.Where(client => client.IsActive == request.IsActive.Value);
+
         var totalCount = await query.CountAsync(ct);
-        var clients = await query.Skip(pagination.Skip).Take(pagination.PageSize).ToListAsync(ct);
+        var clients = await query
+            .OrderBy(client => client.DisplayName)
+            .ThenBy(client => client.ClientId)
+            .Skip(request.Skip)
+            .Take(request.PageSize)
+            .ToListAsync(ct);
         return PagedResult<OAuthClientResponse>.Create(
             clients.Select(MapToResponse).ToList(),
             totalCount,
-            pagination.Page,
-            pagination.PageSize);
+            request.Page,
+            request.PageSize);
     }
 
     public async Task<OAuthClientResponse?> GetByClientIdAsync(string clientId, CancellationToken ct = default)
@@ -119,6 +138,7 @@ public class OAuthClientService : IOAuthClientService
         if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains("client_credentials"))
             return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use client_credentials.");
 
+        var statusChanged = client.IsActive != request.IsActive;
         client.DisplayName = request.DisplayName;
         client.RedirectUrisJson = JsonSerializer.Serialize(request.RedirectUris);
         client.AllowedScopesJson = JsonSerializer.Serialize(request.AllowedScopes);
@@ -130,7 +150,9 @@ public class OAuthClientService : IOAuthClientService
         client.IsActive = request.IsActive;
         client.UpdatedAt = _dateTimeProvider.UtcNow;
 
-        AddAudit("OAUTH_CLIENT_UPDATED", client);
+        AddAudit(statusChanged
+            ? request.IsActive ? "OAUTH_CLIENT_ACTIVATED" : "OAUTH_CLIENT_DEACTIVATED"
+            : "OAUTH_CLIENT_UPDATED", client);
         await _db.SaveChangesAsync(ct);
         return OperationResult<OAuthClientResponse>.Success(MapToResponse(client));
     }

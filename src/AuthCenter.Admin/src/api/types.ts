@@ -181,3 +181,32 @@ export interface EventDelivery {
   deadLetteredAt: string | null;
   lastError: string | null;
 }
+
+export interface OAuthClientSummary {
+  id: string;
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  clientId: string;
+  displayName: string;
+  clientType: 0 | 1;
+  redirectUris: string[];
+  allowedScopes: string[];
+  grantTypes: string[];
+  loginUrl: string;
+  accessTokenLifetimeSeconds: number;
+  requirePkce: boolean;
+  autoConsent: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface OAuthClientCreated {
+  client: OAuthClientSummary;
+  clientSecret: string | null;
+}
+
+export interface OAuthClientSecret {
+  clientSecret: string;
+}

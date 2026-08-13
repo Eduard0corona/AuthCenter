@@ -26,6 +26,7 @@ const navigation: NavigationGroup[] = [
     label: "Aplicaciones",
     items: [
       { label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" },
+      { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
       { label: "Roles", to: "/roles", permission: "AUTHCENTER_ROLES_READ" },
       { label: "Permisos", to: "/permissions", permission: "AUTHCENTER_PERMISSIONS_READ" }
     ]
