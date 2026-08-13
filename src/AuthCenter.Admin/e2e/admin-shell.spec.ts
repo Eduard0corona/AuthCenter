@@ -85,6 +85,20 @@ const oauthClient = {
   createdAt: "2026-08-13T00:00:00Z",
   updatedAt: null
 };
+const provisioningTokenId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const rotatedProvisioningTokenId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const provisioningToken = {
+  id: provisioningTokenId,
+  applicationSystemId: applicationId,
+  applicationName: application.name,
+  name: "Directory sync",
+  scopes: ["scim.users.read", "scim.users.write"],
+  status: "active",
+  createdAt: "2026-08-13T00:00:00Z",
+  expiresAt: "2026-11-13T00:00:00Z",
+  lastUsedAt: null,
+  revokedAt: null
+};
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/ui-api/session", async (route) => route.fulfill({
@@ -455,6 +469,94 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
+});
+
+test("creates, rotates and revokes a scoped provisioning token with step-up", async ({ page }) => {
+  const createdCredential = ["acp", "created", "credential"].join("_");
+  const rotatedCredential = ["acp", "rotated", "credential"].join("_");
+  let createPayload: Record<string, unknown> | null = null;
+  const proofPurposes: string[] = [];
+  const proofHeaders: string[] = [];
+  let replacementRevoked = false;
+
+  await page.route("**/api/provisioning-tokens", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { id: provisioningTokenId, token: createdCredential, scopes: provisioningToken.scopes, expiresAt: provisioningToken.expiresAt } }) });
+  });
+  await page.route(`**/api/provisioning-tokens/${provisioningTokenId}/rotate?**`, async (route) => {
+    proofHeaders.push(route.request().headers()["x-authcenter-reauthentication"] ?? "");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { id: rotatedProvisioningTokenId, token: rotatedCredential, scopes: provisioningToken.scopes, expiresAt: provisioningToken.expiresAt } }) });
+  });
+  await page.route(`**/api/provisioning-tokens/${provisioningTokenId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: provisioningToken }) }));
+  await page.route(`**/api/provisioning-tokens/${rotatedProvisioningTokenId}`, async (route) => {
+    if (route.request().method() === "DELETE") {
+      proofHeaders.push(route.request().headers()["x-authcenter-reauthentication"] ?? "");
+      replacementRevoked = true;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...provisioningToken, id: rotatedProvisioningTokenId, status: replacementRevoked ? "revoked" : "active", revokedAt: replacementRevoked ? "2026-08-13T02:00:00Z" : null } }) });
+  });
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    proofPurposes.push((route.request().postDataJSON() as { purpose: string }).purpose);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: `proof-${proofPurposes.length}`, assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+
+  await page.goto("/admin-v2/provisioning-tokens/new");
+  await page.getByLabel("Aplicación").selectOption(applicationId);
+  await page.getByLabel("Nombre").fill(provisioningToken.name);
+  await page.getByRole("checkbox", { name: "scim.users.write" }).check();
+  await page.getByRole("button", { name: "Crear provisioning token" }).click();
+
+  const createdDialog = page.getByRole("dialog");
+  await expect(createdDialog).toContainText(createdCredential);
+  await expect(createdDialog).toContainText(/no podr. volver a mostrar/i);
+  expect(createPayload).toMatchObject({ applicationSystemId: applicationId, name: provisioningToken.name, scopes: provisioningToken.scopes });
+  await createdDialog.getByRole("button", { name: "Ya guardé el secreto" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/provisioning-tokens/${provisioningTokenId}$`));
+  await expect(page.getByText("AuthCenter almacena únicamente el hash")).toBeVisible();
+
+  const rotateButton = page.getByRole("button", { name: "Rotar token" });
+  await rotateButton.focus();
+  await rotateButton.press("Enter");
+  const rotateDialog = page.getByRole("dialog");
+  await rotateDialog.getByLabel(/Tu contraseña actual/).fill("AdminSecret123");
+  await rotateDialog.getByRole("button", { name: "Verificar y rotar" }).click();
+  await expect(page.getByRole("dialog")).toContainText(rotatedCredential);
+  await page.getByRole("dialog").getByRole("button", { name: "Ya guardé el secreto" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/provisioning-tokens/${rotatedProvisioningTokenId}$`));
+
+  const revokeButton = page.getByRole("button", { name: "Revocar token" });
+  await revokeButton.focus();
+  await revokeButton.press("Enter");
+  const revokeDialog = page.getByRole("dialog");
+  await revokeDialog.getByLabel(/Tu contraseña actual/).fill("AdminSecret123");
+  await revokeDialog.getByRole("button", { name: "Verificar y revocar" }).click();
+  await expect(page.getByRole("status")).toContainText("quedó revocado");
+  await expect(page.getByText("Revocado", { exact: true })).toBeVisible();
+
+  expect(proofPurposes).toEqual(["admin.provisioning-token.rotate", "admin.provisioning-token.revoke"]);
+  expect(proofHeaders).toEqual(["proof-1", "proof-2"]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("filters paginated provisioning token metadata without exposing credentials", async ({ page }) => {
+  let requestedUrl = "";
+  await page.route("**/api/provisioning-tokens?**", async (route) => {
+    requestedUrl = route.request().url();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [provisioningToken], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) });
+  });
+
+  await page.goto("/admin-v2/provisioning-tokens");
+  await expect(page.getByRole("heading", { level: 1, name: "Provisioning tokens", exact: true })).toBeFocused();
+  await expect(page.getByText(provisioningToken.name)).toBeVisible();
+  await expect(page.getByText("1–1 de 1")).toBeVisible();
+  await expect(page.locator("main")).not.toContainText("acp_");
+  await page.getByLabel("Estado").selectOption("active");
+  await expect.poll(() => requestedUrl).toContain("status=active");
+  await page.getByLabel("Aplicación").selectOption(applicationId);
+  await expect.poll(() => requestedUrl).toContain(`applicationSystemId=${applicationId}`);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 test("creates, simulates and publishes an access policy draft with step-up", async ({ page }) => {

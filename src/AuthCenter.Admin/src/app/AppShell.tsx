@@ -29,6 +29,7 @@ const navigation: NavigationGroup[] = [
       { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" }
     ]
   },
+  { label: "Lifecycle", items: [{ label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_APPLICATIONS_READ" }] },
   {
     label: "Seguridad",
     items: [

@@ -95,6 +95,13 @@ and must be copied before explicitly closing the dialog. Rotation, deactivation 
 require a short-lived, purpose-bound, single-use reauthentication proof; the API audits successful
 and rejected operations without recording the credential.
 
+Provisioning credentials are managed at `/admin-v2/provisioning-tokens`. The module lists only
+server-paginated metadata, filters by application and lifecycle state, and supports creation with
+explicit SCIM scopes and an expiration of at most one year. The raw token is held in browser memory
+only for the create or rotate response and is discarded after the operator explicitly closes the
+reveal dialog. Rotation and revocation require separate purpose-bound single-use reauthentication
+proofs; historical token values cannot be retrieved.
+
 Access policies are managed at `/admin-v2/access-policies`. Each application exposes immutable
 published/archived history and at most one editable draft. Operators can build ordered rules for
 user or group targets, CIDR ranges, UTC schedules, risk and assurance requirements; simulate a

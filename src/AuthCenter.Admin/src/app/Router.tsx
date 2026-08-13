@@ -12,6 +12,8 @@ const ApplicationsPage = lazy(() => import("../features/applications/Application
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClientsPage"));
 const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
+const ProvisioningTokensPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokensPage"));
+const ProvisioningTokenEditorPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokenEditorPage"));
 const AccessPoliciesPage = lazy(() => import("../features/access-policies/AccessPoliciesPage"));
 const AccessPolicyEditorPage = lazy(() => import("../features/access-policies/AccessPolicyEditorPage"));
 const RolesPage = lazy(() => import("../features/roles/RolesPage"));
@@ -41,6 +43,9 @@ export function AppRouter() {
           <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
           <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
           <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />
+          <Route path="provisioning-tokens" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokensPage /></PermissionRoute>} />
+          <Route path="provisioning-tokens/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ProvisioningTokenEditorPage create /></PermissionRoute>} />
+          <Route path="provisioning-tokens/:tokenId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokenEditorPage /></PermissionRoute>} />
           <Route path="access-policies" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPoliciesPage /></PermissionRoute>} />
           <Route path="access-policies/:applicationId" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPolicyEditorPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />

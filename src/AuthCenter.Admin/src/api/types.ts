@@ -211,6 +211,28 @@ export interface OAuthClientSecret {
   clientSecret: string;
 }
 
+export type ProvisioningTokenStatus = "active" | "expired" | "revoked";
+
+export interface ProvisioningTokenMetadata {
+  id: string;
+  applicationSystemId: string;
+  applicationName: string;
+  name: string;
+  scopes: string[];
+  status: ProvisioningTokenStatus;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface ProvisioningTokenCreated {
+  id: string;
+  token: string;
+  scopes: string[];
+  expiresAt: string;
+}
+
 export interface AccessPolicyVersion {
   id: string;
   applicationSystemId: string;
