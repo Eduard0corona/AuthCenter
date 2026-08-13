@@ -14,10 +14,20 @@ namespace AuthCenter.Api.Controllers;
 public class AccessPoliciesController : ControllerBase
 {
     private readonly IAccessPolicyService _policies;
+    private readonly IReauthenticationService _reauthentication;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IAuditService _audit;
 
-    public AccessPoliciesController(IAccessPolicyService policies)
+    public AccessPoliciesController(
+        IAccessPolicyService policies,
+        IReauthenticationService reauthentication,
+        ICurrentUserService currentUser,
+        IAuditService audit)
     {
         _policies = policies;
+        _reauthentication = reauthentication;
+        _currentUser = currentUser;
+        _audit = audit;
     }
 
     [HttpGet("applications/{applicationSystemId:guid}")]
@@ -47,6 +57,21 @@ public class AccessPoliciesController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
     public async Task<IActionResult> Publish(Guid applicationSystemId, Guid policyVersionId, CancellationToken ct)
     {
+        const string purpose = "admin.access-policy.publish";
+        if (!await HasReauthenticationProofAsync(purpose, ct))
+        {
+            await _audit.LogAsync(
+                "ACCESS_POLICY_PUBLISH_REJECTED",
+                userId: _currentUser.UserId,
+                entityName: "ApplicationAccessPolicyVersion",
+                entityId: policyVersionId.ToString(),
+                ipAddress: HttpContext.Connection.RemoteIpAddress?.ToString(),
+                userAgent: Request.Headers.UserAgent.ToString(),
+                metadata: new { applicationSystemId, result = "Rejected", reason = "ReauthenticationRequired", purpose },
+                ct: ct);
+            return ReauthenticationRequired(purpose);
+        }
+
         var result = await _policies.PublishAsync(applicationSystemId, policyVersionId, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
@@ -95,4 +120,15 @@ public class AccessPoliciesController : ControllerBase
         result.IsSuccess
             ? Ok(ApiResponse.Ok())
             : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+
+    private async Task<bool> HasReauthenticationProofAsync(string purpose, CancellationToken ct)
+    {
+        var currentUserId = _currentUser.UserId;
+        return currentUserId.HasValue && await _reauthentication.ConsumeProofAsync(
+            currentUserId.Value, purpose, Request.Headers["X-AuthCenter-Reauthentication"].ToString(), ct);
+    }
+
+    private ObjectResult ReauthenticationRequired(string purpose) => StatusCode(
+        StatusCodes.Status403Forbidden,
+        ApiResponse.Fail("REAUTHENTICATION_REQUIRED", $"A recent single-use reauthentication proof for {purpose} is required."));
 }

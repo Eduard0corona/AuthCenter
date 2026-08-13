@@ -95,6 +95,13 @@ and must be copied before explicitly closing the dialog. Rotation, deactivation 
 require a short-lived, purpose-bound, single-use reauthentication proof; the API audits successful
 and rejected operations without recording the credential.
 
+Access policies are managed at `/admin-v2/access-policies`. Each application exposes immutable
+published/archived history and at most one editable draft. Operators can build ordered rules for
+user or group targets, CIDR ranges, UTC schedules, risk and assurance requirements; simulate a
+specific user/context with per-rule explanations; and review the effective diff against the
+published version. Publishing requires a purpose-bound single-use reauthentication proof, keeps
+the `AUTHCENTER` unconditional allow fallback invariant, and revokes active application sessions.
+
 ### Running with Docker Compose
 
 Brings up SQL Server and the API without installing either locally. The API waits for SQL Server
