@@ -18,4 +18,5 @@ public interface IAuditService
         CancellationToken ct = default);
 
     Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default);
+    Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default);
 }

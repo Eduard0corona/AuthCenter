@@ -82,7 +82,8 @@ public class ExceptionHandlingMiddleware
             success = false,
             errorCode,
             message,
-            details = details.Count > 0 ? details : null
+            details = details.Count > 0 ? details : null,
+            traceId = System.Diagnostics.Activity.Current?.TraceId.ToHexString() ?? context.TraceIdentifier
         };
 
         var json = JsonSerializer.Serialize(response, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });

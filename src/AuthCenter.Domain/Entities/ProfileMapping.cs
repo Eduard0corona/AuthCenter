@@ -10,6 +10,7 @@ public sealed class ProfileMapping
     public bool IsAuthoritative { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
+    public long Version { get; set; } = 1;
     public ApplicationSystem ApplicationSystem { get; set; } = null!;
     public UserProfileAttributeDefinition TargetAttributeDefinition { get; set; } = null!;
 }

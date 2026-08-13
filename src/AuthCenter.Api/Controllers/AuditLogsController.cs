@@ -4,6 +4,7 @@ using AuthCenter.Contracts.Responses;
 using AuthCenter.Domain.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace AuthCenter.Api.Controllers;
 
@@ -26,4 +27,17 @@ public class AuditLogsController : ControllerBase
         var result = await _auditService.GetAsync(query, ct);
         return Ok(ApiResponse<object>.Ok(result));
     }
+
+    [HttpGet("export")]
+    [Authorize(Policy = DomainConstants.Permissions.AuditLogsRead)]
+    public async Task<IActionResult> Export([FromQuery] AuditLogQuery query, CancellationToken ct)
+    {
+        var items = await _auditService.ExportPageAsync(query, ct);
+        var csv = new StringBuilder("id,createdAt,action,actorId,applicationCode,entityName,entityId,traceId\r\n");
+        foreach (var item in items)
+            csv.AppendJoin(',', Csv(item.Id), Csv(item.CreatedAt.ToString("O")), Csv(item.Action), Csv(item.UserId), Csv(item.ApplicationCode), Csv(item.EntityName), Csv(item.EntityId), Csv(item.TraceId)).Append("\r\n");
+        return File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"authcenter-system-log-{DateTime.UtcNow:yyyyMMddHHmmss}.csv");
+    }
+
+    private static string Csv(object? value) => $"\"{value?.ToString()?.Replace("\"", "\"\"")}\"";
 }

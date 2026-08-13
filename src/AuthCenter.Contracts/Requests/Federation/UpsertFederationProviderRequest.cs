@@ -15,4 +15,5 @@ public sealed class UpsertFederationProviderRequest
     public bool JitProvisioningEnabled { get; init; }
     public string AccountLinkingMode { get; init; } = "Disabled";
     public bool IsActive { get; init; } = true;
+    public long Version { get; init; }
 }

@@ -20,6 +20,7 @@ public sealed class FederationProviderConfiguration : IEntityTypeConfiguration<F
         builder.Property(item => item.SamlSingleSignOnUrl).HasMaxLength(1000);
         builder.Property(item => item.SamlSigningCertificatePem).HasMaxLength(10000);
         builder.Property(item => item.AccountLinkingMode).HasConversion<string>().HasMaxLength(30);
+        builder.Property(item => item.Version).IsConcurrencyToken();
         builder.HasIndex(item => new { item.ApplicationSystemId, item.Name }).IsUnique();
         builder.HasOne(item => item.ApplicationSystem).WithMany().HasForeignKey(item => item.ApplicationSystemId).OnDelete(DeleteBehavior.Cascade);
     }
@@ -33,6 +34,7 @@ public sealed class FederationRoutingRuleConfiguration : IEntityTypeConfiguratio
         builder.HasKey(item => item.Id);
         builder.Property(item => item.EmailDomain).HasMaxLength(255);
         builder.Property(item => item.ExpectedProfileValueJson).HasMaxLength(4000);
+        builder.Property(item => item.Version).IsConcurrencyToken();
         builder.HasIndex(item => new { item.FederationProviderId, item.Priority }).IsUnique();
         builder.HasOne(item => item.FederationProvider).WithMany(item => item.RoutingRules).HasForeignKey(item => item.FederationProviderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(item => item.DirectoryGroup).WithMany().HasForeignKey(item => item.DirectoryGroupId).OnDelete(DeleteBehavior.Restrict);

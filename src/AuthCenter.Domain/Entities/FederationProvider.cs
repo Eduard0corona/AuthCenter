@@ -20,6 +20,7 @@ public sealed class FederationProvider
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public long Version { get; set; } = 1;
     public ApplicationSystem ApplicationSystem { get; set; } = null!;
     public ICollection<FederationRoutingRule> RoutingRules { get; set; } = new List<FederationRoutingRule>();
 }

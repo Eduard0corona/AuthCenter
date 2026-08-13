@@ -77,11 +77,11 @@ public sealed partial class FederationService : IFederationService
 
     public async Task<OperationResult> DeleteProviderAsync(Guid id, CancellationToken ct = default)
     {
-        var provider = await _db.FederationProviders.FindAsync([id], ct);
+        var provider = await _db.FederationProviders.Include(x => x.ApplicationSystem).SingleOrDefaultAsync(x => x.Id == id, ct);
         if (provider is null) return OperationResult.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
         _db.FederationProviders.Remove(provider);
         await _db.SaveChangesAsync(ct);
-        await _audit.LogAsync("FEDERATION_PROVIDER_DELETED", entityName: nameof(FederationProvider), entityId: id.ToString(), ct: ct);
+        await _audit.LogAsync("FEDERATION_PROVIDER_DELETED", applicationCode: provider.ApplicationSystem.Code, entityName: nameof(FederationProvider), entityId: id.ToString(), metadata: new { result = "Success" }, ct: ct);
         return OperationResult.Success();
     }
 
@@ -90,7 +90,8 @@ public sealed partial class FederationService : IFederationService
         if (request.Priority is < 1 or > 10000 ||
             (string.IsNullOrWhiteSpace(request.EmailDomain) && !request.DirectoryGroupId.HasValue && !request.ProfileAttributeDefinitionId.HasValue))
             return OperationResult.Failure("INVALID_ROUTING_RULE", "Priority and at least one domain, group, or profile condition are required.");
-        if (!await _db.FederationProviders.AnyAsync(item => item.Id == request.FederationProviderId, ct))
+        var provider = await _db.FederationProviders.Include(x => x.ApplicationSystem).SingleOrDefaultAsync(item => item.Id == request.FederationProviderId, ct);
+        if (provider is null)
             return OperationResult.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
         if (await _db.FederationRoutingRules.AnyAsync(item => item.FederationProviderId == request.FederationProviderId && item.Priority == request.Priority, ct))
             return OperationResult.Failure("ROUTING_PRIORITY_EXISTS", "The provider already has a rule with this priority.");
@@ -109,8 +110,49 @@ public sealed partial class FederationService : IFederationService
         };
         _db.FederationRoutingRules.Add(rule);
         await _db.SaveChangesAsync(ct);
-        await _audit.LogAsync("FEDERATION_ROUTING_RULE_CREATED", entityName: nameof(FederationRoutingRule), entityId: rule.Id.ToString(), ct: ct);
+        await _audit.LogAsync("FEDERATION_ROUTING_RULE_CREATED", applicationCode: provider.ApplicationSystem.Code, entityName: nameof(FederationRoutingRule), entityId: rule.Id.ToString(), metadata: new { result = "Success", rule.Priority }, ct: ct);
         return OperationResult.Success();
+    }
+
+    public async Task<IReadOnlyList<FederationRoutingRuleDto>> GetRoutingRulesAsync(Guid? applicationSystemId, CancellationToken ct = default)
+    {
+        var query = RoutingRuleQuery().AsNoTracking();
+        if (applicationSystemId.HasValue) query = query.Where(x => x.FederationProvider.ApplicationSystemId == applicationSystemId);
+        return (await query.OrderBy(x => x.Priority).ToListAsync(ct)).Select(Map).ToList();
+    }
+
+    public async Task<OperationResult<FederationRoutingRuleDto>> UpdateRoutingRuleAsync(Guid id, UpdateFederationRoutingRuleRequest request, CancellationToken ct = default)
+    {
+        var rule = await _db.FederationRoutingRules.Include(x => x.FederationProvider).ThenInclude(x => x.ApplicationSystem).SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (rule is null) return OperationResult<FederationRoutingRuleDto>.Failure("FEDERATION_ROUTING_RULE_NOT_FOUND", "Routing rule not found.");
+        if (rule.Version != request.Version) return OperationResult<FederationRoutingRuleDto>.Failure("CONCURRENCY_CONFLICT", "The routing rule changed after it was loaded.");
+        var validation = await ValidateRoutingRuleAsync(rule.FederationProviderId, request.Priority, request.EmailDomain, request.DirectoryGroupId, request.ProfileAttributeDefinitionId, request.ExpectedProfileValueJson, id, ct);
+        if (validation is not null) return OperationResult<FederationRoutingRuleDto>.Failure(validation.Value.Code, validation.Value.Message);
+        rule.Priority = request.Priority; rule.EmailDomain = NormalizeDomain(request.EmailDomain); rule.DirectoryGroupId = request.DirectoryGroupId; rule.ProfileAttributeDefinitionId = request.ProfileAttributeDefinitionId; rule.ExpectedProfileValueJson = request.ExpectedProfileValueJson; rule.IsActive = request.IsActive; rule.Version++;
+        try { await _db.SaveChangesAsync(ct); } catch (DbUpdateException) { return OperationResult<FederationRoutingRuleDto>.Failure("FEDERATION_ROUTING_PRIORITY_EXISTS", "Priority must be unique for the provider."); }
+        await _audit.LogAsync("FEDERATION_ROUTING_RULE_UPDATED", applicationCode: rule.FederationProvider.ApplicationSystem.Code, entityName: nameof(FederationRoutingRule), entityId: id.ToString(), metadata: new { result = "Success", rule.Priority, rule.IsActive, rule.Version }, ct: ct);
+        return OperationResult<FederationRoutingRuleDto>.Success(Map(await RoutingRuleQuery().AsNoTracking().SingleAsync(x => x.Id == id, ct)));
+    }
+
+    public async Task<OperationResult> ReorderRoutingRulesAsync(ReorderFederationRoutingRulesRequest request, CancellationToken ct = default)
+    {
+        if (request.Rules.Count == 0 || request.Rules.Select(x => x.Id).Distinct().Count() != request.Rules.Count || request.Rules.Select(x => x.Priority).Distinct().Count() != request.Rules.Count)
+            return OperationResult.Failure("INVALID_FEDERATION_ROUTING_ORDER", "Rules and priorities must be unique.");
+        var ids = request.Rules.Select(x => x.Id).ToArray(); var rules = await _db.FederationRoutingRules.Include(x => x.FederationProvider).ThenInclude(x => x.ApplicationSystem).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+        if (rules.Count != ids.Length) return OperationResult.Failure("FEDERATION_ROUTING_RULE_NOT_FOUND", "One or more routing rules were not found.");
+        if (rules.Select(x => x.FederationProvider.ApplicationSystemId).Distinct().Count() != 1) return OperationResult.Failure("FEDERATION_ROUTING_APP_MISMATCH", "All reordered rules must belong to the same application.");
+        foreach (var rule in rules) { var requested = request.Rules.Single(x => x.Id == rule.Id); if (rule.Version != requested.Version) return OperationResult.Failure("CONCURRENCY_CONFLICT", "A routing rule changed after it was loaded."); rule.Priority = -Math.Abs(requested.Priority) - 1; }
+        await _db.SaveChangesAsync(ct);
+        foreach (var rule in rules) { var requested = request.Rules.Single(x => x.Id == rule.Id); rule.Priority = requested.Priority; rule.Version++; }
+        try { await _db.SaveChangesAsync(ct); } catch (DbUpdateException) { return OperationResult.Failure("FEDERATION_ROUTING_PRIORITY_EXISTS", "Priorities must be unique for each provider."); }
+        await _audit.LogAsync("FEDERATION_ROUTING_RULES_REORDERED", applicationCode: rules[0].FederationProvider.ApplicationSystem.Code, entityName: nameof(FederationRoutingRule), metadata: new { result = "Success", ruleIds = ids }, ct: ct); return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> DeleteRoutingRuleAsync(Guid id, CancellationToken ct = default)
+    {
+        var rule = await _db.FederationRoutingRules.Include(x => x.FederationProvider).ThenInclude(x => x.ApplicationSystem).SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (rule is null) return OperationResult.Failure("FEDERATION_ROUTING_RULE_NOT_FOUND", "Routing rule not found.");
+        _db.Remove(rule); await _db.SaveChangesAsync(ct); await _audit.LogAsync("FEDERATION_ROUTING_RULE_DELETED", applicationCode: rule.FederationProvider.ApplicationSystem.Code, entityName: nameof(FederationRoutingRule), entityId: id.ToString(), metadata: new { result = "Success" }, ct: ct); return OperationResult.Success();
     }
 
     public async Task<OperationResult<FederationRouteResponse>> RouteAsync(FederationRouteRequest request, CancellationToken ct = default)
@@ -252,18 +294,33 @@ public sealed partial class FederationService : IFederationService
 
         var provider = id.HasValue ? await _db.FederationProviders.FindAsync([id.Value], ct) : null;
         if (id.HasValue && provider is null) return OperationResult<FederationProviderDto>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
+        if (id.HasValue && provider!.Version != request.Version) return OperationResult<FederationProviderDto>.Failure("CONCURRENCY_CONFLICT", "The federation provider changed after it was loaded.");
         provider ??= new FederationProvider { Id = Guid.NewGuid(), CreatedAt = _clock.UtcNow };
         provider.ApplicationSystemId = request.ApplicationSystemId; provider.Name = request.Name.Trim(); provider.Protocol = protocol; provider.Issuer = issuer.AbsoluteUri.TrimEnd('/');
         provider.DiscoveryEndpoint = string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) ? null : request.DiscoveryEndpoint.Trim(); provider.ClientId = request.ClientId?.Trim(); provider.OidcCallbackUrl = request.OidcCallbackUrl?.Trim();
         if (!string.IsNullOrWhiteSpace(request.ClientSecret)) provider.ProtectedClientSecret = _secrets.Protect(request.ClientSecret);
         provider.SamlSingleSignOnUrl = request.SamlSingleSignOnUrl?.Trim(); provider.SamlSigningCertificatePem = request.SamlSigningCertificatePem?.Trim();
         provider.JitProvisioningEnabled = request.JitProvisioningEnabled; provider.AccountLinkingMode = linking; provider.IsActive = request.IsActive; provider.UpdatedAt = id.HasValue ? _clock.UtcNow : null;
+        if (id.HasValue) provider.Version++;
         if (!id.HasValue) _db.FederationProviders.Add(provider);
         try { await _db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { return OperationResult<FederationProviderDto>.Failure("FEDERATION_PROVIDER_EXISTS", "A provider with this name already exists for the application."); }
-        await _audit.LogAsync(id.HasValue ? "FEDERATION_PROVIDER_UPDATED" : "FEDERATION_PROVIDER_CREATED", entityName: nameof(FederationProvider), entityId: provider.Id.ToString(), ct: ct);
+        var applicationCode = await _db.ApplicationSystems.Where(x => x.Id == provider.ApplicationSystemId).Select(x => x.Code).SingleAsync(ct);
+        await _audit.LogAsync(id.HasValue ? "FEDERATION_PROVIDER_UPDATED" : "FEDERATION_PROVIDER_CREATED", applicationCode: applicationCode, entityName: nameof(FederationProvider), entityId: provider.Id.ToString(), metadata: new { result = "Success", protocol = provider.Protocol.ToString(), provider.IsActive, provider.Version, hasClientSecret = provider.ProtectedClientSecret is not null }, ct: ct);
         return OperationResult<FederationProviderDto>.Success(Map(provider));
     }
+
+    private IQueryable<FederationRoutingRule> RoutingRuleQuery() => _db.FederationRoutingRules.Include(x => x.FederationProvider).ThenInclude(x => x.ApplicationSystem);
+    private async Task<(string Code, string Message)?> ValidateRoutingRuleAsync(Guid providerId, int priority, string? domain, Guid? groupId, Guid? definitionId, string? valueJson, Guid? excludedId, CancellationToken ct)
+    {
+        if (priority < 0 || !await _db.FederationProviders.AnyAsync(x => x.Id == providerId, ct)) return ("INVALID_FEDERATION_ROUTING_RULE", "An existing provider and non-negative priority are required.");
+        if (!string.IsNullOrWhiteSpace(domain) && (!domain.Contains('.') || domain.Contains('@'))) return ("INVALID_EMAIL_DOMAIN", "Email domain must be a domain name without @.");
+        if (groupId.HasValue && !await _db.DirectoryGroups.AnyAsync(x => x.Id == groupId && x.IsActive, ct)) return ("GROUP_NOT_FOUND", "Active group not found.");
+        if (definitionId.HasValue && (string.IsNullOrWhiteSpace(valueJson) || !await _db.UserProfileAttributeDefinitions.AnyAsync(x => x.Id == definitionId && x.IsActive, ct))) return ("INVALID_PROFILE_CONDITION", "Active profile definition and expected value are required together.");
+        if (await _db.FederationRoutingRules.AnyAsync(x => x.FederationProviderId == providerId && x.Priority == priority && x.Id != excludedId, ct)) return ("FEDERATION_ROUTING_PRIORITY_EXISTS", "Priority must be unique for the provider.");
+        return null;
+    }
+    private static FederationRoutingRuleDto Map(FederationRoutingRule x) => new() { Id = x.Id, FederationProviderId = x.FederationProviderId, ProviderName = x.FederationProvider.Name, ApplicationSystemId = x.FederationProvider.ApplicationSystemId, Priority = x.Priority, EmailDomain = x.EmailDomain, DirectoryGroupId = x.DirectoryGroupId, ProfileAttributeDefinitionId = x.ProfileAttributeDefinitionId, ExpectedProfileValueJson = x.ExpectedProfileValueJson, IsActive = x.IsActive, Version = x.Version };
 
     private async Task<OpenIdConnectConfiguration?> GetOidcConfigurationAsync(FederationProvider provider, CancellationToken ct, bool refresh = false)
     {
@@ -322,7 +379,8 @@ public sealed partial class FederationService : IFederationService
         SamlSigningCertificateThumbprint = TryCertificate(item.SamlSigningCertificatePem, out var certificate) ? certificate!.Thumbprint : null,
         JitProvisioningEnabled = item.JitProvisioningEnabled,
         AccountLinkingMode = item.AccountLinkingMode.ToString(),
-        IsActive = item.IsActive
+        IsActive = item.IsActive,
+        Version = item.Version
     };
     private static bool IsHttps(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.Fragment);
     private static string? NormalizeDomain(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().TrimStart('@').ToLowerInvariant();

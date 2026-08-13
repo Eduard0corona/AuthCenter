@@ -48,6 +48,7 @@ public sealed class LifecycleAutomationTests : IClassFixture<AuthCenterWebApplic
     {
         using var admin = await CreateAdminClientAsync(); var appId = await GetApplicationIdAsync();
         var issued = await ReadDataAsync<ProvisioningTokenResponse>(await admin.PostAsJsonAsync("/api/provisioning-tokens", new CreateProvisioningTokenRequest { ApplicationSystemId = appId, Name = "rotate-test", Scopes = ["scim.groups.read", "scim.groups.write"], ExpiresAt = DateTime.UtcNow.AddHours(1) }));
+        await admin.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.provisioning-token.rotate");
         var rotated = await ReadDataAsync<ProvisioningTokenResponse>(await admin.PostAsync($"/api/provisioning-tokens/{issued.Id}/rotate?expiresAt={Uri.EscapeDataString(DateTime.UtcNow.AddHours(2).ToString("O"))}", null));
         using var oldClient = _factory.CreateClient(); oldClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", issued.Token); Assert.Equal(HttpStatusCode.Unauthorized, (await oldClient.GetAsync("/scim/v2/Groups")).StatusCode);
         using var newClient = _factory.CreateClient(); newClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rotated.Token); Assert.Equal(HttpStatusCode.OK, (await newClient.GetAsync("/scim/v2/Groups")).StatusCode);

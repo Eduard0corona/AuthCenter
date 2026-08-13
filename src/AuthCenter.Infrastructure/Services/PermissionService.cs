@@ -15,11 +15,13 @@ public class PermissionService : IPermissionService
 {
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IAuditService _audit;
 
-    public PermissionService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider)
+    public PermissionService(AuthCenterDbContext db, IDateTimeProvider dateTimeProvider, IAuditService audit)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
+        _audit = audit;
     }
 
     public async Task<PagedResult<PermissionDto>> GetAllAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -69,6 +71,7 @@ public class PermissionService : IPermissionService
 
         _db.Permissions.Add(permission);
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("PERMISSION_CREATED", permission, ct);
         return OperationResult<PermissionDto>.Success(MapToDto(permission));
     }
 
@@ -81,6 +84,7 @@ public class PermissionService : IPermissionService
         permission.Description = request.Description;
 
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("PERMISSION_UPDATED", permission, ct);
         return OperationResult<PermissionDto>.Success(MapToDto(permission));
     }
 
@@ -91,6 +95,7 @@ public class PermissionService : IPermissionService
 
         permission.IsActive = true;
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("PERMISSION_ACTIVATED", permission, ct);
         return OperationResult.Success();
     }
 
@@ -101,6 +106,7 @@ public class PermissionService : IPermissionService
 
         permission.IsActive = false;
         await _db.SaveChangesAsync(ct);
+        await AuditAsync("PERMISSION_DEACTIVATED", permission, ct);
         return OperationResult.Success();
     }
 
@@ -114,4 +120,10 @@ public class PermissionService : IPermissionService
         IsActive = p.IsActive,
         CreatedAt = p.CreatedAt
     };
+
+    private async Task AuditAsync(string action, Permission permission, CancellationToken ct)
+    {
+        var applicationCode = await _db.ApplicationSystems.Where(x => x.Id == permission.ApplicationSystemId).Select(x => x.Code).SingleOrDefaultAsync(ct);
+        await _audit.LogAsync(action, applicationCode: applicationCode, entityName: nameof(Permission), entityId: permission.Id.ToString(), metadata: new { result = "Success", permission.Code }, ct: ct);
+    }
 }
