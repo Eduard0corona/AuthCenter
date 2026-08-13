@@ -12,6 +12,8 @@ const ApplicationsPage = lazy(() => import("../features/applications/Application
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClientsPage"));
 const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
+const AccessPoliciesPage = lazy(() => import("../features/access-policies/AccessPoliciesPage"));
+const AccessPolicyEditorPage = lazy(() => import("../features/access-policies/AccessPolicyEditorPage"));
 const RolesPage = lazy(() => import("../features/roles/RolesPage"));
 const RoleEditorPage = lazy(() => import("../features/roles/RoleEditorPage"));
 const PermissionsPage = lazy(() => import("../features/permissions/PermissionsPage"));
@@ -39,6 +41,8 @@ export function AppRouter() {
           <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
           <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
           <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />
+          <Route path="access-policies" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPoliciesPage /></PermissionRoute>} />
+          <Route path="access-policies/:applicationId" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPolicyEditorPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />
           <Route path="roles/new" element={<PermissionRoute permission="AUTHCENTER_ROLES_WRITE"><RoleEditorPage create /></PermissionRoute>} />
           <Route path="roles/:roleId" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RoleEditorPage /></PermissionRoute>} />

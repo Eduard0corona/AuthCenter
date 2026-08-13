@@ -47,6 +47,11 @@ public class AccessPolicyTests : IClassFixture<AuthCenterWebApplicationFactory>
         using var loginClient = _factory.CreateClient();
         var beforeFirstPublish = await ReadDataAsync<AuthResponse>(
             await LoginAsync(loginClient, user.Email, password, application.Code));
+        var publishWithoutProof = await admin.PostAsync(
+            $"/api/access-policies/applications/{application.Id}/versions/{firstDraft.Id}/publish",
+            null);
+        Assert.Equal(HttpStatusCode.Forbidden, publishWithoutProof.StatusCode);
+        Assert.Equal("REAUTHENTICATION_REQUIRED", (await publishWithoutProof.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
         await PublishAsync(admin, application.Id, firstDraft.Id);
 
         var revokedByFirstPublish = await loginClient.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
@@ -100,6 +105,15 @@ public class AccessPolicyTests : IClassFixture<AuthCenterWebApplicationFactory>
             await admin.GetAsync($"/api/access-policies/applications/{application.Id}?policyVersionId={secondDraft.Id}"));
         Assert.Equal(["Emergency deny", "Allow all"], publishedRules.Select(rule => rule.Name));
         Assert.Equal([1, 100], publishedRules.Select(rule => rule.Priority));
+
+        await using var auditScope = _factory.Services.CreateAsyncScope();
+        var auditDb = auditScope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var actions = await auditDb.AuditLogs
+            .Where(audit => audit.ApplicationCode == application.Code || audit.EntityId == firstDraft.Id.ToString())
+            .Select(audit => audit.Action)
+            .ToListAsync();
+        Assert.Contains("ACCESS_POLICY_PUBLISH_REJECTED", actions);
+        Assert.Contains("ACCESS_POLICY_VERSION_PUBLISHED", actions);
     }
 
     [Fact]
@@ -250,6 +264,9 @@ public class AccessPolicyTests : IClassFixture<AuthCenterWebApplicationFactory>
             Action = "Deny"
         });
 
+        await admin.AddReauthenticationProofAsync(
+            AuthCenterWebApplicationFactory.AdminPassword,
+            "admin.access-policy.publish");
         var publish = await admin.PostAsync(
             $"/api/access-policies/applications/{authCenterId}/versions/{draft.Id}/publish",
             null);
@@ -311,8 +328,14 @@ public class AccessPolicyTests : IClassFixture<AuthCenterWebApplicationFactory>
     private static Task<AccessPolicyVersionDto> CreateDraftAsync(HttpClient admin, Guid applicationId) =>
         ReadDataAsync<AccessPolicyVersionDto>(admin.PostAsync($"/api/access-policies/applications/{applicationId}/drafts", null));
 
-    private static Task<AccessPolicyVersionDto> PublishAsync(HttpClient admin, Guid applicationId, Guid versionId) =>
-        ReadDataAsync<AccessPolicyVersionDto>(admin.PostAsync($"/api/access-policies/applications/{applicationId}/versions/{versionId}/publish", null));
+    private static async Task<AccessPolicyVersionDto> PublishAsync(HttpClient admin, Guid applicationId, Guid versionId)
+    {
+        await admin.AddReauthenticationProofAsync(
+            AuthCenterWebApplicationFactory.AdminPassword,
+            "admin.access-policy.publish");
+        return await ReadDataAsync<AccessPolicyVersionDto>(
+            admin.PostAsync($"/api/access-policies/applications/{applicationId}/versions/{versionId}/publish", null));
+    }
 
     private static Task<AccessPolicyRuleDto> CreateRuleAsync(HttpClient admin, CreateAccessPolicyRuleRequest request) =>
         ReadDataAsync<AccessPolicyRuleDto>(admin.PostAsJsonAsync("/api/access-policies", request));

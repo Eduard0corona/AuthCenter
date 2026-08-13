@@ -96,7 +96,7 @@ test.beforeEach(async ({ page }) => {
       email: "ada@example.test",
       applications: ["AUTHCENTER"],
       roles: ["Admin"],
-      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ", "AUTHCENTER_OAUTH_CLIENTS_READ", "AUTHCENTER_OAUTH_CLIENTS_WRITE"]
+      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ", "AUTHCENTER_OAUTH_CLIENTS_READ", "AUTHCENTER_OAUTH_CLIENTS_WRITE", "AUTHCENTER_ACCESS_POLICIES_READ", "AUTHCENTER_ACCESS_POLICIES_WRITE"]
     }, csrfToken: "e2e-csrf" } })
   }));
   await page.route("**/api/users?**", async (route) => route.fulfill({
@@ -455,4 +455,84 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
+});
+
+test("creates, simulates and publishes an access policy draft with step-up", async ({ page }) => {
+  const publishedVersionId = "88888888-8888-4888-8888-888888888888";
+  const draftVersionId = "99999999-9999-4999-8999-999999999999";
+  const ruleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  let draftCreated = false;
+  let published = false;
+  let rulePayload: Record<string, unknown> | null = null;
+  let proofPurpose = "";
+  let proofHeader = "";
+  const baselineRule = {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", applicationSystemId: applicationId, policyVersionId: publishedVersionId,
+    policyVersionNumber: 1, policyVersionStatus: "Published", applicationCode: application.code, userId: null, userEmail: null,
+    directoryGroupId: null, directoryGroupName: null, name: "Allow with MFA", priority: 100, action: "Allow", mfaRequirement: "Required",
+    allowTrustedDeviceBypass: false, includedIpCidrs: [], excludedIpCidrs: [], activeFromUtc: null, activeUntilUtc: null,
+    activeDaysUtc: [], dailyStartTimeUtc: null, dailyEndTimeUtc: null, minimumRiskLevel: null, maximumRiskLevel: null,
+    requiredAssuranceLevel: "Mfa", isActive: true, createdAt: "2026-08-13T00:00:00Z", updatedAt: null
+  };
+  let draftRules = [{ ...baselineRule, id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", policyVersionId: draftVersionId, policyVersionNumber: 2, policyVersionStatus: "Draft" }];
+
+  await page.route(`**/api/access-policies/applications/${applicationId}/versions`, async (route) => {
+    const versions = draftCreated
+      ? [{ id: draftVersionId, applicationSystemId: applicationId, versionNumber: 2, status: published ? "Published" : "Draft", ruleCount: draftRules.length, createdAt: "2026-08-13T01:00:00Z", publishedAt: published ? "2026-08-13T02:00:00Z" : null }, { id: publishedVersionId, applicationSystemId: applicationId, versionNumber: 1, status: published ? "Archived" : "Published", ruleCount: 1, createdAt: "2026-08-12T00:00:00Z", publishedAt: "2026-08-12T01:00:00Z" }]
+      : [{ id: publishedVersionId, applicationSystemId: applicationId, versionNumber: 1, status: "Published", ruleCount: 1, createdAt: "2026-08-12T00:00:00Z", publishedAt: "2026-08-12T01:00:00Z" }];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: versions }) });
+  });
+  await page.route(`**/api/access-policies/applications/${applicationId}/drafts`, async (route) => {
+    draftCreated = true;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { id: draftVersionId, applicationSystemId: applicationId, versionNumber: 2, status: "Draft", ruleCount: 1, createdAt: "2026-08-13T01:00:00Z", publishedAt: null } }) });
+  });
+  await page.route(`**/api/access-policies/applications/${applicationId}?**`, async (route) => {
+    const versionId = new URL(route.request().url()).searchParams.get("policyVersionId");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: versionId === draftVersionId ? draftRules : [baselineRule] }) });
+  });
+  await page.route("**/api/access-policies", async (route) => {
+    rulePayload = route.request().postDataJSON() as Record<string, unknown>;
+    const created = { ...baselineRule, ...rulePayload, id: ruleId, policyVersionId: draftVersionId, policyVersionNumber: 2, policyVersionStatus: "Draft", userEmail: null, directoryGroupName: null, createdAt: "2026-08-13T01:30:00Z", updatedAt: null };
+    draftRules = [...draftRules, created];
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: created }) });
+  });
+  await page.route("**/api/access-policies/simulate", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { isAllowed: false, requireMfa: false, allowTrustedDeviceBypass: false, requiredAssuranceLevel: "Password", matchedRuleId: ruleId, matchedRuleName: "Block high risk", decisionReason: "The first matching rule denies access.", policyVersionId: draftVersionId, policyVersionNumber: 2, policyVersionStatus: "Draft", ruleEvaluations: [{ ruleId, ruleName: "Block high risk", priority: 10, matched: true, reasons: ["All configured conditions matched."] }, { ruleId: baselineRule.id, ruleName: baselineRule.name, priority: 100, matched: true, reasons: ["All configured conditions matched."] }] } }) }));
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    proofPurpose = (route.request().postDataJSON() as { purpose: string }).purpose;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "policy-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+  await page.route(`**/api/access-policies/applications/${applicationId}/versions/${draftVersionId}/publish`, async (route) => {
+    proofHeader = route.request().headers()["x-authcenter-reauthentication"] ?? "";
+    published = true;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { id: draftVersionId, applicationSystemId: applicationId, versionNumber: 2, status: "Published", ruleCount: draftRules.length, createdAt: "2026-08-13T01:00:00Z", publishedAt: "2026-08-13T02:00:00Z" } }) });
+  });
+
+  await page.goto(`/admin-v2/access-policies/${applicationId}`);
+  await page.getByRole("button", { name: "Crear draft" }).click();
+  await expect(page.getByRole("button", { name: /v2 Draft/ })).toBeVisible();
+  await page.getByRole("button", { name: "Nueva regla" }).click();
+  await page.getByLabel("Nombre", { exact: true }).fill("Block high risk");
+  await page.getByLabel("Prioridad").fill("10");
+  await page.getByLabel("Acción").selectOption("Deny");
+  await page.getByLabel("Riesgo mínimo").selectOption("High");
+  await page.getByRole("button", { name: "Crear regla" }).click();
+  await expect(page.getByText("Agregada")).toBeVisible();
+  expect(rulePayload).toMatchObject({ applicationSystemId: applicationId, policyVersionId: draftVersionId, name: "Block high risk", priority: 10, action: "Deny", minimumRiskLevel: "High" });
+
+  await page.getByLabel("Usuario").selectOption("user-1");
+  await page.getByRole("button", { name: "Simular decisión" }).click();
+  const decision = page.locator(".decision-panel");
+  await expect(decision).toContainText("Acceso denegado");
+  await expect(decision).toContainText("Block high risk");
+
+  const publishButton = page.getByRole("button", { name: "Revisar y publicar v2" });
+  await publishButton.focus();
+  await publishButton.press("Enter");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y publicar" }).click();
+  await expect(page.getByText(/sesiones de la aplicaci.n fueron revocadas/)).toBeVisible();
+  expect(proofPurpose).toBe("admin.access-policy.publish");
+  expect(proofHeader).toBe("policy-proof");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });

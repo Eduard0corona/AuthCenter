@@ -1,6 +1,6 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-oauth-clients`, actualizada el
+> Estado del documento: implementacion activa en `feat/admin-access-policies`, actualizada el
 > 2026-08-13. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
@@ -107,6 +107,8 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
 - Bundle actual tras alta e invitacion: el modulo nuevo se mantiene como chunk diferido de 3.44 KB gzip y el CSS total permanece en 5.09 KB gzip.
 - Entrega de OAuth clients: 65 pruebas unitarias, 140 de integracion, 19 frontend y 45 escenarios E2E; CRUD, filtros, redirects exactos, grants/scopes, secretos de un solo uso, step-up y auditoria sin secretos cubiertos.
 - Bundle actual tras OAuth clients: listado y editor permanecen como chunks diferidos de 1.75 KB y 5.03 KB gzip; el CSS total es 5.14 KB gzip.
+- Entrega de politicas de acceso: 65 pruebas unitarias, 140 de integracion, 22 frontend y 48 escenarios E2E; drafts/versiones inmutables, reglas ordenadas, condiciones completas, simulacion explicable, diff, fallback de `AUTHCENTER`, step-up y revocacion de sesiones cubiertos.
+- Bundle actual tras politicas: listado y editor permanecen como chunks diferidos de 0.97 KB y 6.49 KB gzip; el CSS total es 5.37 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -231,7 +233,7 @@ Los assets no HTML usan `Cache-Control: public,max-age=86400`, pero conservan no
 
 - [x] Inicializar el panel desde la ruta o hash actual.
 - [x] Soportar atras/adelante del navegador.
-- [ ] Crear rutas de detalle enlazables para usuarios, aplicaciones, grupos y politicas; usuarios y politicas siguen pendientes.
+- [x] Crear rutas de detalle enlazables para usuarios, aplicaciones, grupos y politicas.
 - [x] Crear rutas de detalle enlazables para aplicaciones y grupos.
 - [x] Mover el foco al encabezado del panel al navegar.
 - [x] Implementar breadcrumb en la vista de detalle de aplicaciones; se reutilizara en las siguientes vistas.
@@ -421,13 +423,13 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.4 Politicas de acceso
 
-- [ ] Historial de versiones y estado draft/published.
-- [ ] Editor de reglas ordenadas.
-- [ ] Condiciones por usuario, grupo, IP, horario, riesgo y assurance.
-- [ ] Acciones allow, deny y require MFA.
-- [ ] Simulacion explicable antes de publicar.
-- [ ] Diff de version y confirmacion con step-up.
-- [ ] Impedir dejar `AUTHCENTER` sin fallback permitido.
+- [x] Historial de versiones y estado draft/published.
+- [x] Editor de reglas ordenadas.
+- [x] Condiciones por usuario, grupo, IP, horario, riesgo y assurance.
+- [x] Acciones allow, deny y require MFA.
+- [x] Simulacion explicable antes de publicar.
+- [x] Diff de version y confirmacion con step-up.
+- [x] Impedir dejar `AUTHCENTER` sin fallback permitido.
 
 ### 10.5 OAuth y provisioning secrets
 
@@ -541,7 +543,7 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] Crear aplicacion y editar branding sin perder URLs.
 - [x] Crear roles/permisos, actualizar matriz RBAC y asignar rol predeterminado valido.
 - [x] Crear y rotar OAuth client mostrando el secreto una sola vez.
-- [ ] Crear draft, simular y publicar politica con step-up.
+- [x] Crear draft, simular y publicar politica con step-up.
 - [ ] Crear/verificar hook y reproducir un dead letter.
 - [ ] Filtrar System Log por trace ID.
 - [ ] Expiracion de sesion durante una mutacion.
@@ -597,7 +599,7 @@ El pipeline debe ejecutar, en orden:
 ### Fase C: politicas e integraciones
 
 - [x] OAuth clients.
-- [ ] Access policies y simulacion.
+- [x] Access policies y simulacion.
 - [ ] Federacion OIDC/SAML.
 - [ ] Provisioning tokens y SCIM.
 - [ ] Mappings y group rules.

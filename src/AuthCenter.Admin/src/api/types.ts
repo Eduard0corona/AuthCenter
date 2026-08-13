@@ -210,3 +210,58 @@ export interface OAuthClientCreated {
 export interface OAuthClientSecret {
   clientSecret: string;
 }
+
+export interface AccessPolicyVersion {
+  id: string;
+  applicationSystemId: string;
+  versionNumber: number;
+  status: "Draft" | "Published" | "Archived";
+  ruleCount: number;
+  createdAt: string;
+  publishedAt: string | null;
+}
+
+export interface AccessPolicyRule {
+  id: string;
+  applicationSystemId: string;
+  policyVersionId: string;
+  policyVersionNumber: number;
+  policyVersionStatus: "Draft" | "Published" | "Archived";
+  applicationCode: string;
+  userId: string | null;
+  userEmail: string | null;
+  directoryGroupId: string | null;
+  directoryGroupName: string | null;
+  name: string;
+  priority: number;
+  action: "Allow" | "Deny";
+  mfaRequirement: "Optional" | "Required";
+  allowTrustedDeviceBypass: boolean;
+  includedIpCidrs: string[];
+  excludedIpCidrs: string[];
+  activeFromUtc: string | null;
+  activeUntilUtc: string | null;
+  activeDaysUtc: string[];
+  dailyStartTimeUtc: string | null;
+  dailyEndTimeUtc: string | null;
+  minimumRiskLevel: string | null;
+  maximumRiskLevel: string | null;
+  requiredAssuranceLevel: "Password" | "Mfa" | "PhishingResistant";
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface AccessPolicySimulation {
+  isAllowed: boolean;
+  requireMfa: boolean;
+  allowTrustedDeviceBypass: boolean;
+  requiredAssuranceLevel: string;
+  matchedRuleId: string | null;
+  matchedRuleName: string | null;
+  decisionReason: string;
+  policyVersionId: string | null;
+  policyVersionNumber: number | null;
+  policyVersionStatus: string | null;
+  ruleEvaluations: Array<{ ruleId: string; ruleName: string; priority: number; matched: boolean; reasons: string[] }>;
+}
