@@ -1,6 +1,6 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-lifecycle-mappings-rules`, actualizada el
+> Estado del documento: implementacion activa en `feat/admin-federation`, actualizada el
 > 2026-09-20. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
@@ -129,6 +129,19 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
   inicial termine antes de cambiar el orden, que era la causa del fallo intermitente en CI.
 - Bundle actual tras lifecycle: listados y editores permanecen como chunks diferidos de 1.67 KB,
   4.01 KB, 1.57 KB y 3.90 KB gzip; el CSS total es 5.43 KB gzip.
+- Entrega de federacion: 65 pruebas unitarias, 145 de integracion, 37 frontend y 72 escenarios E2E;
+  catalogo de proveedores por aplicacion, formularios discriminados OIDC/SAML con validacion HTTPS,
+  secret y certificado nunca devueltos (solo presencia y huella), URL de metadata SP, routing rules
+  con condiciones combinadas, reordenamiento con prioridades reemitidas, simulacion de enrutamiento y
+  step-up de un solo uso en cada escritura cubiertos.
+- Cambio backend indispensable: al actualizar un proveedor SAML, un PEM en blanco conserva el
+  certificado almacenado (igual que el client secret), con prueba de integracion; antes el operador
+  tenia que volver a pegar el certificado en cada guardado aunque el DTO solo expone su huella.
+- Hallazgo corregido: el encabezado `sr-only` de la columna de acciones escapaba del contenedor de
+  tablas en movil (posicion absoluta sin contexto) y ensanchaba el documento; `.data-table` ahora
+  establece `position: relative`, lo que aplica a todas las tablas del admin.
+- Bundle actual tras federacion: pagina y editor de proveedor como chunks diferidos de 4.83 KB y
+  3.96 KB gzip (mas 1.93 KB compartidos); el CSS total es 5.43 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -295,7 +308,7 @@ accesibilidad.
 | Perfil universal | Esquemas y valores | Ausente | Editor de esquema y perfil de usuario |
 | OAuth clients | CRUD y rotacion de secret | Ausente | Clientes, redirects, grants, scopes y secret reveal |
 | Politicas de acceso | Versiones, reglas, publish y simulacion | Ausente | Editor visual, diff, simulacion y explicacion |
-| Federacion | Proveedores OIDC/SAML y routing | Ausente | Catalogo, formularios, metadata y pruebas |
+| Federacion | Proveedores OIDC/SAML y routing | Catalogo por aplicacion, formularios OIDC/SAML, metadata SP, routing ordenable y simulacion | Prueba de conexion en vivo contra el IdP |
 | Lifecycle | Mappings y reglas dinamicas | Listado, edicion versionada, validacion, simulacion y preview de miembros | Operadores adicionales cuando el backend los soporte |
 | SCIM/provisioning | Tokens y endpoints SCIM | Tokens con metadata, scopes, expiracion, rotacion y revocacion | Diagnostico operativo de integraciones SCIM |
 | Event Hooks | Create/verify/delete, deliveries y replay | Solo deliveries/replay | Gestion completa del hook y diagnostico |
@@ -464,10 +477,10 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 10.6 Federacion y lifecycle
 
-- [ ] Catalogo de proveedores OIDC/SAML.
-- [ ] Formularios discriminados por protocolo.
-- [ ] Metadata, certificados y estado de validacion sin exponer secretos.
-- [ ] Routing rules ordenables y simulables.
+- [x] Catalogo de proveedores OIDC/SAML.
+- [x] Formularios discriminados por protocolo.
+- [x] Metadata, certificados y estado de validacion sin exponer secretos.
+- [x] Routing rules ordenables y simulables.
 - [x] Profile mappings con preview de transformacion.
 - [x] Group rules con preview de miembros afectados.
 - [ ] Estado y diagnostico de integraciones SCIM.
@@ -623,7 +636,7 @@ El pipeline debe ejecutar, en orden:
 
 - [x] OAuth clients.
 - [x] Access policies y simulacion.
-- [ ] Federacion OIDC/SAML.
+- [x] Federacion OIDC/SAML.
 - [ ] Provisioning tokens y SCIM.
 - [x] Mappings y group rules.
 - [ ] Event Hooks completos.

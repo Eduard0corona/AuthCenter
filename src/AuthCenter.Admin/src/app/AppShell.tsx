@@ -37,6 +37,7 @@ const navigation: NavigationGroup[] = [
       { label: "Group rules", to: "/group-rules", permission: "AUTHCENTER_GROUPS_READ" }
     ]
   },
+  { label: "Federación", items: [{ label: "Proveedores y routing", to: "/federation", permission: "AUTHCENTER_APPLICATIONS_READ" }] },
   {
     label: "Seguridad",
     items: [

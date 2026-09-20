@@ -111,6 +111,14 @@ type before it is sent, and the editor shows a server-paginated preview of the a
 currently match. Both editors send the loaded version on update and surface a `409
 CONCURRENCY_CONFLICT` with a reload action instead of overwriting newer changes.
 
+Federation is managed at `/admin-v2/federation`, scoped to one application at a time. Operators
+register OIDC or SAML 2.0 identity providers through protocol-specific forms (HTTPS issuer, exact
+callback URL, SP metadata URL); client secrets and signing certificates are write-only and the UI
+only shows their presence and thumbprint, and leaving them blank on update keeps the stored values.
+Routing rules combine email domain, group and profile-attribute conditions, are reordered in place
+with priorities re-issued on save, and a simulation panel resolves any email against the saved
+rules. Every write requires a fresh single-use `admin.federation.change` reauthentication proof.
+
 Access policies are managed at `/admin-v2/access-policies`. Each application exposes immutable
 published/archived history and at most one editable draft. Operators can build ordered rules for
 user or group targets, CIDR ranges, UTC schedules, risk and assurance requirements; simulate a

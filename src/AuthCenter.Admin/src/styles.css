@@ -156,7 +156,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .source-labels { display: flex !important; flex-wrap: wrap; gap: .25rem !important; }
 .tag--direct { color: #175cd3; background: #eff8ff; }.tag--inherited { color: #027a48; background: #ecfdf3; }.tag--inactive, .tag--warning { color: var(--amber-700); background: var(--amber-100); }
 
-.data-table { overflow-x: auto; border: 1px solid var(--slate-200); border-radius: .75rem; background: var(--white); }
+.data-table { position: relative; overflow-x: auto; border: 1px solid var(--slate-200); border-radius: .75rem; background: var(--white); }
 .data-table:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: .82rem 1rem; border-bottom: 1px solid var(--slate-200); text-align: left; vertical-align: middle; }

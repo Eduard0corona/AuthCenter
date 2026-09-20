@@ -335,3 +335,44 @@ export interface GroupRulePreview {
   ruleId: string;
   users: PagedResult<GroupRulePreviewUser>;
 }
+
+export type FederationProtocol = "Oidc" | "Saml2";
+export type AccountLinkingMode = "Disabled" | "VerifiedEmail";
+
+export interface FederationProvider {
+  id: string;
+  applicationSystemId: string;
+  name: string;
+  protocol: FederationProtocol;
+  issuer: string;
+  discoveryEndpoint: string | null;
+  clientId: string | null;
+  oidcCallbackUrl: string | null;
+  hasClientSecret: boolean;
+  samlSingleSignOnUrl: string | null;
+  samlSigningCertificateThumbprint: string | null;
+  jitProvisioningEnabled: boolean;
+  accountLinkingMode: AccountLinkingMode;
+  isActive: boolean;
+  version: number;
+}
+
+export interface FederationRoutingRule {
+  id: string;
+  federationProviderId: string;
+  providerName: string;
+  applicationSystemId: string;
+  priority: number;
+  emailDomain: string | null;
+  directoryGroupId: string | null;
+  profileAttributeDefinitionId: string | null;
+  expectedProfileValueJson: string | null;
+  isActive: boolean;
+  version: number;
+}
+
+export interface FederationRouteResult {
+  providerId: string;
+  providerName: string;
+  protocol: FederationProtocol;
+}
