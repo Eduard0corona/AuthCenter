@@ -29,7 +29,14 @@ const navigation: NavigationGroup[] = [
       { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" }
     ]
   },
-  { label: "Lifecycle", items: [{ label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_APPLICATIONS_READ" }] },
+  {
+    label: "Lifecycle",
+    items: [
+      { label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_APPLICATIONS_READ" },
+      { label: "Profile mappings", to: "/profile-mappings", permission: "AUTHCENTER_USERS_READ" },
+      { label: "Group rules", to: "/group-rules", permission: "AUTHCENTER_GROUPS_READ" }
+    ]
+  },
   {
     label: "Seguridad",
     items: [

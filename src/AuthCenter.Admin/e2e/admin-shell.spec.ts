@@ -165,8 +165,11 @@ test("persists user ordering in the URL and server query", async ({ page }) => {
   });
 
   await page.goto("/admin-v2/users");
+  // Wait for the initial query to settle so the sort change is the only in-flight navigation.
+  await expect(page.getByText("No hay resultados")).toBeVisible();
+  await expect.poll(() => requestedUrl).toContain("sortBy=fullName");
   await page.getByLabel("Orden").selectOption("createdAt-desc");
-  await expect(page).toHaveURL(/sort=createdAt-desc/);
+  await expect(page).toHaveURL(/sort=createdAt-desc/, { timeout: 15_000 });
   await expect.poll(() => requestedUrl).toContain("sortBy=createdAt");
   expect(requestedUrl).toContain("sortDirection=desc");
 });
@@ -637,4 +640,107 @@ test("creates, simulates and publishes an access policy draft with step-up", asy
   expect(proofPurpose).toBe("admin.access-policy.publish");
   expect(proofHeader).toBe("policy-proof");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+const profileMappingId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const profileMapping = {
+  id: profileMappingId, applicationSystemId: applicationId, applicationName: application.name, sourceSystem: "SCIM",
+  sourcePath: "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User.department", targetAttributeDefinitionId: profileSchema[0].id,
+  targetAttributeName: "department", isAuthoritative: true, isActive: true, createdAt: "2026-08-13T00:00:00Z", version: 1
+};
+
+test("creates, validates and simulates a SCIM profile mapping", async ({ page }) => {
+  let validatePayload: Record<string, unknown> | null = null;
+  let createPayload: Record<string, unknown> | null = null;
+  let simulatePayload: Record<string, unknown> | null = null;
+  await page.route("**/api/lifecycle/profile-mappings/validate", async (route) => {
+    validatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.route("**/api/lifecycle/profile-mappings", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileMapping }) });
+  });
+  await page.route(`**/api/lifecycle/profile-mappings/${profileMappingId}/simulate`, async (route) => {
+    simulatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { isValid: true, sourcePath: profileMapping.sourcePath, targetAttributeName: "department", value: "Ingeniería", errors: [] } }) });
+  });
+  await page.route(`**/api/lifecycle/profile-mappings/${profileMappingId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileMapping }) }));
+
+  await page.goto("/admin-v2/profile-mappings/new");
+  await page.getByLabel("Aplicación").selectOption(applicationId);
+  await page.getByLabel("Ruta de origen SCIM").fill(` ${profileMapping.sourcePath} `);
+  await page.getByLabel("Atributo destino").selectOption(profileSchema[0].id);
+  await page.getByLabel(/Autoritativo/).check();
+  await page.getByRole("button", { name: "Validar" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "son válidos" })).toBeVisible();
+  expect(validatePayload).toEqual({ applicationSystemId: applicationId, sourceSystem: "SCIM", sourcePath: profileMapping.sourcePath, targetAttributeDefinitionId: profileSchema[0].id, isAuthoritative: true });
+
+  await page.getByRole("button", { name: "Crear mapping" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/profile-mappings/${profileMappingId}$`));
+  expect(createPayload).toEqual(validatePayload);
+  await expect(page.getByRole("heading", { name: "Simulación" })).toBeVisible();
+  await page.getByRole("button", { name: "Simular transformación" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "department" })).toContainText("Ingeniería");
+  expect(simulatePayload).toMatchObject({ sourceDocument: { name: { givenName: "Grace" } } });
+
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
+test("blocks a stale profile mapping update and offers to reload", async ({ page }) => {
+  let updatePayload: Record<string, unknown> | null = null;
+  await page.route(`**/api/lifecycle/profile-mappings/${profileMappingId}`, async (route) => {
+    if (route.request().method() === "PUT") {
+      updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "CONCURRENCY_CONFLICT", message: "The mapping changed after it was loaded." }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileMapping }) });
+  });
+
+  await page.goto(`/admin-v2/profile-mappings/${profileMappingId}`);
+  await expect(page.getByLabel("Ruta de origen SCIM")).toHaveValue(profileMapping.sourcePath);
+  await page.getByLabel("Mapping activo").uncheck();
+  await page.getByRole("button", { name: "Guardar cambios" }).click();
+  await expect(page.getByRole("alert")).toContainText("cambió desde que lo cargaste");
+  await expect(page.getByRole("button", { name: "Recargar" })).toBeVisible();
+  expect(updatePayload).toEqual({ sourceSystem: "SCIM", sourcePath: profileMapping.sourcePath, targetAttributeDefinitionId: profileSchema[0].id, isAuthoritative: true, isActive: false, version: 1 });
+});
+
+test("creates a typed group rule and previews the affected members", async ({ page }) => {
+  const groupRuleId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const levelDefinition = { ...profileSchema[0], id: "12121212-1212-4121-8121-121212121212", key: "level", displayName: "Nivel", dataType: "Integer", allowedValues: [], defaultValue: null };
+  const groupRule = { id: groupRuleId, directoryGroupId: groupId, groupName: group.name, profileAttributeDefinitionId: levelDefinition.id, attributeName: "level", operator: "eq", expectedValue: 3, isActive: true, createdAt: "2026-08-13T00:00:00Z", version: 1 };
+  let createPayload: Record<string, unknown> | null = null;
+  let previewPayload: Record<string, unknown> | null = null;
+  await page.unroute("**/api/profile-schema");
+  await page.route("**/api/profile-schema", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [...profileSchema, levelDefinition] }) }));
+  await page.route("**/api/lifecycle/group-rules", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) });
+  });
+  await page.route(`**/api/lifecycle/group-rules/${groupRuleId}/preview`, async (route) => {
+    previewPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ruleId: groupRuleId, users: { items: [{ id: "user-1", email: "grace@example.test", fullName: "Grace Hopper" }], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } } }) });
+  });
+  await page.route(`**/api/lifecycle/group-rules/${groupRuleId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) }));
+
+  await page.goto("/admin-v2/group-rules/new");
+  await page.getByLabel("Grupo").selectOption(groupId);
+  await page.getByLabel("Atributo del perfil").selectOption(levelDefinition.id);
+  await expect(page.getByText("Número entero, por ejemplo 3.")).toBeVisible();
+  await page.getByLabel("Valor esperado").fill("3.5");
+  await page.getByRole("button", { name: "Crear regla" }).click();
+  await expect(page.getByText("El atributo es entero; usa solo dígitos.")).toBeVisible();
+  expect(createPayload).toBeNull();
+
+  await page.getByLabel("Valor esperado").fill(" 3 ");
+  await page.getByRole("button", { name: "Crear regla" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/group-rules/${groupRuleId}$`));
+  expect(createPayload).toEqual({ directoryGroupId: groupId, profileAttributeDefinitionId: levelDefinition.id, operator: "eq", expectedValue: 3 });
+  await expect(page.getByRole("heading", { name: "Vista previa de miembros" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver usuario" })).toBeVisible();
+  await expect(page.getByText("1 usuario", { exact: true })).toBeVisible();
+  expect(previewPayload).toEqual({ page: 1, pageSize: 20 });
 });
