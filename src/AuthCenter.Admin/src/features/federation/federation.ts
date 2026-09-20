@@ -130,14 +130,25 @@ export function expectedProfileValueToInput(json: string | null): string {
 
 export type RoutingRulePayloadResult = { ok: true; payload: Record<string, unknown> } | { ok: false; error: string };
 
-/** Builds the create/update body; the expected profile value is serialised with the attribute's JSON type. */
-export function routingRulePayload(values: RoutingRuleFormValues, definition: ProfileAttributeDefinition | undefined, version?: number): RoutingRulePayloadResult {
+/**
+ * Builds the create/update body; the expected profile value is serialised with the attribute's JSON type.
+ * When the operator cannot read the schema (no definition), an unchanged condition keeps the stored JSON
+ * verbatim and a changed value is refused, so a partial-permission edit can never retype the condition.
+ */
+export function routingRulePayload(values: RoutingRuleFormValues, definition: ProfileAttributeDefinition | undefined, original?: FederationRoutingRule): RoutingRulePayloadResult {
   const parsed = routingRuleSchema.parse(values);
   let expectedProfileValueJson: string | null = null;
   if (parsed.profileAttributeDefinitionId) {
-    const converted = convertExpectedValue(parsed.expectedValue, definition?.dataType);
-    if (!converted.ok) return { ok: false, error: converted.error };
-    expectedProfileValueJson = JSON.stringify(converted.value);
+    const unchanged = original !== undefined && original.profileAttributeDefinitionId === parsed.profileAttributeDefinitionId && parsed.expectedValue === expectedProfileValueToInput(original.expectedProfileValueJson);
+    if (definition) {
+      const converted = convertExpectedValue(parsed.expectedValue, definition.dataType);
+      if (!converted.ok) return { ok: false, error: converted.error };
+      expectedProfileValueJson = JSON.stringify(converted.value);
+    } else if (unchanged) {
+      expectedProfileValueJson = original.expectedProfileValueJson;
+    } else {
+      return { ok: false, error: "No puedes definir el valor de un atributo cuyo esquema no puedes consultar (AUTHCENTER_PROFILE_SCHEMAS_READ)." };
+    }
   }
   const body: Record<string, unknown> = {
     priority: parsed.priority,
@@ -147,7 +158,7 @@ export function routingRulePayload(values: RoutingRuleFormValues, definition: Pr
     expectedProfileValueJson,
     isActive: parsed.isActive
   };
-  if (version === undefined) body.federationProviderId = parsed.federationProviderId; else body.version = version;
+  if (original === undefined) body.federationProviderId = parsed.federationProviderId; else body.version = original.version;
   return { ok: true, payload: body };
 }
 

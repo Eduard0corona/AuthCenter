@@ -65,7 +65,7 @@ export default function FederationPage() {
   function submitRule(values: RoutingRuleFormValues): void {
     const rule = editor === "new" ? undefined : editor ?? undefined;
     const definition = schema.data?.find((item) => item.id === values.profileAttributeDefinitionId);
-    const result = routingRulePayload(values, definition, rule?.version);
+    const result = routingRulePayload(values, definition, rule);
     if (!result.ok) { setEditorError(result.error); return; }
     setEditorError(""); saveRule.reset();
     setPending({ type: "save-rule", payload: result.payload, rule });

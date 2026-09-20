@@ -25,6 +25,7 @@ describe("federation provider form", () => {
 
 describe("routing rules", () => {
   const definition = { id: "66666666-6666-4666-8666-666666666666", dataType: "Integer" } as ProfileAttributeDefinition;
+  const stored = (overrides: Partial<FederationRoutingRule>): FederationRoutingRule => ({ id: "r", federationProviderId: providerId, providerName: "IdP", applicationSystemId: applicationId, priority: 10, emailDomain: null, directoryGroupId: null, profileAttributeDefinitionId: null, expectedProfileValueJson: null, isActive: true, version: 1, ...overrides });
   const base = { federationProviderId: providerId, priority: 10, emailDomain: "", directoryGroupId: "", profileAttributeDefinitionId: "", expectedValue: "", isActive: true };
 
   it("requires at least one condition and a valid domain", () => {
@@ -38,8 +39,18 @@ describe("routing rules", () => {
     const created = routingRulePayload({ ...base, profileAttributeDefinitionId: definition.id, expectedValue: "3" }, definition);
     expect(created).toEqual({ ok: true, payload: { federationProviderId: providerId, priority: 10, emailDomain: null, directoryGroupId: null, profileAttributeDefinitionId: definition.id, expectedProfileValueJson: "3", isActive: true } });
     expect(routingRulePayload({ ...base, profileAttributeDefinitionId: definition.id, expectedValue: "x" }, definition).ok).toBe(false);
-    const updated = routingRulePayload({ ...base, emailDomain: "Empresa.com" }, undefined, 4);
+    const updated = routingRulePayload({ ...base, emailDomain: "Empresa.com" }, undefined, stored({ version: 4 }));
     expect(updated).toEqual({ ok: true, payload: { priority: 10, emailDomain: "empresa.com", directoryGroupId: null, profileAttributeDefinitionId: null, expectedProfileValueJson: null, isActive: true, version: 4 } });
+  });
+
+  it("keeps the stored attribute JSON verbatim when the schema is not readable, and refuses retyping it", () => {
+    const original = stored({ profileAttributeDefinitionId: definition.id, expectedProfileValueJson: "3", directoryGroupId: "55555555-5555-4555-8555-555555555555", version: 2 });
+    const values = { ...base, emailDomain: "empresa.com", directoryGroupId: original.directoryGroupId!, profileAttributeDefinitionId: definition.id, expectedValue: "3" };
+    expect(routingRulePayload(values, undefined, original)).toEqual({ ok: true, payload: { priority: 10, emailDomain: "empresa.com", directoryGroupId: original.directoryGroupId, profileAttributeDefinitionId: definition.id, expectedProfileValueJson: "3", isActive: true, version: 2 } });
+    const changed = routingRulePayload({ ...values, expectedValue: "4" }, undefined, original);
+    expect(changed.ok).toBe(false);
+    expect(changed.ok ? "" : changed.error).toContain("AUTHCENTER_PROFILE_SCHEMAS_READ");
+    expect(routingRulePayload({ ...values, expectedValue: "4" }, definition, original)).toMatchObject({ ok: true, payload: { expectedProfileValueJson: "4" } });
   });
 
   it("reorders locally and re-issues priorities in steps of ten", () => {

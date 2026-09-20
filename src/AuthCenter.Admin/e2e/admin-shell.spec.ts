@@ -903,3 +903,44 @@ test("creates, reorders and simulates federation routing rules with step-up", as
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
 });
+
+test("editing a routing rule without directory permissions preserves its group and attribute conditions", async ({ page }) => {
+  const rule = { ...routingRules[1], emailDomain: "socios.mx", profileAttributeDefinitionId: profileSchema[0].id, expectedProfileValueJson: "\"Ingeniería\"" };
+  let updatePayload: Record<string, unknown> | null = null;
+  let catalogueRequests = 0;
+  await page.unroute("**/ui-api/session");
+  await page.route("**/ui-api/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { user: { id: "operator-2", name: "Ada Operadora", email: "ada@example.test", applications: ["AUTHCENTER"], roles: ["Admin"], permissions: ["AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_APPLICATIONS_WRITE"] }, csrfToken: "e2e-csrf" } }) }));
+  await page.unroute("**/api/groups?**");
+  await page.unroute("**/api/profile-schema");
+  await page.route("**/api/groups?**", async (route) => { catalogueRequests += 1; await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FORBIDDEN", message: "Forbidden" }) }); });
+  await page.route("**/api/profile-schema", async (route) => { catalogueRequests += 1; await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FORBIDDEN", message: "Forbidden" }) }); });
+  await mockStepUp(page, () => undefined);
+  await page.route("**/api/federation/providers?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider, samlProvider] }) }));
+  await page.route("**/api/federation/routing-rules?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [rule] }) }));
+  await page.route(`**/api/federation/routing-rules/${rule.id}`, async (route) => {
+    updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...rule, isActive: false, version: 4 } }) });
+  });
+
+  await page.goto(`/admin-v2/federation?applicationId=${applicationId}`);
+  await expect(page.getByText(`grupo ${groupId}`)).toBeVisible();
+  await page.getByRole("button", { name: "Editar" }).click();
+  await expect(page.getByRole("combobox", { name: "Grupo del directorio" })).toHaveValue(groupId);
+  await expect(page.getByRole("combobox", { name: "Atributo del perfil" })).toHaveValue(profileSchema[0].id);
+  await expect(page.getByLabel("Valor esperado")).toHaveValue("Ingeniería");
+  expect(catalogueRequests).toBe(0);
+
+  await page.getByLabel("Valor esperado").fill("Ventas");
+  await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("AUTHCENTER_PROFILE_SCHEMAS_READ");
+  expect(updatePayload).toBeNull();
+
+  await page.getByLabel("Valor esperado").fill("Ingeniería");
+  await page.getByLabel("Regla activa").uncheck();
+  await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("quedó guardada");
+  expect(updatePayload).toEqual({ priority: rule.priority, emailDomain: "socios.mx", directoryGroupId: groupId, profileAttributeDefinitionId: profileSchema[0].id, expectedProfileValueJson: "\"Ingeniería\"", isActive: false, version: rule.version });
+});

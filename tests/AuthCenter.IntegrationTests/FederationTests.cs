@@ -116,6 +116,44 @@ public sealed class FederationTests : IClassFixture<AuthCenterWebApplicationFact
         Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
     }
 
+    [Fact]
+    public async Task ProviderProtocolSwitch_ClearsSettingsOfTheOtherProtocol()
+    {
+        using var client = await CreateAdminClientAsync();
+        Guid applicationId;
+        using (var scope = _factory.Services.CreateScope())
+            applicationId = await scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>().ApplicationSystems.Where(item => item.Code == DomainConstants.SystemCodes.AuthCenter).Select(item => item.Id).SingleAsync();
+
+        await client.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.federation.change");
+        var created = await ReadDataAsync<FederationProviderDto>(await client.PostAsJsonAsync("/api/federation/providers", new UpsertFederationProviderRequest
+        {
+            ApplicationSystemId = applicationId, Name = $"Switch-{Guid.NewGuid():N}", Protocol = "Oidc", Issuer = "https://login.example.test",
+            ClientId = "authcenter", ClientSecret = "secret-to-drop", OidcCallbackUrl = "https://authcenter.example.test/cb", AccountLinkingMode = "Disabled"
+        }));
+        Assert.True(created.HasClientSecret);
+
+        await client.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.federation.change");
+        var saml = await ReadDataAsync<FederationProviderDto>(await client.PutAsJsonAsync($"/api/federation/providers/{created.Id}", new UpsertFederationProviderRequest
+        {
+            ApplicationSystemId = applicationId, Name = created.Name, Protocol = "Saml2", Issuer = created.Issuer, ClientId = "stale", OidcCallbackUrl = "https://stale.test/cb",
+            SamlSingleSignOnUrl = "https://idp.example.test/sso", SamlSigningCertificatePem = CreateCertificatePem(), AccountLinkingMode = "Disabled", Version = created.Version
+        }));
+        Assert.False(saml.HasClientSecret);
+        Assert.Null(saml.ClientId);
+        Assert.Null(saml.OidcCallbackUrl);
+        Assert.False(string.IsNullOrEmpty(saml.SamlSigningCertificateThumbprint));
+
+        await client.AddReauthenticationProofAsync(AuthCenterWebApplicationFactory.AdminPassword, "admin.federation.change");
+        var oidc = await ReadDataAsync<FederationProviderDto>(await client.PutAsJsonAsync($"/api/federation/providers/{created.Id}", new UpsertFederationProviderRequest
+        {
+            ApplicationSystemId = applicationId, Name = created.Name, Protocol = "Oidc", Issuer = created.Issuer, ClientId = "authcenter", OidcCallbackUrl = "https://authcenter.example.test/cb",
+            AccountLinkingMode = "Disabled", Version = saml.Version
+        }));
+        Assert.Null(oidc.SamlSingleSignOnUrl);
+        Assert.Null(oidc.SamlSigningCertificateThumbprint);
+        Assert.False(oidc.HasClientSecret);
+    }
+
     private static string CreateCertificatePem()
     {
         using var rsa = System.Security.Cryptography.RSA.Create(2048);

@@ -129,14 +129,21 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
   inicial termine antes de cambiar el orden, que era la causa del fallo intermitente en CI.
 - Bundle actual tras lifecycle: listados y editores permanecen como chunks diferidos de 1.67 KB,
   4.01 KB, 1.57 KB y 3.90 KB gzip; el CSS total es 5.43 KB gzip.
-- Entrega de federacion: 65 pruebas unitarias, 145 de integracion, 37 frontend y 72 escenarios E2E;
+- Entrega de federacion: 65 pruebas unitarias, 146 de integracion, 38 frontend y 75 escenarios E2E;
   catalogo de proveedores por aplicacion, formularios discriminados OIDC/SAML con validacion HTTPS,
   secret y certificado nunca devueltos (solo presencia y huella), URL de metadata SP, routing rules
   con condiciones combinadas, reordenamiento con prioridades reemitidas, simulacion de enrutamiento y
   step-up de un solo uso en cada escritura cubiertos.
 - Cambio backend indispensable: al actualizar un proveedor SAML, un PEM en blanco conserva el
   certificado almacenado (igual que el client secret), con prueba de integracion; antes el operador
-  tenia que volver a pegar el certificado en cada guardado aunque el DTO solo expone su huella.
+  tenia que volver a pegar el certificado en cada guardado aunque el DTO solo expone su huella. El
+  servicio ademas limpia los ajustes del protocolo no seleccionado (secret, client ID, callback,
+  SSO URL y certificado) al cambiar de protocolo, con prueba de integracion.
+- Hallazgo del code review corregido: editar una routing rule sin `GROUPS_READ` o
+  `PROFILE_SCHEMAS_READ` vaciaba en silencio sus condiciones de grupo/atributo porque los `select`
+  no tenian la opcion referenciada. Ahora la referencia se conserva como opcion de respaldo, el JSON
+  del valor esperado se reenvia sin reconvertir cuando no hay definicion, y cambiarlo sin permiso de
+  esquema se rechaza con un mensaje explicito; cubierto por unit test y E2E con sesion parcial.
 - Hallazgo corregido: el encabezado `sr-only` de la columna de acciones escapaba del contenedor de
   tablas en movil (posicion absoluta sin contexto) y ensanchaba el documento; `.data-table` ahora
   establece `position: relative`, lo que aplica a todas las tablas del admin.

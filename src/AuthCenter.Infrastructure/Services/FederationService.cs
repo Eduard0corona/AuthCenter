@@ -293,14 +293,16 @@ public sealed partial class FederationService : IFederationService
         if (id.HasValue && provider is null) return OperationResult<FederationProviderDto>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
         if (id.HasValue && provider!.Version != request.Version) return OperationResult<FederationProviderDto>.Failure("CONCURRENCY_CONFLICT", "The federation provider changed after it was loaded.");
         // Like the client secret, a blank certificate on update keeps the stored one; the DTO only exposes its thumbprint.
-        var certificatePem = string.IsNullOrWhiteSpace(request.SamlSigningCertificatePem) ? provider?.SamlSigningCertificatePem : request.SamlSigningCertificatePem;
+        var certificatePem = protocol != FederationProtocol.Saml2 ? null : string.IsNullOrWhiteSpace(request.SamlSigningCertificatePem) ? provider?.SamlSigningCertificatePem : request.SamlSigningCertificatePem;
         if (protocol == FederationProtocol.Saml2 && (!IsHttps(request.SamlSingleSignOnUrl) || !TryCertificate(certificatePem, out _)))
             return OperationResult<FederationProviderDto>.Failure("INVALID_SAML_PROVIDER", "SAML HTTPS SSO URL and a valid signing certificate are required.");
         provider ??= new FederationProvider { Id = Guid.NewGuid(), CreatedAt = _clock.UtcNow };
         provider.ApplicationSystemId = request.ApplicationSystemId; provider.Name = request.Name.Trim(); provider.Protocol = protocol; provider.Issuer = issuer.AbsoluteUri.TrimEnd('/');
-        provider.DiscoveryEndpoint = string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) ? null : request.DiscoveryEndpoint.Trim(); provider.ClientId = request.ClientId?.Trim(); provider.OidcCallbackUrl = request.OidcCallbackUrl?.Trim();
-        if (!string.IsNullOrWhiteSpace(request.ClientSecret)) provider.ProtectedClientSecret = _secrets.Protect(request.ClientSecret);
-        provider.SamlSingleSignOnUrl = request.SamlSingleSignOnUrl?.Trim(); provider.SamlSigningCertificatePem = certificatePem?.Trim();
+        // A provider never carries settings of the protocol it does not use, even if the request or a previous version had them.
+        var oidc = protocol == FederationProtocol.Oidc;
+        provider.DiscoveryEndpoint = oidc && !string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) ? request.DiscoveryEndpoint.Trim() : null; provider.ClientId = oidc ? request.ClientId?.Trim() : null; provider.OidcCallbackUrl = oidc ? request.OidcCallbackUrl?.Trim() : null;
+        if (!oidc) provider.ProtectedClientSecret = null; else if (!string.IsNullOrWhiteSpace(request.ClientSecret)) provider.ProtectedClientSecret = _secrets.Protect(request.ClientSecret);
+        provider.SamlSingleSignOnUrl = oidc ? null : request.SamlSingleSignOnUrl?.Trim(); provider.SamlSigningCertificatePem = certificatePem?.Trim();
         provider.JitProvisioningEnabled = request.JitProvisioningEnabled; provider.AccountLinkingMode = linking; provider.IsActive = request.IsActive; provider.UpdatedAt = id.HasValue ? _clock.UtcNow : null;
         if (id.HasValue) provider.Version++;
         if (!id.HasValue) _db.FederationProviders.Add(provider);
