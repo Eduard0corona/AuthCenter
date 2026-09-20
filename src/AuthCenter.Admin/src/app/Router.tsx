@@ -14,6 +14,10 @@ const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClien
 const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
 const ProvisioningTokensPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokensPage"));
 const ProvisioningTokenEditorPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokenEditorPage"));
+const ProfileMappingsPage = lazy(() => import("../features/profile-mappings/ProfileMappingsPage"));
+const ProfileMappingEditorPage = lazy(() => import("../features/profile-mappings/ProfileMappingEditorPage"));
+const GroupRulesPage = lazy(() => import("../features/group-rules/GroupRulesPage"));
+const GroupRuleEditorPage = lazy(() => import("../features/group-rules/GroupRuleEditorPage"));
 const AccessPoliciesPage = lazy(() => import("../features/access-policies/AccessPoliciesPage"));
 const AccessPolicyEditorPage = lazy(() => import("../features/access-policies/AccessPolicyEditorPage"));
 const RolesPage = lazy(() => import("../features/roles/RolesPage"));
@@ -46,6 +50,12 @@ export function AppRouter() {
           <Route path="provisioning-tokens" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokensPage /></PermissionRoute>} />
           <Route path="provisioning-tokens/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ProvisioningTokenEditorPage create /></PermissionRoute>} />
           <Route path="provisioning-tokens/:tokenId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokenEditorPage /></PermissionRoute>} />
+          <Route path="profile-mappings" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><ProfileMappingsPage /></PermissionRoute>} />
+          <Route path="profile-mappings/new" element={<PermissionRoute permission="AUTHCENTER_USERS_WRITE"><ProfileMappingEditorPage create /></PermissionRoute>} />
+          <Route path="profile-mappings/:mappingId" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><ProfileMappingEditorPage /></PermissionRoute>} />
+          <Route path="group-rules" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupRulesPage /></PermissionRoute>} />
+          <Route path="group-rules/new" element={<PermissionRoute permission="AUTHCENTER_GROUPS_WRITE"><GroupRuleEditorPage create /></PermissionRoute>} />
+          <Route path="group-rules/:ruleId" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupRuleEditorPage /></PermissionRoute>} />
           <Route path="access-policies" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPoliciesPage /></PermissionRoute>} />
           <Route path="access-policies/:applicationId" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPolicyEditorPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />

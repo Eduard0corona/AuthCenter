@@ -1,7 +1,7 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `agent/admin-provisioning-tokens-ui`, actualizada el
-> 2026-08-13. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
+> Estado del documento: implementacion activa en `feat/admin-lifecycle-mappings-rules`, actualizada el
+> 2026-09-20. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
 > pendiente hasta integrar la rama en `main`.
 >
 > Este documento distingue deliberadamente entre lo que existe, los defectos confirmados, las
@@ -118,6 +118,17 @@ No habia una instancia de navegador conectada durante la auditoria. Por tanto:
   solo uso, rotacion/revocacion con step-up y ausencia de secretos en metadata cubiertos.
 - Bundle actual tras provisioning tokens: listado y editor permanecen como chunks diferidos de
   1.66 KB y 3.53 KB gzip; el CSS total es 5.38 KB gzip.
+- Entrega de profile mappings y group rules: 65 pruebas unitarias, 144 de integracion, 32 frontend
+  y 63 escenarios E2E; listados paginados con filtros, alta/edicion con version optimista y
+  conflicto 409 explicado, validacion previa del mapping, simulacion sobre un documento SCIM,
+  conversion tipada del valor esperado segun el atributo y preview paginado de miembros cubiertos.
+- Hallazgo corregido durante la entrega: los tokens largos sin espacios (rutas URN SCIM, ayudas de
+  campo, titulos) ensanchaban el layout viewport en Pixel 7 y desplazaban los clics fuera del
+  viewport visual; `overflow-wrap: anywhere` en ayudas, breadcrumbs, titulos, alertas y resultados
+  elimina el desplazamiento horizontal. La prueba de orden de usuarios espera ahora a que la consulta
+  inicial termine antes de cambiar el orden, que era la causa del fallo intermitente en CI.
+- Bundle actual tras lifecycle: listados y editores permanecen como chunks diferidos de 1.67 KB,
+  4.01 KB, 1.57 KB y 3.90 KB gzip; el CSS total es 5.43 KB gzip.
 - La inspeccion visual manual con navegador integrado sigue pendiente porque no habia una instancia
   disponible; la evidencia automatizada no se presenta como sustituto de esa revision.
 
@@ -285,7 +296,7 @@ accesibilidad.
 | OAuth clients | CRUD y rotacion de secret | Ausente | Clientes, redirects, grants, scopes y secret reveal |
 | Politicas de acceso | Versiones, reglas, publish y simulacion | Ausente | Editor visual, diff, simulacion y explicacion |
 | Federacion | Proveedores OIDC/SAML y routing | Ausente | Catalogo, formularios, metadata y pruebas |
-| Lifecycle | Mappings y reglas dinamicas | Ausente | Listado, edicion, simulacion y estado |
+| Lifecycle | Mappings y reglas dinamicas | Listado, edicion versionada, validacion, simulacion y preview de miembros | Operadores adicionales cuando el backend los soporte |
 | SCIM/provisioning | Tokens y endpoints SCIM | Tokens con metadata, scopes, expiracion, rotacion y revocacion | Diagnostico operativo de integraciones SCIM |
 | Event Hooks | Create/verify/delete, deliveries y replay | Solo deliveries/replay | Gestion completa del hook y diagnostico |
 | System Log | Consulta filtrada y correlacion | Primeros 50 eventos | Filtros, detalle, trace, exportacion y deep links |
@@ -457,8 +468,8 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [ ] Formularios discriminados por protocolo.
 - [ ] Metadata, certificados y estado de validacion sin exponer secretos.
 - [ ] Routing rules ordenables y simulables.
-- [ ] Profile mappings con preview de transformacion.
-- [ ] Group rules con preview de miembros afectados.
+- [x] Profile mappings con preview de transformacion.
+- [x] Group rules con preview de miembros afectados.
 - [ ] Estado y diagnostico de integraciones SCIM.
 
 ### 10.7 Event Hooks y System Log
@@ -614,7 +625,7 @@ El pipeline debe ejecutar, en orden:
 - [x] Access policies y simulacion.
 - [ ] Federacion OIDC/SAML.
 - [ ] Provisioning tokens y SCIM.
-- [ ] Mappings y group rules.
+- [x] Mappings y group rules.
 - [ ] Event Hooks completos.
 
 **Salida:** integraciones y seguridad avanzada operables desde la consola.

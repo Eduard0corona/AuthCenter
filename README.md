@@ -102,6 +102,15 @@ only for the create or rotate response and is discarded after the operator expli
 reveal dialog. Rotation and revocation require separate purpose-bound single-use reauthentication
 proofs; historical token values cannot be retrieved.
 
+Lifecycle automation is managed at `/admin-v2/profile-mappings` and `/admin-v2/group-rules`. Profile
+mappings bind a dot-separated SCIM path (URN extensions included) to an active universal-profile
+attribute, can be validated before they are created, and expose a simulation panel that resolves the
+path against an operator-supplied SCIM document without persisting anything. Group rules evaluate an
+equality condition on a profile attribute; the expected value is converted to the attribute's JSON
+type before it is sent, and the editor shows a server-paginated preview of the active users that
+currently match. Both editors send the loaded version on update and surface a `409
+CONCURRENCY_CONFLICT` with a reload action instead of overwriting newer changes.
+
 Access policies are managed at `/admin-v2/access-policies`. Each application exposes immutable
 published/archived history and at most one editable draft. Operators can build ordered rules for
 user or group targets, CIDR ranges, UTC schedules, risk and assurance requirements; simulate a

@@ -287,3 +287,51 @@ export interface AccessPolicySimulation {
   policyVersionStatus: string | null;
   ruleEvaluations: Array<{ ruleId: string; ruleName: string; priority: number; matched: boolean; reasons: string[] }>;
 }
+
+export interface ProfileMapping {
+  id: string;
+  applicationSystemId: string;
+  applicationName: string;
+  sourceSystem: string;
+  sourcePath: string;
+  targetAttributeDefinitionId: string;
+  targetAttributeName: string;
+  isAuthoritative: boolean;
+  isActive: boolean;
+  createdAt: string;
+  version: number;
+}
+
+export interface ProfileMappingSimulation {
+  isValid: boolean;
+  sourcePath: string;
+  targetAttributeName: string;
+  value: unknown;
+  errors: string[];
+}
+
+export type GroupRuleExpectedValue = string | number | boolean;
+
+export interface DynamicGroupRule {
+  id: string;
+  directoryGroupId: string;
+  groupName: string;
+  profileAttributeDefinitionId: string;
+  attributeName: string;
+  operator: string;
+  expectedValue: GroupRuleExpectedValue;
+  isActive: boolean;
+  createdAt: string;
+  version: number;
+}
+
+export interface GroupRulePreviewUser {
+  id: string;
+  email: string;
+  fullName: string;
+}
+
+export interface GroupRulePreview {
+  ruleId: string;
+  users: PagedResult<GroupRulePreviewUser>;
+}
