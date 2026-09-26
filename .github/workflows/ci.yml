@@ -244,7 +244,7 @@ jobs:
 
       - name: Deploy to Azure App Service
         id: deploy-to-webapp
-        uses: azure/webapps-deploy@b686016b4de8820a23519503685d8d03fbfa03a6 # v3
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME }}
           slot-name: ${{ vars.AZURE_WEBAPP_SLOT }}
