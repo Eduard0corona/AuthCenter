@@ -11,6 +11,12 @@ public interface IOAuthAuthorizationService
     Task<OperationResult<OAuthInteractionContextResponse>> GetInteractionContextAsync(string interactionId, string? browserBinding, CancellationToken ct = default);
     Task<OperationResult<OAuthInteractionResponse>> GetInteractionAsync(string interactionId, AuthorizationCaller caller, CancellationToken ct = default);
     Task<OperationResult<AuthorizationResponse>> CompleteAuthorizationAsync(CompleteAuthorizationRequest request, AuthorizationCaller caller, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reports whether the caller's session must be strengthened (MFA or passkey) before the
+    /// interaction can be completed for the client's application.
+    /// </summary>
+    Task<OperationResult<StepUpRequirement>> GetStepUpRequirementAsync(string interactionId, AuthorizationCaller caller, CancellationToken ct = default);
     Task<string> StorePendingResponseAsync(AuthorizationResponse response, string? browserBinding, CancellationToken ct = default);
     Task<AuthorizationResponse?> TakePendingResponseAsync(string responseId, string? browserBinding, CancellationToken ct = default);
     Task<OperationResult<OAuthTokenResponse>> ExchangeCodeAsync(OAuthTokenRequest request, CancellationToken ct = default);

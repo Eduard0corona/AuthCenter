@@ -612,6 +612,48 @@ public class AuthService : IAuthService
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, deviceToken, AuthenticationContext.WithSecondFactor(pending.PrimaryMethod), ct);
     }
 
+    public async Task<OperationResult<AuthResponse>> BeginStepUpAsync(
+        Guid userId,
+        string applicationCode,
+        AuthenticationAssuranceLevel requiredAssurance,
+        string primaryMethod,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var appSystem = await _applicationService.GetByCodeAsync(applicationCode, ct);
+        if (appSystem is null || !appSystem.IsActive)
+            return OperationResult<AuthResponse>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
+
+        if (requiredAssurance >= AuthenticationAssuranceLevel.PhishingResistant)
+        {
+            var user = await _userManager.FindByIdAsync(userId.ToString());
+            var hasPasskey = user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0;
+            var code = hasPasskey ? "PASSKEY_REQUIRED" : "PASSKEY_ENROLLMENT_REQUIRED";
+            await _auditService.LogAsync(code, userId, appSystem.Code, null, null, ipAddress, userAgent, new { stepUp = true }, ct);
+            return OperationResult<AuthResponse>.Failure(
+                code,
+                hasPasskey
+                    ? "This application requires a user-verified passkey. Continue with passkey sign-in."
+                    : "This application requires a passkey. Enroll one before continuing.");
+        }
+
+        var mfaEnabled = await _db.UserMfaCredentials.AsNoTracking().AnyAsync(m => m.UserId == userId && m.IsEnabled, ct);
+        if (!mfaEnabled)
+        {
+            await _auditService.LogAsync("MFA_SETUP_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, new { stepUp = true }, ct);
+            return OperationResult<AuthResponse>.Failure(
+                "MFA_SETUP_REQUIRED",
+                "This application requires MFA. Please set up two-factor authentication.");
+        }
+
+        // The pending token carries the session's primary method, so the verified step-up records
+        // both factors (for example pwd + otp) on the continued single sign-on session.
+        var pendingToken = _tokenService.GenerateMfaPendingToken(userId, appSystem.Code, primaryMethod);
+        await _auditService.LogAsync("MFA_STEP_UP_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
+        return OperationResult<AuthResponse>.Failure("MFA_REQUIRED", pendingToken);
+    }
+
     public async Task<OperationResult<AuthResponse>> ForcedChangePasswordAsync(ForcedChangePasswordRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
         var pending = _tokenService.ValidateForcedChangePendingToken(request.ForcedChangePendingToken);

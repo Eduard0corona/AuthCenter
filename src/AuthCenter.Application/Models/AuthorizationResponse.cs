@@ -40,6 +40,10 @@ public sealed class AuthorizationCaller
     public Guid? SessionId { get; init; }
     public string? BrowserBinding { get; init; }
 
+    /// <summary>The browser's address and user agent, for access policies and risk signals.</summary>
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+
     /// <summary>True when authenticated with the hosted-login cookie; the interaction must then belong to this browser.</summary>
     public bool RequiresBrowserBinding { get; init; }
 }

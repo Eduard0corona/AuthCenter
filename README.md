@@ -364,6 +364,7 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 | GET | `/oauth/interactions/{interactionId}` | Read safe application/scope metadata for the authenticated consent UI |
 | POST | `/oauth/authorize/complete` | Grant consent and issue the code |
 | GET | `/oauth/authorize/response/{responseId}` | One-time `form_post` delivery page for the browser that completed the interaction |
+| POST | `/oauth/interactions/{interactionId}/step-up` | Hosted login only: start the MFA or passkey step-up the client's application requires |
 | POST | `/oauth/token` | Exchange code / refresh token / client credentials |
 | POST | `/oauth/revoke` | Revoke a refresh token and its complete rotation family |
 | GET | `/oauth/userinfo` | OIDC claims for the access token's subject |
@@ -390,6 +391,13 @@ ID tokens carry `sid`, the real `auth_time`, `amr` (RFC 8176) and `acr`
 (`urn:authcenter:acr:1fa`, `urn:authcenter:acr:mfa`, `urn:authcenter:acr:phr`). Re-authenticating
 with the same account keeps the session and its `sid`; signing in with another account ends the
 previous account's session.
+
+A session is only reused under the rules of the client's own application: active access, its
+published access policy (evaluated with the browser's address and risk), its `RequireMfa`
+setting, the user's own MFA and the least demanding supported `acr_values`. A denial is returned
+to the client as `access_denied`; a weaker session is stepped up in the hosted login (second
+factor or passkey) without signing in again, and `prompt=none` reports `login_required` instead.
+OAuth refresh re-checks access and the published policy and revokes the grant family on denial.
 
 Every OAuth client belongs to exactly one active `ApplicationSystem`. Authorization-code clients
 must use an exact registered redirect URI, `state`, PKCE `S256` and `nonce` when requesting

@@ -20,11 +20,13 @@ public class OAuthController : ControllerBase
 {
     private readonly IOAuthAuthorizationService _oAuthService;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IAuthService _authService;
 
-    public OAuthController(IOAuthAuthorizationService oAuthService, ICurrentUserService currentUserService)
+    public OAuthController(IOAuthAuthorizationService oAuthService, ICurrentUserService currentUserService, IAuthService authService)
     {
         _oAuthService = oAuthService;
         _currentUserService = currentUserService;
+        _authService = authService;
     }
 
     [HttpGet("authorize")]
@@ -68,7 +70,9 @@ public class OAuthController : ControllerBase
         {
             UserId = sso.Succeeded ? SessionClaims.UserId(sso.Principal!) : null,
             SessionId = sso.Succeeded ? SessionClaims.SessionId(sso.Principal!) : null,
-            BrowserBinding = BrowserBinding.Ensure(HttpContext)
+            BrowserBinding = BrowserBinding.Ensure(HttpContext),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
         };
 
         var result = await _oAuthService.InitiateAuthorizationAsync(request, caller, ct);
@@ -146,6 +150,31 @@ public class OAuthController : ControllerBase
         }
 
         return AuthorizationResponseResult.Create(response);
+    }
+
+    /// <summary>
+    /// Starts the step-up the client's application requires for the hosted-login session: returns
+    /// an MFA pending token for <c>/ui-api/session/mfa</c>, or why the level cannot be reached.
+    /// </summary>
+    [Authorize(AuthenticationSchemes = AuthenticationSchemes.UiCookie)]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("interactions/{interactionId}/step-up")]
+    public async Task<IActionResult> BeginStepUp(string interactionId, CancellationToken ct)
+    {
+        var caller = CurrentCaller();
+        if (caller.UserId is null) return Unauthorized();
+
+        var requirement = await _oAuthService.GetStepUpRequirementAsync(interactionId, caller, ct);
+        if (!requirement.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(requirement.ErrorCode, requirement.Message));
+        if (requirement.Data!.RequiredAssurance is not { } required)
+            return Ok(ApiResponse<object>.Ok(new { stepUpRequired = false }));
+
+        var result = await _authService.BeginStepUpAsync(
+            caller.UserId.Value, requirement.Data.ApplicationCode, required, requirement.Data.PrimaryMethod, caller.IpAddress, caller.UserAgent, ct);
+        return result.ErrorCode == "MFA_REQUIRED"
+            ? Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfa = true, mfaPendingToken = result.Message }))
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
     [AllowAnonymous]
@@ -291,7 +320,9 @@ public class OAuthController : ControllerBase
         UserId = _currentUserService.UserId,
         SessionId = SessionClaims.SessionId(User),
         BrowserBinding = BrowserBinding.Read(HttpContext),
-        RequiresBrowserBinding = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal)
+        RequiresBrowserBinding = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal),
+        IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+        UserAgent = Request.Headers.UserAgent.ToString()
     };
 
     private ObjectResult OAuthError(string error, string description, int statusCode)

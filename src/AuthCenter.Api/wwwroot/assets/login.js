@@ -12,6 +12,8 @@ const interactionId = params.get("interaction_id");
 let mfaPendingToken = "";
 let passwordChangeToken = "";
 let themeCode = "";
+// A consent decision waiting for the step-up the client's application requires.
+let pendingConsent = null;
 
 // An authorization request names its application: the page signs the user in to that
 // application (its policies, branding and hint) instead of asking the user for a code.
@@ -135,6 +137,7 @@ async function resumeExistingSession() {
   try { current = await api("/ui-api/session"); }
   catch { return; /* An anonymous visit is expected. */ }
   setCsrf(current.csrfToken);
+  if (!email.value && current.user.email) email.value = current.user.email;
   // Authorization requests are checked against the client's application by the server. A direct
   // visit only reuses a session issued for the requested application; otherwise the user signs
   // in to it, which continues the same single sign-on session.
@@ -149,8 +152,42 @@ async function primeCsrf() {
 }
 
 async function finishLogin() {
-  if (interactionId) return showConsent();
-  location.replace(safeLocalPath(params.get("return_url"), location.origin, "/portal"));
+  if (!interactionId) return location.replace(safeLocalPath(params.get("return_url"), location.origin, "/portal"));
+  if (pendingConsent === null) return showConsent();
+  const consent = pendingConsent;
+  pendingConsent = null;
+  return completeConsent(consent);
+}
+
+// The client's application asked for a stronger sign-in than the current session: verify a
+// second factor (or a passkey) without signing in again, then complete the same request.
+async function startStepUp() {
+  for (const form of [loginForm, passwordChangeForm, document.querySelector("#consent")]) form.hidden = true;
+  let result;
+  try {
+    result = await api(`/oauth/interactions/${encodeURIComponent(interactionId)}/step-up`, { method: "POST" });
+  } catch (error) {
+    if (error.code === "MFA_SETUP_REQUIRED")
+      return showBlocked("Esta aplicación exige verificación en dos pasos. Actívala en tu portal (/portal) y vuelve a intentarlo.");
+    if (error.code === "PASSKEY_REQUIRED") {
+      loginForm.hidden = false;
+      return status(message, "Esta aplicación exige una passkey. Usa \"Usar una passkey\" para continuar.");
+    }
+    if (error.code === "PASSKEY_ENROLLMENT_REQUIRED")
+      return showBlocked("Esta aplicación exige una passkey. Registra una en tu portal (/portal) y vuelve a intentarlo.");
+    if (error.code === "ACCESS_DENIED")
+      return showBlocked("La política de acceso de esta aplicación no permite este inicio de sesión.");
+    return handleInteractionError(error);
+  }
+  if (!result.stepUpRequired) return finishLogin();
+  status(message, "Esta aplicación requiere una verificación adicional.");
+  await continueSignIn(result);
+}
+
+function showBlocked(text) {
+  for (const form of [loginForm, mfaForm, passwordChangeForm, document.querySelector("#consent")]) form.hidden = true;
+  pendingConsent = null;
+  status(message, text, "error");
 }
 
 async function loadInteractionContext() {
@@ -203,7 +240,11 @@ async function completeConsent(consent) {
       body: JSON.stringify({ interactionId, consent })
     });
     location.assign(result.redirectUrl);
-  } catch (error) { handleInteractionError(error); }
+  } catch (error) {
+    if (error.code !== "STEP_UP_REQUIRED") return handleInteractionError(error);
+    pendingConsent = consent;
+    await startStepUp();
+  }
 }
 
 async function loadBranding() {

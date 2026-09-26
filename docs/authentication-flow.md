@@ -107,21 +107,37 @@ Client -> GET /oauth/authorize
           &code_challenge_method=S256
 
 1. AuthCenter validates client, application, redirect URI, response type, exact scopes, state,
-   nonce and PKCE before creating a short-lived interaction.
-2. AuthCenter redirects to the registered client login URL with only `interaction_id`.
-3. After signing in, the consent UI calls authenticated
-   GET /oauth/interactions/{interactionId} to render application name and requested scopes.
-4. The UI posts `{ interactionId, consent }` to /oauth/authorize/complete.
-5. AuthCenter verifies active user and application access and redirects to the exact callback with
-   `code`, original `state` and `iss`. Protocol errors use the same callback only after its URI is
-   trusted; client/redirect errors are never redirected.
-6. The client exchanges the single-use code at /oauth/token with the original verifier. A
+   nonce, PKCE, prompt, max_age, login_hint, id_token_hint, acr_values and response_mode.
+2. Single sign-on: when the browser already holds a hosted-login session that satisfies the
+   request (no prompt=login/select_account, within max_age, same subject as id_token_hint, consent
+   already given), AuthCenter evaluates the client's application for that session (step 5) and, if
+   it allows it, answers the client directly. prompt=none never shows a page: it returns
+   login_required (no usable session or a step-up is needed), consent_required or access_denied.
+3. Otherwise AuthCenter stores a 10-minute interaction bound to this browser and redirects to the
+   client login URL (the hosted login, https://<authcenter>/login) with `interaction_id`. The page
+   reads GET /oauth/interactions/{interactionId}/context and signs the user in to the client's
+   application (its branding, password policy, access policy and MFA).
+4. The consent UI calls authenticated GET /oauth/interactions/{interactionId} to render application
+   name and requested scopes, then posts `{ interactionId, consent }` to /oauth/authorize/complete.
+5. AuthCenter evaluates the client's application for the session: active application access, the
+   published access policy (with the browser's address and risk), the application's MFA setting,
+   the user's own MFA and the least demanding supported acr_values. A denial goes back to the
+   client as access_denied. A session below the required assurance gets STEP_UP_REQUIRED without
+   consuming the interaction: the hosted login calls POST /oauth/interactions/{id}/step-up, the user
+   verifies a second factor (or a passkey) and the same single sign-on session, with the same sid,
+   is strengthened before the request completes.
+6. AuthCenter redirects to the exact callback with `code`, original `state` and `iss` (or renders
+   an auto-submitted form for response_mode=form_post). Protocol errors use the same callback only
+   after its URI is trusted; client/redirect errors are never redirected.
+7. The client exchanges the single-use code at /oauth/token with the original verifier. A
    confidential client authenticates with HTTP Basic or form credentials; a public client sends
    only client_id.
-7. The access token contains application-scoped roles and permissions. `email` and `name` appear
-   only when their scopes permit them.
-8. `offline_access` creates a rotating refresh-token family with a fixed absolute expiration.
-   Reuse of an old member revokes the entire family.
+8. The access token contains application-scoped roles and permissions. `email` and `name` appear
+   only when their scopes permit them. The ID token carries sid, auth_time, amr and acr.
+9. `offline_access` creates a rotating refresh-token family with a fixed absolute expiration.
+   Reuse of an old member revokes the entire family. Every refresh checks application access and
+   the published access policy again (network conditions use the address of the sign-in session),
+   and a denial revokes the family.
 ```
 
 The client must compare returned `state`, validate the ID token signature/issuer/audience/expiry,

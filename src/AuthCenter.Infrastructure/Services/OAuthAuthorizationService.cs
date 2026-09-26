@@ -39,6 +39,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IUserAccessService _userAccessService;
     private readonly IRoleService _roleService;
+    private readonly IAccessPolicyService _accessPolicies;
+    private readonly IAuthenticationRiskService _authenticationRisk;
     private readonly JwtSettings _jwtSettings;
 
     public OAuthAuthorizationService(
@@ -49,6 +51,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         UserManager<ApplicationUser> userManager,
         IUserAccessService userAccessService,
         IRoleService roleService,
+        IAccessPolicyService accessPolicies,
+        IAuthenticationRiskService authenticationRisk,
         IOptions<JwtSettings> jwtSettings)
     {
         _db = db;
@@ -58,6 +62,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         _userManager = userManager;
         _userAccessService = userAccessService;
         _roleService = roleService;
+        _accessPolicies = accessPolicies;
+        _authenticationRisk = authenticationRisk;
         _jwtSettings = jwtSettings.Value;
     }
 
@@ -188,21 +194,27 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         };
 
         // Single sign-on: a valid session answers the client directly unless the request needs a
-        // fresh sign-in, a different account, or consent the user has not given yet.
+        // fresh sign-in, a different account, a stronger sign-in for this application, or consent
+        // the user has not given yet. The client's application decides with its own access policy.
         var existing = await ResolveSessionAsync(caller, ct);
         var sessionUsable = existing is not null &&
             !RequiresReauthentication(session, existing, now) &&
             (hintSubject is null || string.Equals(hintSubject, existing.UserId.ToString(), StringComparison.OrdinalIgnoreCase));
+        var decision = sessionUsable ? await EvaluateTargetAsync(session, client, existing!, caller, ct) : null;
+        if (decision?.Outcome == TargetOutcome.Denied && !prompt.Contains(PromptLogin) && !prompt.Contains(PromptSelectAccount))
+            return Answer(await DenyAsync(session, client, existing!.UserId, decision, ct));
+
         if (prompt.Contains(PromptNone))
         {
-            if (!sessionUsable)
+            // A step-up needs the user, so a silent request cannot complete it.
+            if (decision?.Outcome != TargetOutcome.Allowed)
                 return OperationResult<AuthorizationEndpointResult>.Success(Error("login_required", "The user must sign in."));
             if (await RequiresConsentAsync(session, client, existing!.UserId, ct))
                 return OperationResult<AuthorizationEndpointResult>.Success(Error("consent_required", "The user must grant consent."));
             return Answer(await IssueAuthorizationCodeAsync(session, client, existing, recordConsent: false, ct));
         }
 
-        if (sessionUsable &&
+        if (decision?.Outcome == TargetOutcome.Allowed &&
             !prompt.Contains(PromptLogin) &&
             !prompt.Contains(PromptSelectAccount) &&
             !await RequiresConsentAsync(session, client, existing!.UserId, ct))
@@ -307,9 +319,18 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             return OperationResult<AuthorizationResponse>.Failure("LOGIN_REQUIRED", "Sign in again to continue with this application.");
         }
 
+        // A stronger sign-in keeps the interaction, so the hosted login can step up and complete
+        // the same request; a denial is final and goes back to the client.
+        var decision = await EvaluateTargetAsync(session, client, existing, caller, ct);
+        if (decision.Outcome == TargetOutcome.StepUp)
+            return OperationResult<AuthorizationResponse>.Failure("STEP_UP_REQUIRED", "This application requires a stronger sign-in.");
+
         var requiresConsent = await RequiresConsentAsync(session, client, existing.UserId, ct);
         if (await _transientState.TakeAsync(SessionPrefix, request.InteractionId, ct) is null)
             return OperationResult<AuthorizationResponse>.Failure("INVALID_INTERACTION", "Interaction not found or expired. Start a new authorization request.");
+
+        if (decision.Outcome == TargetOutcome.Denied)
+            return OperationResult<AuthorizationResponse>.Success(await DenyAsync(session, client, existing.UserId, decision, ct));
 
         if (requiresConsent && !request.Consent)
         {
@@ -320,6 +341,122 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 
         return OperationResult<AuthorizationResponse>.Success(
             await IssueAuthorizationCodeAsync(session, client, existing, recordConsent: request.Consent && !client.AutoConsent, ct));
+    }
+
+    public async Task<OperationResult<StepUpRequirement>> GetStepUpRequirementAsync(
+        string interactionId,
+        AuthorizationCaller caller,
+        CancellationToken ct = default)
+    {
+        var session = await ReadInteractionAsync(interactionId, ct);
+        if (session is null)
+            return OperationResult<StepUpRequirement>.Failure("INVALID_INTERACTION", "Interaction not found or expired. Start a new authorization request.");
+        if (caller.RequiresBrowserBinding && !BindingMatches(session.BrowserBindingHash, caller.BrowserBinding))
+            return OperationResult<StepUpRequirement>.Failure("INTERACTION_BINDING_MISMATCH", "This sign-in request was started in a different browser.");
+
+        var client = await FindActiveClientAsync(session.ClientId, ct);
+        if (client is null || client.ApplicationSystemId != session.ApplicationSystemId)
+            return OperationResult<StepUpRequirement>.Failure("INVALID_CLIENT", "OAuth client is no longer active.");
+
+        var existing = await ResolveSessionAsync(caller, ct);
+        if (existing is null ||
+            RequiresReauthentication(session, existing, _dateTimeProvider.UtcNow) ||
+            (session.IdTokenHintSubject is not null && !string.Equals(session.IdTokenHintSubject, existing.UserId.ToString(), StringComparison.OrdinalIgnoreCase)))
+        {
+            return OperationResult<StepUpRequirement>.Failure("LOGIN_REQUIRED", "Sign in again to continue with this application.");
+        }
+
+        var decision = await EvaluateTargetAsync(session, client, existing, caller, ct);
+        if (decision.Outcome == TargetOutcome.Denied)
+            return OperationResult<StepUpRequirement>.Failure("ACCESS_DENIED", "The application's access policy does not allow this sign-in.");
+
+        return OperationResult<StepUpRequirement>.Success(new StepUpRequirement(
+            client.ApplicationSystem.Code,
+            decision.Outcome == TargetOutcome.StepUp ? decision.RequiredAssurance : null,
+            existing.Methods.FirstOrDefault() ?? DomainConstants.AuthenticationMethods.Password));
+    }
+
+    private enum TargetOutcome { Allowed, StepUp, Denied }
+
+    private sealed record TargetDecision(TargetOutcome Outcome, AuthenticationAssuranceLevel RequiredAssurance, AccessPolicyDecision? Policy, string Reason);
+
+    /// <summary>
+    /// Decides whether a single sign-on session may be used for the client's application now: the
+    /// user's access, the application's published access policy (evaluated with this browser's
+    /// address and risk), the application's MFA setting, the user's own MFA and the acr_values
+    /// requested. A session below the required assurance can be stepped up; a denial cannot.
+    /// </summary>
+    private async Task<TargetDecision> EvaluateTargetAsync(
+        OAuthAuthorizationSession request,
+        OAuthClient client,
+        SsoSession session,
+        AuthorizationCaller caller,
+        CancellationToken ct)
+    {
+        if (!await _userAccessService.HasActiveAccessAsync(session.UserId, client.ApplicationSystemId, ct))
+            return new TargetDecision(TargetOutcome.Denied, session.Assurance, null, "NoApplicationAccess");
+
+        var signals = await _authenticationRisk.AssessAndRecordAsync(session.UserId, caller.IpAddress, caller.UserAgent, ct: ct);
+        var policy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
+            session.UserId,
+            client.ApplicationSystemId,
+            caller.IpAddress,
+            _dateTimeProvider.UtcNow,
+            signals.RiskLevel,
+            session.Assurance), ct);
+        if (!policy.IsAllowed)
+            return new TargetDecision(TargetOutcome.Denied, session.Assurance, policy, "AccessPolicy");
+
+        var required = policy.RequiredAssuranceLevel;
+        if (policy.RequireMfa && required < AuthenticationAssuranceLevel.Mfa)
+            required = AuthenticationAssuranceLevel.Mfa;
+        var applicationRequiresMfa = await _db.ApplicationRegistrationSettings.AsNoTracking()
+            .AnyAsync(item => item.ApplicationSystemId == client.ApplicationSystemId && item.RequireMfa, ct);
+        var userHasMfa = await _db.UserMfaCredentials.AsNoTracking()
+            .AnyAsync(item => item.UserId == session.UserId && item.IsEnabled, ct);
+        if ((applicationRequiresMfa || userHasMfa) && required < AuthenticationAssuranceLevel.Mfa)
+            required = AuthenticationAssuranceLevel.Mfa;
+        if (RequestedAssurance(request.AcrValues) is { } requested && requested > required)
+            required = requested;
+
+        return session.Assurance >= required
+            ? new TargetDecision(TargetOutcome.Allowed, required, policy, "Allowed")
+            : new TargetDecision(TargetOutcome.StepUp, required, policy, "StepUpRequired");
+    }
+
+    /// <summary>
+    /// acr_values lists acceptable classes in order of preference, so the least demanding one the
+    /// server supports is the minimum the client accepts. Unknown values are ignored.
+    /// </summary>
+    private static AuthenticationAssuranceLevel? RequestedAssurance(IEnumerable<string> acrValues)
+    {
+        var levels = acrValues
+            .Select(AuthenticationContext.AssuranceFor)
+            .Where(level => level.HasValue)
+            .Select(level => level!.Value)
+            .ToList();
+        return levels.Count == 0 ? null : levels.Min();
+    }
+
+    private async Task<AuthorizationResponse> DenyAsync(
+        OAuthAuthorizationSession session,
+        OAuthClient client,
+        Guid userId,
+        TargetDecision decision,
+        CancellationToken ct)
+    {
+        AddAudit(decision.Policy is null ? "OAUTH_ACCESS_DENIED" : "ACCESS_POLICY_DENIED", userId, client, metadata: new
+        {
+            reason = decision.Reason,
+            rule = decision.Policy?.MatchedRuleName,
+            ruleId = decision.Policy?.MatchedRuleId,
+            flow = "oauth_authorize"
+        });
+        await _db.SaveChangesAsync(ct);
+        return ErrorResponse(session.RedirectUri, session.State, session.ResponseMode, "access_denied",
+            decision.Policy is null
+                ? "The user does not have access to this application."
+                : "The application's access policy does not allow this sign-in.");
     }
 
     public async Task<string> StorePendingResponseAsync(AuthorizationResponse response, string? browserBinding, CancellationToken ct = default)
@@ -700,6 +837,25 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             AddAudit("OAUTH_REFRESH_ACCESS_REVOKED", storedToken.UserId, client);
             await _db.SaveChangesAsync(ct);
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "User no longer has access to this application.");
+        }
+
+        // The application's published policy still decides after the grant, like a first-party
+        // refresh: group membership and time windows are current. The refresh request comes from
+        // the client, so network conditions use the address of the user's sign-in session.
+        var sessionAddress = storedToken.SessionId is { } sessionId
+            ? await _db.RefreshTokens.AsNoTracking().Where(token => token.Id == sessionId).Select(token => token.IpAddress).FirstOrDefaultAsync(ct)
+            : null;
+        var grantAssurance = storedToken.AssuranceLevel is { } level && Enum.IsDefined(typeof(AuthenticationAssuranceLevel), level)
+            ? (AuthenticationAssuranceLevel)level
+            : AuthenticationAssuranceLevel.Password;
+        var policy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
+            storedToken.UserId, client.ApplicationSystemId, sessionAddress, now, AccessRiskLevel.Unknown, grantAssurance), ct);
+        if (!policy.IsAllowed)
+        {
+            await RevokeOAuthFamilyAsync(storedToken, ct);
+            AddAudit("ACCESS_POLICY_DENIED", storedToken.UserId, client, metadata: new { rule = policy.MatchedRuleName, ruleId = policy.MatchedRuleId, flow = "oauth_refresh" });
+            await _db.SaveChangesAsync(ct);
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "The application's access policy no longer allows this grant.");
         }
 
         storedToken.RevokedAt = now;
