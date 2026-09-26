@@ -38,7 +38,7 @@ public sealed class FederationController : ControllerBase
     public async Task<IActionResult> TestProvider(Guid id, CancellationToken ct)
     {
         var result = await _federation.TestConnectionAsync(id, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : NotFound(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
@@ -52,7 +52,7 @@ public sealed class FederationController : ControllerBase
     {
         if (!await HasProofAsync(ct)) return await RejectedAsync("FederationProvider", null, ct);
         var result = await _federation.CreateProviderAsync(request, ct);
-        return result.IsSuccess ? Created($"/api/federation/providers/{result.Data!.Id}", ApiResponse<object>.Ok(result.Data)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Created($"/api/federation/providers/{result.Data!.Id}", ApiResponse<object>.Ok(result.Data)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
@@ -61,7 +61,7 @@ public sealed class FederationController : ControllerBase
     {
         if (!await HasProofAsync(ct)) return await RejectedAsync("FederationProvider", id, ct);
         var result = await _federation.UpdateProviderAsync(id, request, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, result.Message)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message))) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
@@ -94,7 +94,7 @@ public sealed class FederationController : ControllerBase
         if (!await HasProofAsync(ct)) return await RejectedAsync("FederationRoutingRule", id, ct);
         var result = await _federation.UpdateRoutingRuleAsync(id, request, ct);
         if (result.IsSuccess) return Ok(ApiResponse<object>.Ok(result.Data!));
-        return result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, result.Message)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message))) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
@@ -125,7 +125,7 @@ public sealed class FederationController : ControllerBase
     public async Task<IActionResult> Route(FederationRouteRequest request, CancellationToken ct)
     {
         var result = await _federation.RouteAsync(request, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : NotFound(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     /// <summary>
@@ -146,7 +146,7 @@ public sealed class FederationController : ControllerBase
     public async Task<IActionResult> BeginOidc(BeginOidcFederationRequest request, CancellationToken ct)
     {
         var result = await _federation.BeginOidcAsync(request, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [AllowAnonymous]
@@ -160,7 +160,7 @@ public sealed class FederationController : ControllerBase
     public async Task<IActionResult> BeginSaml(BeginSamlFederationRequest request, CancellationToken ct)
     {
         var result = await _federation.BeginSamlAsync(request, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     /// <summary>
@@ -199,7 +199,7 @@ public sealed class FederationController : ControllerBase
     {
         if (!result.IsSuccess && result.ErrorCode == "MFA_REQUIRED")
             return Ok(ApiResponse<object>.Ok(new MfaPendingResponse { MfaPendingToken = result.Message, ExpiresIn = _mfa.MfaTokenExpirySeconds }));
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     private string? IpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();

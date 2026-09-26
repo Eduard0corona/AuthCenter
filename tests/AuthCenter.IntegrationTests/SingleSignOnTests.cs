@@ -329,7 +329,7 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
         var verify = await browser.PostAsJsonAsync("/ui-api/session/mfa", new VerifyMfaRequest
         {
             MfaPendingToken = pending.GetProperty("mfaPendingToken").GetString()!,
-            TotpCode = new Totp(Base32Encoding.ToBytes(secret)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(secret)
         });
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
 
@@ -507,7 +507,7 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
         var setup = (await (await client.PostAsync("/api/auth/mfa/setup", null)).Content.ReadFromJsonAsync<ApiResponse<MfaSetupResponse>>())!.Data!;
         var enable = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest
         {
-            TotpCode = new Totp(Base32Encoding.ToBytes(setup.SecretBase32)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(setup.SecretBase32)
         });
         enable.EnsureSuccessStatusCode();
         return setup.SecretBase32;

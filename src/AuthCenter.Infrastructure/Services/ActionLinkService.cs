@@ -1,6 +1,7 @@
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Infrastructure.Settings;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 
 namespace AuthCenter.Infrastructure.Services;
@@ -38,6 +39,13 @@ public sealed class ActionLinkService : IActionLinkService
             _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, null)
         };
 
-        return new Uri(baseUri, path.TrimStart('/')).AbsoluteUri;
+        var url = new Uri(baseUri, path.TrimStart('/')).AbsoluteUri;
+        // The hosted pages brand the link and continue to the right sign-in with the application.
+        return applicationCode is not null && IsApplicationCode(applicationCode)
+            ? QueryHelpers.AddQueryString(url, "application", applicationCode)
+            : url;
     }
+
+    private static bool IsApplicationCode(string value) =>
+        value.Length is > 0 and <= 50 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.');
 }

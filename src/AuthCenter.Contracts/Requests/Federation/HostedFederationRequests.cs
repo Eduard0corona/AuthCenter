@@ -20,6 +20,12 @@ public sealed class StartFederationRequest
     public string? ApplicationCode { get; init; }
     public string? ReturnUrl { get; init; }
     public string? LoginHint { get; init; }
+
+    /// <summary>
+    /// Links the upstream identity to the account the browser is signed in as (account portal)
+    /// instead of signing in with it.
+    /// </summary>
+    public bool Link { get; init; }
 }
 
 /// <summary>Redeems the single-use result the upstream callback left for this browser.</summary>

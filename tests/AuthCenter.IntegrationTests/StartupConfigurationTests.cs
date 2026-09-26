@@ -83,6 +83,20 @@ public class StartupConfigurationTests
         Assert.Contains("Oidc:PublicOrigin", exception.ToString());
     }
 
+    [Fact]
+    public void DevelopmentEmailPickupDirectory_FailsStartupOutsideDevelopment()
+    {
+        // Writing messages (with sign-in codes and links) to disk is only for development and tests.
+        using var factory = CreateProductionFactory(new Dictionary<string, string?>
+        {
+            ["Email:DevelopmentPickupDirectory"] = Path.GetTempPath()
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains("Email:DevelopmentPickupDirectory", exception.ToString());
+    }
+
     private static WebApplicationFactory<Program> CreateProductionFactory(
         IDictionary<string, string?>? overrides = null)
     {

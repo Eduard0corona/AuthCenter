@@ -144,6 +144,16 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   `mfaPendingToken`. Pruebas: `FederatedUserWithMfa_CompletesTheSecondFactor_UnlessTheUpstreamMfaIsTrusted`,
   `JsonApiFederation_RunsTheApplicationMfaGate`.
 
+- [x] **SEC-11** *(nuevo, hallado durante la remediación)* Un código TOTP podía reutilizarse
+  dentro de su ventana de validez (±30 s): un código observado o capturado por phishing servía de
+  nuevo.
+  *Resuelto:* cada paso de tiempo aceptado se recuerda por usuario (RFC 6238 §5.2) al iniciar
+  sesión, activar, regenerar códigos o desactivar. Prueba: `AuthenticatorCode_IsAcceptedOnlyOnce`.
+- [x] **SEC-12** *(nuevo)* Desvincular un proveedor empresarial y volver a entrar con él violaba el
+  índice único (proveedor, sujeto) y respondía 500.
+  *Resuelto:* el vínculo inactivo se reutiliza y reactiva. Prueba:
+  `UnlinkedIdentity_SignsInAgain_ByReusingItsLink`.
+
 ### D. Backend administrativo y Event Hooks
 
 - [x] **HOOK-01** Reenviar dos veces la misma entrega fallida no la vuelve a encolar.
@@ -189,11 +199,74 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### F. Login hospedado y portal
 
-- [ ] **HL-01** El login no envía el OTP por email, no guía la inscripción MFA, no ofrece
+- [x] **HL-01** El login no envía el OTP por email, no guía la inscripción MFA, no ofrece
   recuperación de contraseña ni magic link, exige email para passkey y no maneja interacciones
   expiradas.
-- [ ] **PORTAL-01** El portal no permite inscribir factores MFA, códigos de respaldo, cambiar
+  *Resuelto:* login reescrito por pasos (vistas con foco y mensajes en español): OTP por correo
+  enviado al entrar al paso y reenviable, código de respaldo, hasta 5 intentos por paso pendiente
+  (antes un error de tecleo obligaba a repetir la contraseña); inscripción guiada del factor que la
+  aplicación exige, al iniciar sesión y en el step-up OAuth (`MFA_SETUP_REQUIRED` /
+  `PASSKEY_ENROLLMENT_REQUIRED` devuelven un token de inscripción de un solo uso: app de
+  autenticación con QR generado en el navegador —`qr.js`, sin scripts de terceros— y códigos de
+  respaldo, o passkey y acceso con ella); la API JSON recibe un mensaje fijo. Recuperación de
+  contraseña, enlace de acceso por correo (continúa la solicitud OAuth o el `return_url` en el mismo
+  navegador), passkey sin correo (credenciales descubribles), opciones por aplicación en visitas
+  directas (`GET /ui-api/session/login-options`) y aviso de solicitud expirada (`expiresAt` de la
+  interacción). Páginas hospedadas para los enlaces de correo (`/reset-password`,
+  `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link`) sin referrer, con
+  el token fuera de la barra de direcciones y acción explícita. Pruebas: suite E2E contra la API
+  real (`tests/AuthCenter.HostedUi.Tests/e2e`, 16 escenarios con SQL Server, Chromium, WebAuthn
+  virtual y buzón de desarrollo), `HostedAccountTests`,
+  `ApplicationRequiringMfa_ForAUserWithoutMfa_EnrollsInPlaceAndCompletesTheRequest`, `qr.test.mjs`
+  (decodificado con jsQR).
+- [x] **PORTAL-01** El portal no permite inscribir factores MFA, códigos de respaldo, cambiar
   contraseña o email, eliminar la cuenta, ver aplicaciones ni vincular/desvincular proveedores.
+  *Resuelto:* portal por secciones: contraseña; verificación en dos pasos (app de autenticación
+  con QR, correo, regenerar códigos de respaldo, desactivar —con código de correo para el factor por
+  correo, `POST /api/auth/mfa/email-otp/verification`—); passkeys (agregar, renombrar, eliminar);
+  sesiones con la actual identificada y cierre global; dispositivos; aplicaciones
+  (`GET /api/auth/applications`, directas y por grupo); proveedores vinculados con nombre del
+  proveedor empresarial y desvinculación; vincular el proveedor de la organización (modo `link` de la
+  federación con prueba `account.link-provider`, resultado ligado al navegador y a la cuenta);
+  consentimientos; cambio de correo (el enlace incluye la cuenta) y eliminación de la cuenta. La
+  reautenticación acepta contraseña o passkey. Avisos por correo al cambiar contraseña, correo,
+  desactivar MFA, vincular proveedor o inscribir un factor al iniciar sesión. Pruebas: E2E del portal,
+  `PortalLink_*`, `UnlinkedIdentity_SignsInAgain_ByReusingItsLink`, `HostedAccountTests`.
+- [x] **HL-02** *(nuevo, hallado durante la remediación)* Las passkeys no funcionaban en el login ni
+  en el portal hospedados: leían `optionsJson` y la API devuelve `publicKey`.
+  *Resuelto:* ambas páginas usan `publicKey` (`getPasskey`/`createPasskey` en `shared.js`). Prueba
+  E2E: `a passkey added in the portal signs in without typing the email`.
+- [x] **HL-03** *(nuevo)* Los pasos ocultos del login (MFA, cambio de contraseña) se mostraban
+  todos a la vez: `.stack { display: grid }` anulaba el atributo `hidden`.
+  *Resuelto:* `[hidden] { display: none !important; }` en `app.css`; verificado por la suite E2E.
+- [x] **HL-04** *(nuevo)* Los manejadores del login se registraban después de la inicialización
+  asíncrona: un envío temprano (usuario rápido o gestor de contraseñas) hacía un submit nativo GET
+  con el correo y la contraseña en la URL.
+  *Resuelto:* manejadores registrados antes de cualquier `await` (esperan a la inicialización) y
+  formularios con `method="post"` en login, portal y páginas de cuenta.
+- [x] **HL-05** *(nuevo)* Registrarse en una aplicación con `RequireMfa` fallaba sin crear la
+  cuenta, y el autorregistro en general agotaba el tiempo en SQL Server: dentro de la transacción,
+  el servicio de riesgo escribía con otra conexión una fila que referencia al usuario sin confirmar
+  (bloqueo hasta el timeout, HTTP 500). Con InMemory no se reproducía.
+  *Resuelto:* la cuenta, su acceso y su rol se confirman primero; el primer inicio de sesión corre
+  después y, si pide inscribir un factor o la política lo niega, la cuenta se conserva. Detectado y
+  cubierto por la suite E2E contra SQL Server.
+- [x] **HL-06** *(nuevo)* Dos inicios de sesión simultáneos del mismo usuario respondían 500:
+  `UserManager.UpdateAsync` fallaba por concurrencia (resultado ignorado) y el siguiente
+  `SaveChanges` de la petición relanzaba el conflicto.
+  *Resuelto:* `RecordSignInAsync` recarga la fila y reintenta el registro del acceso. Prueba:
+  `ConcurrentSignInsOfOneAccount_AreBothRecorded_WithoutFailingTheRequest` (falla sin el cambio).
+- [x] **HL-07** *(nuevo)* Con `MigrateOnStartup` y una base inexistente la API no arrancaba: el
+  bloqueo de bootstrap abría la base antes de que la migración la creara.
+  *Resuelto:* se crea la base vacía (tolerando que otra instancia la cree antes) y luego se toma el
+  bloqueo y se migra.
+- [x] **HL-08** *(nuevo)* El enlace de cambio de correo no incluía la cuenta y
+  `/api/auth/email-change/confirm` la exige: ningún enlace enviado podía confirmarse. El factor MFA
+  por correo no podía desactivarse (sin código para ello y el validador ignoraba `EmailOtpCode`).
+  El endpoint hospedado de magic link exigía `ApplicationCode`, que el enlace no trae.
+  *Resuelto:* el enlace lleva `userId`; `POST /api/auth/mfa/email-otp/verification` y validador que
+  acepta `EmailOtpCode`; `POST /ui-api/session/magic-link {token}` toma la aplicación del token
+  firmado. Los enlaces de correo incluyen `application` para la marca. Pruebas: `HostedAccountTests`.
 
 ### G. Gobierno de accesos
 
@@ -247,3 +320,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F7: límites de tasa por IP, cuenta y cliente OAuth con reglas configurables; CORS por endpoint con orígenes por cliente y sin CORS para la sesión hospedada. | RL-01, CORS-01 |
 | 2026-09-26 | F8: federación empresarial conectada al login hospedado y a `/oauth/authorize` (descubrimiento por dominio, `idp`/`domain_hint`, callback OIDC y ACS con resultado ligado al navegador, compuerta de política y MFA), interoperabilidad OIDC/SAML (issuer, `email_verified`, firmas de aserción, cifrado), mapeo de grupos y MFA del IdP, prueba de conexión, consola y SDK; hallazgos nuevos SEC-10 (federación sin MFA/política) y ACS con sesión existente. | FED-01, FED-02, SEC-03, SEC-04, SEC-06, SEC-10, ADM-04, ADM-08, UI-10 |
 | 2026-09-26 | F9: SDK TypeScript completo (callback, validación del ID token, UserInfo, logout), quickstart SPA, SDK .NET con discovery, coordinador de refresh distribuido y configuración por `IConfiguration`, multi-target net8/net10, paquetes publicables y workflow de publicación; guía de integración. | DIS-01, SDK-03/04/07/08/09, DOC-03, OPS-14 |
+| 2026-09-26 | F10: login hospedado por pasos (OTP por correo, códigos de respaldo, reintentos acotados, inscripción guiada de TOTP con QR o passkey al iniciar sesión y en el step-up, recuperación de contraseña, magic link, passkey sin correo, expiración), páginas de enlaces de correo, portal completo (MFA, contraseña, correo, cuenta, aplicaciones, vincular proveedor empresarial), avisos de seguridad por correo y suite E2E contra la API real; hallazgos nuevos HL-02..08, SEC-11 (repetición TOTP) y SEC-12. | HL-01..08, PORTAL-01, SEC-11, SEC-12 |

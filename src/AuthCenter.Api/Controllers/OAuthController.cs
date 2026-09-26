@@ -2,6 +2,7 @@ using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Domain.Enums;
 using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
@@ -172,7 +173,7 @@ public class OAuthController : ControllerBase
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.UiCookie)]
     [EnableRateLimiting(RateLimitingExtensions.Login)]
     [HttpPost("interactions/{interactionId}/step-up")]
-    public async Task<IActionResult> BeginStepUp(string interactionId, CancellationToken ct)
+    public async Task<IActionResult> BeginStepUp(string interactionId, [FromServices] IMfaService mfa, CancellationToken ct)
     {
         var caller = CurrentCaller();
         if (caller.UserId is null) return Unauthorized();
@@ -185,9 +186,14 @@ public class OAuthController : ControllerBase
 
         var result = await _authService.BeginStepUpAsync(
             caller.UserId.Value, requirement.Data.ApplicationCode, required, requirement.Data.PrimaryMethod, caller.IpAddress, caller.UserAgent, ct);
-        return result.ErrorCode == "MFA_REQUIRED"
-            ? Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfa = true, mfaPendingToken = result.Message }))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.ErrorCode switch
+        {
+            "MFA_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfa = true, mfaPendingToken = result.Message, mfaMethod = (await mfa.GetStatusAsync(caller.UserId.Value, ct)).Method == nameof(MfaMethod.EmailOtp) ? "email" : "totp" })),
+            // The hosted login enrolls the missing factor in place, then completes the same request.
+            "MFA_SETUP_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfaEnrollment = true, enrollmentToken = result.Message })),
+            "PASSKEY_ENROLLMENT_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresPasskeyEnrollment = true, enrollmentToken = result.Message })),
+            _ => BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message))
+        };
     }
 
     [AllowAnonymous]

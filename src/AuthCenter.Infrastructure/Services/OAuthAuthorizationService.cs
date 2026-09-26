@@ -295,6 +295,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             LoginHint = session.LoginHint,
             RequiresFreshLogin = session.Prompt.Contains(PromptLogin) || session.Prompt.Contains(PromptSelectAccount),
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
+            AllowMagicLink = settings?.AllowMagicLink ?? false,
             FederationAvailable = providers.Count > 0,
             IdentityProvider = identityProvider is null ? null : new FederationProviderSummary
             {
@@ -303,7 +304,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
                 Protocol = identityProvider.Protocol.ToString()
             },
             DomainHint = session.DomainHint,
-            ExpiresAt = session.CreatedAt.AddMinutes(AuthorizationLifetimeMinutes)
+            ExpiresAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc).AddMinutes(AuthorizationLifetimeMinutes)
         });
     }
 
@@ -345,7 +346,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             RequiresConsent = await RequiresConsentAsync(session, client, caller.UserId.Value, ct),
             RequiresReauthentication = existing is null || RequiresReauthentication(session, existing, _dateTimeProvider.UtcNow) ||
                 (session.IdTokenHintSubject is not null && !string.Equals(session.IdTokenHintSubject, caller.UserId.Value.ToString(), StringComparison.OrdinalIgnoreCase)),
-            ExpiresAt = session.CreatedAt.AddMinutes(AuthorizationLifetimeMinutes)
+            ExpiresAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc).AddMinutes(AuthorizationLifetimeMinutes)
         });
     }
 

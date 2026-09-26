@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -61,6 +61,7 @@ jobs:
           cache-dependency-path: |
             sdk/typescript/package-lock.json
             src/AuthCenter.Admin/package-lock.json
+            tests/AuthCenter.HostedUi.Tests/package-lock.json
 
       - name: Restore dependencies
         run: dotnet restore
@@ -100,7 +101,25 @@ jobs:
         run: npm ci && npm test
 
       - name: Hosted UI unit tests
-        run: node --test tests/AuthCenter.HostedUi.Tests/*.test.mjs
+        working-directory: tests/AuthCenter.HostedUi.Tests
+        run: npm ci && npm test
+
+      # The login, portal and emailed-link pages against the Release API, SQL Server and Chromium
+      # (browser installed by the admin E2E step; same Playwright version).
+      - name: Hosted UI end-to-end
+        working-directory: tests/AuthCenter.HostedUi.Tests
+        run: npx playwright test
+
+      - name: Upload hosted UI end-to-end report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-ui-e2e-report
+          path: |
+            tests/AuthCenter.HostedUi.Tests/playwright-report
+            tests/AuthCenter.HostedUi.Tests/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Pack .NET integration SDK
         run: dotnet pack sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj --configuration Release --no-build --output "${{ runner.temp }}/sdk-packages"
@@ -202,7 +221,7 @@ jobs:
             sleep 10
           done
 
-          for ui_path in login portal admin login.html portal.html admin.html; do
+          for ui_path in login portal admin login.html portal.html admin.html reset-password magic-link; do
             headers="$(curl --silent --show-error --dump-header - --output /dev/null \
               --max-time 20 "${APP_URL%/}/${ui_path}")"
             if ! grep --quiet --ignore-case '^content-type: text/html' <<< "$headers"; then

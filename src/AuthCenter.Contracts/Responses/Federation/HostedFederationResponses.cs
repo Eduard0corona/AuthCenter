@@ -14,6 +14,17 @@ public sealed class FederationProviderSummary
     public string Protocol { get; init; } = string.Empty;
 }
 
+/// <summary>An enterprise identity provider the signed-in user may link to their account (portal).</summary>
+public sealed class LinkableFederationProviderResponse
+{
+    public Guid Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Protocol { get; init; } = string.Empty;
+    public string ApplicationCode { get; init; } = string.Empty;
+    public string ApplicationName { get; init; } = string.Empty;
+    public bool Linked { get; init; }
+}
+
 public sealed class StartFederationResponse
 {
     public string RedirectUrl { get; init; } = string.Empty;

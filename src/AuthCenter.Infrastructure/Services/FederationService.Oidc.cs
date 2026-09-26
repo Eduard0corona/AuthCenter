@@ -55,8 +55,8 @@ public sealed partial class FederationService
         var authenticated = await AuthenticateOidcAsync(transaction, request.Code, ipAddress, userAgent, ct);
         if (!authenticated.IsSuccess)
             return OperationResult<AuthResponse>.Failure(authenticated.ErrorCode!, authenticated.Message!);
-        var (user, provider, authentication) = authenticated.Data!;
-        return await _auth.CompleteFederatedSignInAsync(user.Id, provider.ApplicationSystem.Code, authentication, ipAddress, userAgent, ct);
+        var (user, provider, authentication, _) = authenticated.Data!;
+        return await _auth.CompleteFederatedSignInAsync(user!.Id, provider.ApplicationSystem.Code, authentication, ipAddress, userAgent, ct);
     }
 
     private async Task<OperationResult<string>> BuildOidcChallengeAsync(FederationProvider provider, FederationTransaction transaction, string? loginHint, bool forceAuthentication, CancellationToken ct)
@@ -127,7 +127,7 @@ public sealed partial class FederationService
             emailVerified,
             principal.FindAll("amr").Any(claim => string.Equals(claim.Value, "mfa", StringComparison.Ordinal)),
             OidcGroups(provider, principal));
-        return await AuthenticateUpstreamIdentityAsync(provider, identity, "OIDC", ipAddress, userAgent, ct);
+        return await AuthenticateUpstreamIdentityAsync(provider, identity, transaction, "OIDC", ipAddress, userAgent, ct);
     }
 
     /// <summary>

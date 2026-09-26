@@ -119,8 +119,11 @@ public class AuthService : IAuthService
         if (existing is not null)
             return OperationResult<AuthResponse>.Failure("EMAIL_TAKEN", "An account with this email already exists.");
 
+        // The account, its access and its default role are created atomically. The sign-in that
+        // follows runs after the commit: its services (risk signals, sessions) write through their
+        // own connections, which would otherwise wait on the uncommitted user row.
         var strategy = _db.Database.CreateExecutionStrategy();
-        var outcome = await strategy.ExecuteAsync(async () =>
+        var created = await strategy.ExecuteAsync(async () =>
         {
             _db.ChangeTracker.Clear();
             var now = _dateTimeProvider.UtcNow;
@@ -145,7 +148,7 @@ public class AuthService : IAuthService
             if (!createResult.Succeeded)
             {
                 var errors = createResult.Errors.Select(error => error.Description).ToList();
-                return (Result: OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors), errors), User: (ApplicationUser?)null);
+                return (Failure: OperationResult<AuthResponse>.Failure("USER_CREATION_FAILED", string.Join("; ", errors), errors), User: (ApplicationUser?)null);
             }
 
             var accessIsActive = settings.RegistrationMode == ApplicationRegistrationMode.Open;
@@ -158,38 +161,36 @@ public class AuthService : IAuthService
                 {
                     var roleResult = await _userManager.AddToRoleAsync(user, role.Name);
                     if (!roleResult.Succeeded)
-                        return (Result: OperationResult<AuthResponse>.Failure("ROLE_ASSIGN_FAILED", string.Join("; ", roleResult.Errors.Select(error => error.Description))), User: (ApplicationUser?)null);
+                        return (Failure: OperationResult<AuthResponse>.Failure("ROLE_ASSIGN_FAILED", string.Join("; ", roleResult.Errors.Select(error => error.Description))), User: (ApplicationUser?)null);
                 }
             }
 
-            OperationResult<AuthResponse> result;
             if (settings.RequireEmailConfirmation)
             {
                 var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
                 var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailConfirmation, appSystem.Code);
                 await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, actionUrl, ct);
-                result = OperationResult<AuthResponse>.Failure("EMAIL_CONFIRMATION_REQUIRED", "Please confirm your email before signing in.");
-            }
-            else if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
-            {
-                result = OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
-            }
-            else
-            {
-                var policyResult = await RequireMfaIfNeededAsync(user.Id, appSystem, null, ipAddress, userAgent, ct);
-                result = policyResult ?? await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
-                if (!result.IsSuccess)
-                    return (Result: result, User: (ApplicationUser?)null);
             }
 
             if (transaction is not null)
                 await transaction.CommitAsync(ct);
-            return (Result: result, User: (ApplicationUser?)user);
+            return (Failure: (OperationResult<AuthResponse>?)null, User: (ApplicationUser?)user);
         });
 
-        if (outcome.User is not null)
-            await _auditService.LogAsync("USER_REGISTERED", outcome.User.Id, appSystem.Code, nameof(ApplicationUser), outcome.User.Id.ToString(), ipAddress, userAgent, ct: ct);
-        return outcome.Result;
+        if (created.Failure is not null)
+            return created.Failure;
+        var registered = created.User!;
+        await _auditService.LogAsync("USER_REGISTERED", registered.Id, appSystem.Code, nameof(ApplicationUser), registered.Id.ToString(), ipAddress, userAgent, ct: ct);
+
+        if (settings.RequireEmailConfirmation)
+            return OperationResult<AuthResponse>.Failure("EMAIL_CONFIRMATION_REQUIRED", "Please confirm your email before signing in.");
+        if (settings.RegistrationMode == ApplicationRegistrationMode.ApprovalRequired)
+            return OperationResult<AuthResponse>.Failure("APPROVAL_REQUIRED", "Your registration is pending approval.");
+
+        // The first sign-in goes through the application's gate like any other; when it asks for a
+        // factor to enroll or denies the sign-in, the new account is kept.
+        var policyResult = await RequireMfaIfNeededAsync(registered.Id, appSystem, null, ipAddress, userAgent, ct);
+        return policyResult ?? await BuildAuthResponseAsync(registered, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }
 
     public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -258,10 +259,7 @@ public class AuthService : IAuthService
         if (mfaResult is not null)
             return mfaResult;
 
-        await _userManager.ResetAccessFailedCountAsync(user);
-        user.LastLoginAt = _dateTimeProvider.UtcNow;
-        user.UpdatedAt = _dateTimeProvider.UtcNow;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct, account => account.AccessFailedCount = 0);
 
         await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
@@ -495,9 +493,7 @@ public class AuthService : IAuthService
         if (mfaResult is not null)
             return mfaResult;
 
-        user.LastLoginAt = now;
-        user.UpdatedAt = now;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, now, ct);
 
         await _auditService.LogAsync(loginSuccessAuditAction, user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, AuthenticationContext.Federated, ct);
@@ -526,13 +522,10 @@ public class AuthService : IAuthService
         if (pending is null)
             return OperationResult<AuthResponse>.Failure("INVALID_MFA_TOKEN", "MFA token is invalid or expired.");
 
-        var consumed = await _transientState.TryConsumeAsync(
-            SingleUsePurposes.Mfa,
-            pending.TokenId,
-            _dateTimeProvider.UtcNow.AddSeconds(_mfaSettings.MfaTokenExpirySeconds),
-            ct);
-
-        if (!consumed)
+        // A pending sign-in allows a few attempts, so a mistyped code does not mean typing the
+        // password again; it is spent by the first success or by the last failed attempt.
+        var stepExpiry = _dateTimeProvider.UtcNow.AddSeconds(_mfaSettings.MfaTokenExpirySeconds);
+        if (await _transientState.IsConsumedAsync(SingleUsePurposes.Mfa, pending.TokenId, ct))
             return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
 
         var user = await _userManager.FindByIdAsync(pending.UserId.ToString());
@@ -569,9 +562,17 @@ public class AuthService : IAuthService
 
         if (!verified)
         {
-            await _auditService.LogAsync("MFA_VERIFY_FAILED", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
+            var attempts = int.TryParse(await _transientState.GetAsync(MfaAttemptsPurpose, pending.TokenId, ct), out var previous) ? previous + 1 : 1;
+            if (attempts >= MaximumMfaAttempts)
+                await _transientState.TryConsumeAsync(SingleUsePurposes.Mfa, pending.TokenId, stepExpiry, ct);
+            else
+                await _transientState.SetAsync(MfaAttemptsPurpose, pending.TokenId, attempts.ToString(System.Globalization.CultureInfo.InvariantCulture), stepExpiry, ct);
+            await _auditService.LogAsync("MFA_VERIFY_FAILED", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { attempts }, ct);
             return OperationResult<AuthResponse>.Failure("INVALID_MFA_CODE", "The MFA code is invalid.");
         }
+
+        if (!await _transientState.TryConsumeAsync(SingleUsePurposes.Mfa, pending.TokenId, stepExpiry, ct))
+            return OperationResult<AuthResponse>.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
 
         // Re-evaluate the published policy after step-up. A policy may have been published or a
         // time window may have closed while the MFA ceremony was in progress.
@@ -599,9 +600,7 @@ public class AuthService : IAuthService
                 "Sign-in is denied by the application's access policy.");
         }
 
-        user.LastLoginAt = _dateTimeProvider.UtcNow;
-        user.UpdatedAt = _dateTimeProvider.UtcNow;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct);
 
         await _auditService.LogAsync("MFA_VERIFY_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
         await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { mfa = true }, ct);
@@ -631,20 +630,19 @@ public class AuthService : IAuthService
             var hasPasskey = user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0;
             var code = hasPasskey ? "PASSKEY_REQUIRED" : "PASSKEY_ENROLLMENT_REQUIRED";
             await _auditService.LogAsync(code, userId, appSystem.Code, null, null, ipAddress, userAgent, new { stepUp = true }, ct);
+            // As at sign-in, a missing factor comes with a single-use enrollment for the hosted login.
             return OperationResult<AuthResponse>.Failure(
                 code,
                 hasPasskey
                     ? "This application requires a user-verified passkey. Continue with passkey sign-in."
-                    : "This application requires a passkey. Enroll one before continuing.");
+                    : await CreateEnrollmentAsync(userId, appSystem.Code, primaryMethod, EnrollmentKinds.Passkey, ct));
         }
 
         var mfaEnabled = await _db.UserMfaCredentials.AsNoTracking().AnyAsync(m => m.UserId == userId && m.IsEnabled, ct);
         if (!mfaEnabled)
         {
             await _auditService.LogAsync("MFA_SETUP_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, new { stepUp = true }, ct);
-            return OperationResult<AuthResponse>.Failure(
-                "MFA_SETUP_REQUIRED",
-                "This application requires MFA. Please set up two-factor authentication.");
+            return OperationResult<AuthResponse>.Failure("MFA_SETUP_REQUIRED", await CreateEnrollmentAsync(userId, appSystem.Code, primaryMethod, EnrollmentKinds.Totp, ct));
         }
 
         // The pending token carries the session's primary method, so the verified step-up records
@@ -681,9 +679,7 @@ public class AuthService : IAuthService
         if (gate is not null)
             return gate;
 
-        user.LastLoginAt = _dateTimeProvider.UtcNow;
-        user.UpdatedAt = _dateTimeProvider.UtcNow;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct);
 
         await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { method = "federated", amr = authentication.MethodsValue }, ct);
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, authentication, ct);
@@ -815,9 +811,7 @@ public class AuthService : IAuthService
         }
 
         var user = storedToken.User;
-        user.LastLoginAt = _dateTimeProvider.UtcNow;
-        user.UpdatedAt = _dateTimeProvider.UtcNow;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct);
 
         var apps = new List<string> { appSystem.Code };
         var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, appSystem.Id, ct);
@@ -920,7 +914,10 @@ public class AuthService : IAuthService
         {
             var errors = result.Errors.Select(e => e.Description).ToList();
             _logger.LogWarning("Password reset failed for {Email}: {Errors}", request.Email, string.Join("; ", errors));
-            return OperationResult.Failure("INVALID_TOKEN", "Password reset failed. The link may be expired or invalid.");
+            // Identity checks the token before the password, so policy errors mean a valid link.
+            return result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.InvalidToken))
+                ? OperationResult.Failure("INVALID_TOKEN", "Password reset failed. The link may be expired or invalid.")
+                : OperationResult.Failure("WEAK_PASSWORD", string.Join(" ", errors));
         }
 
         await _userManager.UpdateSecurityStampAsync(user);
@@ -1030,10 +1027,7 @@ public class AuthService : IAuthService
         if (mfaResult is not null)
             return mfaResult;
 
-        user.LastLoginAt = _dateTimeProvider.UtcNow;
-        user.UpdatedAt = _dateTimeProvider.UtcNow;
-        user.EmailConfirmed = true;
-        await _userManager.UpdateAsync(user);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct, account => account.EmailConfirmed = true);
 
         await _auditService.LogAsync("LOGIN_MAGIC_LINK_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, AuthenticationContext.OneTimeLink, ct);
@@ -1103,11 +1097,11 @@ public class AuthService : IAuthService
                 ipAddress,
                 userAgent,
                 ct: ct);
-            return OperationResult<AuthResponse>.Failure(
-                hasPasskey ? "PASSKEY_REQUIRED" : "PASSKEY_ENROLLMENT_REQUIRED",
-                hasPasskey
-                    ? "This application requires a user-verified passkey. Continue with passkey sign-in."
-                    : "This application requires a passkey. Enroll one before the policy is enforced.");
+            // Like MFA_REQUIRED, the message carries what the next step needs: here a single-use
+            // enrollment token, so the hosted login can register the passkey right away.
+            return hasPasskey
+                ? OperationResult<AuthResponse>.Failure("PASSKEY_REQUIRED", "This application requires a user-verified passkey. Continue with passkey sign-in.")
+                : OperationResult<AuthResponse>.Failure("PASSKEY_ENROLLMENT_REQUIRED", await CreateEnrollmentAsync(userId, appSystem.Code, primaryMethod, EnrollmentKinds.Passkey, ct));
         }
 
         var mfaCredential = await _db.UserMfaCredentials
@@ -1122,9 +1116,7 @@ public class AuthService : IAuthService
         if (mfaCredential?.IsEnabled != true)
         {
             await _auditService.LogAsync("MFA_SETUP_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
-            return OperationResult<AuthResponse>.Failure(
-                "MFA_SETUP_REQUIRED",
-                "This application requires MFA. Please set up two-factor authentication.");
+            return OperationResult<AuthResponse>.Failure("MFA_SETUP_REQUIRED", await CreateEnrollmentAsync(userId, appSystem.Code, primaryMethod, EnrollmentKinds.Totp, ct));
         }
 
         if (policy.AllowTrustedDeviceBypass && !string.IsNullOrWhiteSpace(deviceToken))
@@ -1147,6 +1139,108 @@ public class AuthService : IAuthService
         await _auditService.LogAsync("MFA_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
         return OperationResult<AuthResponse>.Failure("MFA_REQUIRED", pendingToken);
     }
+
+    public async Task<OperationResult<MfaSetupResponse>> BeginTotpEnrollmentAsync(string enrollmentToken, CancellationToken ct = default)
+    {
+        var enrollment = await ReadEnrollmentAsync(enrollmentToken, EnrollmentKinds.Totp, ct);
+        if (enrollment is null)
+            return OperationResult<MfaSetupResponse>.Failure("INVALID_ENROLLMENT", "The enrollment expired or was already used. Sign in again.");
+        if (await _db.UserMfaCredentials.AsNoTracking().AnyAsync(item => item.UserId == enrollment.UserId && item.IsEnabled, ct))
+            return OperationResult<MfaSetupResponse>.Failure("MFA_ALREADY_ENABLED", "Two-factor authentication is already enabled. Sign in again.");
+        return await _mfaService.SetupTotpAsync(enrollment.UserId, ct);
+    }
+
+    public async Task<OperationResult<MfaEnrollmentResult>> CompleteTotpEnrollmentAsync(string enrollmentToken, string totpCode, string? ipAddress, string? userAgent, CancellationToken ct = default)
+    {
+        var enrollment = await ReadEnrollmentAsync(enrollmentToken, EnrollmentKinds.Totp, ct);
+        if (enrollment is null)
+            return OperationResult<MfaEnrollmentResult>.Failure("INVALID_ENROLLMENT", "The enrollment expired or was already used. Sign in again.");
+
+        // A wrong code leaves the enrollment usable, so the user can type the next one.
+        var enabled = await _mfaService.EnableTotpAsync(enrollment.UserId, new EnableMfaRequest { TotpCode = totpCode }, ct);
+        if (!enabled.IsSuccess)
+            return OperationResult<MfaEnrollmentResult>.Failure(enabled.ErrorCode!, enabled.Message!);
+        await _transientState.TakeAsync(EnrollmentPurpose, enrollmentToken, ct);
+
+        var user = await _userManager.FindByIdAsync(enrollment.UserId.ToString());
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(enrollment.ApplicationCode, ct);
+        if (user is null || !user.IsActive || user.DeletedAt is not null || appSystem is null || !appSystem.IsActive)
+            return OperationResult<MfaEnrollmentResult>.Failure("USER_INACTIVE", "The account or the application is no longer active.");
+        await _auditService.LogAsync("MFA_ENROLLED_AT_SIGN_IN", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { method = "totp" }, ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Two-step verification enabled",
+            "An authenticator app was set up for your account while signing in.", ct);
+
+        if (!await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct))
+            return OperationResult<MfaEnrollmentResult>.Failure("ACCESS_DENIED", "You do not have access to this application.");
+        // The new authenticator just proved the second factor.
+        var gate = await RequireMfaIfNeededAsync(user.Id, appSystem, null, ipAddress, userAgent, ct, enrollment.PrimaryMethod, AuthenticationAssuranceLevel.Mfa);
+        if (gate is not null)
+            return OperationResult<MfaEnrollmentResult>.Failure(gate.ErrorCode!, gate.Message!);
+        await _userManager.RecordSignInAsync(_db, user, _dateTimeProvider.UtcNow, ct);
+        await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { mfa = true, enrolled = true }, ct);
+        var session = await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, AuthenticationContext.WithSecondFactor(enrollment.PrimaryMethod), ct);
+        return session.IsSuccess
+            ? OperationResult<MfaEnrollmentResult>.Success(new MfaEnrollmentResult(session.Data!, enabled.Data!.Codes))
+            : OperationResult<MfaEnrollmentResult>.Failure(session.ErrorCode!, session.Message!);
+    }
+
+    public async Task<Guid?> GetPasskeyEnrollmentUserAsync(string enrollmentToken, CancellationToken ct = default) =>
+        (await ReadEnrollmentAsync(enrollmentToken, EnrollmentKinds.Passkey, ct))?.UserId;
+
+    public async Task CompletePasskeyEnrollmentAsync(string enrollmentToken, string? ipAddress, string? userAgent, CancellationToken ct = default)
+    {
+        var enrollment = await ReadEnrollmentAsync(enrollmentToken, EnrollmentKinds.Passkey, ct);
+        if (enrollment is null || await _transientState.TakeAsync(EnrollmentPurpose, enrollmentToken, ct) is null)
+            return;
+        var user = await _userManager.FindByIdAsync(enrollment.UserId.ToString());
+        await _auditService.LogAsync("PASSKEY_ENROLLED_AT_SIGN_IN", enrollment.UserId, enrollment.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
+        if (user?.Email is not null)
+            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Passkey added", "A passkey was registered for your account while signing in.", ct);
+    }
+
+    /// <summary>
+    /// A single-use enrollment for a user who proved the first factor but has no factor the
+    /// application requires. It expires with the MFA window and is only usable for that factor.
+    /// </summary>
+    private async Task<string> CreateEnrollmentAsync(Guid userId, string applicationCode, string primaryMethod, string kind, CancellationToken ct)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        await _transientState.SetAsync(
+            EnrollmentPurpose,
+            token,
+            System.Text.Json.JsonSerializer.Serialize(new PendingEnrollment(userId, applicationCode, primaryMethod, kind)),
+            _dateTimeProvider.UtcNow.AddSeconds(_mfaSettings.MfaTokenExpirySeconds * 2),
+            ct);
+        return token;
+    }
+
+    private async Task<PendingEnrollment?> ReadEnrollmentAsync(string token, string kind, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 100)
+            return null;
+        var json = await _transientState.GetAsync(EnrollmentPurpose, token, ct);
+        if (json is null)
+            return null;
+        try
+        {
+            var enrollment = System.Text.Json.JsonSerializer.Deserialize<PendingEnrollment>(json);
+            return enrollment?.Kind == kind ? enrollment : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private const string EnrollmentPurpose = "sign_in_enrollment";
+
+    private static class EnrollmentKinds
+    {
+        public const string Totp = "totp";
+        public const string Passkey = "passkey";
+    }
+
+    private sealed record PendingEnrollment(Guid UserId, string ApplicationCode, string PrimaryMethod, string Kind);
 
     private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, CancellationToken ct)
     {
@@ -1177,6 +1271,9 @@ public class AuthService : IAuthService
 
         return rawToken;
     }
+
+    private const string MfaAttemptsPurpose = "mfa_attempts";
+    private const int MaximumMfaAttempts = 5;
 
     private static class SingleUsePurposes
     {

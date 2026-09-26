@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Mail;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
@@ -72,6 +73,21 @@ public class SmtpEmailService : IEmailService
         await SendAsync(toEmail, toName, "Your sign-in code - AuthCenter", body, "MFA Email OTP", ct);
     }
 
+    public async Task SendSecurityNoticeAsync(string toEmail, string toName, string subject, string detail, CancellationToken ct = default)
+    {
+        var encoder = HtmlEncoder.Default;
+        var body = $"""
+        <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
+          <h2>{encoder.Encode(subject)}</h2>
+          <p>Hello <strong>{encoder.Encode(toName)}</strong>,</p>
+          <p>{encoder.Encode(detail)}</p>
+          <p>If this was not you, sign in to your account portal, review your sessions and factors, and contact support.</p>
+          <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
+        </body></html>
+        """;
+        await SendAsync(toEmail, toName, $"{subject} - AuthCenter", body, "Security notice", ct);
+    }
+
     private async Task SendAsync(
         string toEmail,
         string toName,
@@ -80,6 +96,15 @@ public class SmtpEmailService : IEmailService
         string purpose,
         CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(_settings.DevelopmentPickupDirectory))
+        {
+            // Development and tests only (enforced at startup): the message becomes a JSON file.
+            Directory.CreateDirectory(_settings.DevelopmentPickupDirectory);
+            var file = Path.Combine(_settings.DevelopmentPickupDirectory, $"{DateTime.UtcNow:yyyyMMddHHmmssfffffff}-{Guid.NewGuid():N}.json");
+            await File.WriteAllTextAsync(file, JsonSerializer.Serialize(new { to = toEmail, subject, purpose, html = body }), ct);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(_settings.Host))
         {
             _logger.LogWarning(

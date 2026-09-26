@@ -42,6 +42,15 @@ public interface IFederationService
     /// </summary>
     Task<OperationResult<AuthResponse>> RedeemResultAsync(string handle, FederationCaller caller, CancellationToken ct = default);
 
+    /// <summary>
+    /// Redeems the result of a link started from the account portal: the upstream identity is
+    /// linked to the account that started it, from the same browser and session.
+    /// </summary>
+    Task<OperationResult<FederationProviderSummary>> RedeemLinkAsync(string handle, FederationCaller caller, CancellationToken ct = default);
+
+    /// <summary>Active providers of the user's applications that the user can link from the portal.</summary>
+    Task<IReadOnlyList<LinkableFederationProviderResponse>> GetLinkableProvidersAsync(Guid userId, CancellationToken ct = default);
+
     Task<OperationResult<OidcFederationChallengeResponse>> BeginOidcAsync(BeginOidcFederationRequest request, CancellationToken ct = default);
     Task<OperationResult<AuthResponse>> CompleteOidcAsync(CompleteOidcFederationRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<OperationResult<SamlFederationChallengeResponse>> BeginSamlAsync(BeginSamlFederationRequest request, CancellationToken ct = default);

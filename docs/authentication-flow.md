@@ -18,9 +18,13 @@ Client -> POST /api/auth/register
    - Open -> IsActive = true.
    - ApprovalRequired -> IsActive = false.
 7. Assign DefaultRole if configured.
-8. If RequireEmailConfirmation is true, send confirmation token and return EMAIL_CONFIRMATION_REQUIRED.
-9. If ApprovalRequired, return APPROVAL_REQUIRED.
-10. Build and return AuthResponse.
+8. If RequireEmailConfirmation is true, send the confirmation link (same transaction).
+9. Commit. The first sign-in runs after the commit: its services (risk signals, sessions) write
+   through their own connections and would otherwise wait on the uncommitted user row.
+10. If RequireEmailConfirmation, return EMAIL_CONFIRMATION_REQUIRED; if ApprovalRequired, return
+    APPROVAL_REQUIRED.
+11. Run the application's gate (access policy, MFA). A factor to enroll (MFA_SETUP_REQUIRED) or a
+    denial keeps the account; otherwise build and return AuthResponse.
 ```
 
 ## Email Confirmation
@@ -48,6 +52,49 @@ Admin -> POST /api/users/invitations
 5. Assign requested roles when compatible with the application.
 6. Send invitation token. The same reset-password endpoint accepts the token and sets the first local password.
 ```
+
+## Emailed links and the hosted pages
+
+With `ActionLinks:DefaultBaseUrl` (or `ActionLinks:ApplicationBaseUrls:{code}`) pointing at
+AuthCenter, the links in its emails open hosted pages:
+
+| Link | Page action |
+|---|---|
+| `/reset-password?token&email&application` | New password → `POST /api/auth/reset-password` (closes every session) |
+| `/accept-invitation?token&email&application` | First password → `POST /api/auth/reset-password` |
+| `/confirm-email?token&email&application` | Confirm → `POST /api/auth/confirm-email` |
+| `/confirm-email-change?token&email&userId` | Confirm → `POST /api/auth/email-change/confirm` |
+| `/magic-link?token&email&application` | Sign in → `POST /ui-api/session/magic-link {token}` |
+
+The page removes the token from the address bar before anything else, is served with
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store`, and acts only on a click, so link
+scanners that open it do not consume the token. A magic link requested from the hosted login
+continues, in the same browser, the authorization request or return URL it was requested from.
+
+## Hosted sign-in steps
+
+```
+POST /ui-api/session/login | passkey/complete | magic-link | federation/complete | forced-change
+  -> { user, csrfToken }                                     signed in
+  -> { requiresMfa, mfaPendingToken, mfaMethod }             POST /ui-api/session/mfa
+                                                             (email factor: POST /ui-api/session/mfa/email-otp)
+  -> { requiresMfaEnrollment, enrollmentToken }              POST /ui-api/session/mfa/enrollment/start -> totpUri, secret
+                                                             POST /ui-api/session/mfa/enrollment/complete -> session + backup codes
+  -> { requiresPasskeyEnrollment, enrollmentToken }          POST /ui-api/session/passkey/enrollment/options|complete,
+                                                             then a passkey sign-in
+  -> { requiresPasswordChange, passwordChangeToken }         POST /ui-api/session/forced-change
+```
+
+1. Enrollment tokens are single-use, bound to the user, the application and the factor, and expire
+   with twice the MFA window. JSON API clients receive a fixed message instead of the token.
+2. A pending second factor allows five attempts; it is spent by the first success or the fifth
+   failure. Each authenticator code is accepted once (its time step is remembered).
+3. The OAuth step-up (`POST /oauth/interactions/{id}/step-up`) answers the same steps, so a user
+   who lacks the factor the client's application requires enrolls it in place and the request
+   completes on the same single sign-on session.
+4. Direct visits read `GET /ui-api/session/login-options?applicationCode=` (password, magic link,
+   federation); authorization requests read the interaction context, whose `expiresAt` the page
+   uses to tell the user when the request expired.
 
 ## Login with Email/Password
 
@@ -232,6 +279,21 @@ Hosted login:
    authenticate again (`prompt=login` / `ForceAuthn="true"`).
 6. A direct sign-in (no authorization request) sends `applicationCode` and a local `returnUrl`;
    any other return URL is dropped.
+
+### Linking a provider from the portal
+
+```
+Portal (signed in) -> POST /api/auth/reauth/password {purpose: account.link-provider}
+                   -> POST /ui-api/session/federation/start {providerId, applicationCode, returnUrl: "/portal#providers", link: true}
+                      (X-AuthCenter-Reauthentication: proof)
+Browser -> upstream IdP -> callback/ACS -> 303 /portal?federation_link=H#providers
+Portal -> POST /ui-api/session/federation/link {handle: H} -> linked provider
+```
+
+The upstream identity is linked to the account that started the link: never by email, only from
+the same browser, only while that account is still signed in there (`FEDERATION_LINK_USER_MISMATCH`)
+and only if another account does not already use it (`FEDERATION_IDENTITY_IN_USE`). A link result
+cannot be redeemed as a sign-in, nor a sign-in result as a link.
 
 ## OAuth client credentials
 

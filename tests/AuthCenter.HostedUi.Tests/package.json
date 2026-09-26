@@ -1,0 +1,13 @@
+{
+  "name": "authcenter-hosted-ui-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "jsqr": "1.4.0"
+  }
+}

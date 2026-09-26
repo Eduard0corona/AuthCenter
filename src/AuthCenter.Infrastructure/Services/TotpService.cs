@@ -104,7 +104,7 @@ public class TotpService : IMfaService
         if (credential.IsEnabled)
             return OperationResult<BackupCodesResponse>.Failure("MFA_ALREADY_ENABLED", "MFA is already enabled.");
 
-        if (!VerifyTotp(credential, request.TotpCode))
+        if (!await VerifyTotpOnceAsync(credential, request.TotpCode, ct))
             return OperationResult<BackupCodesResponse>.Failure("INVALID_MFA_CODE", "The MFA code is invalid.");
 
         var (rawCodes, hashes) = GenerateBackupCodes();
@@ -128,7 +128,7 @@ public class TotpService : IMfaService
             .AsNoTracking()
             .FirstOrDefaultAsync(m => m.UserId == userId && m.IsEnabled, ct);
 
-        return credential is not null && VerifyTotp(credential, code);
+        return credential is not null && await VerifyTotpOnceAsync(credential, code, ct);
     }
 
     public async Task<bool> UseBackupCodeAsync(Guid userId, string code, CancellationToken ct = default)
@@ -169,7 +169,7 @@ public class TotpService : IMfaService
 
         var verified = false;
         if (!string.IsNullOrWhiteSpace(request.TotpCode))
-            verified = VerifyTotp(credential, request.TotpCode);
+            verified = await VerifyTotpOnceAsync(credential, request.TotpCode, ct);
 
         if (!verified && !string.IsNullOrWhiteSpace(request.BackupCode))
             verified = VerifyBackupCode(credential, request.BackupCode);
@@ -190,6 +190,9 @@ public class TotpService : IMfaService
         _db.UserMfaCredentials.Remove(credential);
         await _db.SaveChangesAsync(ct);
         await _auditService.LogAsync("MFA_DISABLED", userId, ct: ct);
+        if (await _userManager.FindByIdAsync(userId.ToString()) is { Email: not null } user)
+            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Two-step verification disabled",
+                "Two-step verification was turned off for your account. If this was not you, change your password and turn it on again.", ct);
 
         return OperationResult.Success();
     }
@@ -200,7 +203,7 @@ public class TotpService : IMfaService
         if (credential is null)
             return OperationResult<BackupCodesResponse>.Failure("MFA_NOT_ENABLED", "MFA is not enabled.");
 
-        if (!VerifyTotp(credential, totpCode))
+        if (!await VerifyTotpOnceAsync(credential, totpCode, ct))
             return OperationResult<BackupCodesResponse>.Failure("INVALID_MFA_CODE", "The MFA code is invalid.");
 
         var (rawCodes, hashes) = GenerateBackupCodes();
@@ -227,6 +230,7 @@ public class TotpService : IMfaService
         return new MfaStatusDto
         {
             IsEnabled = credential.IsEnabled,
+            Method = credential.Method.ToString(),
             EnabledAt = credential.EnabledAt,
             HasBackupCodes = !string.IsNullOrWhiteSpace(credential.HashedBackupCodes) &&
                 DeserializeBackupCodeHashes(credential.HashedBackupCodes).Count > 0,
@@ -269,6 +273,22 @@ public class TotpService : IMfaService
         await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
         await _auditService.LogAsync("MFA_EMAIL_OTP_SETUP_SENT", userId, ct: ct);
 
+        return OperationResult.Success();
+    }
+
+    public async Task<OperationResult> SendEmailOtpVerificationAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
+            return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
+        // Only an enabled email factor has no other way (authenticator or backup code) to prove itself.
+        if (!await _db.UserMfaCredentials.AnyAsync(m => m.UserId == userId && m.IsEnabled && m.Method == MfaMethod.EmailOtp, ct))
+            return OperationResult.Failure("MFA_NOT_ENABLED", "Email MFA is not enabled.");
+
+        var code = GenerateNumericCode();
+        await _transientState.SetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), code, _dateTimeProvider.UtcNow.AddMinutes(10), ct);
+        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
+        await _auditService.LogAsync("MFA_EMAIL_OTP_VERIFICATION_SENT", userId, ct: ct);
         return OperationResult.Success();
     }
 
@@ -343,8 +363,24 @@ public class TotpService : IMfaService
         return true;
     }
 
-    private bool VerifyTotp(UserMfaCredential credential, string code)
+    /// <summary>
+    /// A code proves the factor once (RFC 6238 §5.2): the time step it matched is remembered for
+    /// longer than the verification window, so an observed or phished code cannot be replayed.
+    /// </summary>
+    private async Task<bool> VerifyTotpOnceAsync(UserMfaCredential credential, string? code, CancellationToken ct)
     {
+        if (!TryMatchTotp(credential, code, out var timeStep))
+            return false;
+        return await _transientState.TryConsumeAsync(
+            MfaStatePurposes.TotpStepUsed,
+            $"{credential.UserId:N}:{timeStep}",
+            _dateTimeProvider.UtcNow.AddMinutes(5),
+            ct);
+    }
+
+    private bool TryMatchTotp(UserMfaCredential credential, string? code, out long timeStep)
+    {
+        timeStep = 0;
         if (!HasEncryptionKey() || string.IsNullOrWhiteSpace(code))
             return false;
 
@@ -356,7 +392,7 @@ public class TotpService : IMfaService
             return totp.VerifyTotp(
                 _dateTimeProvider.UtcNow,
                 code.Trim(),
-                out _,
+                out timeStep,
                 new VerificationWindow(previous: 1, future: 1));
         }
         catch

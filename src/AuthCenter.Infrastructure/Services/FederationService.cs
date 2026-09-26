@@ -41,6 +41,7 @@ public sealed partial class FederationService : IFederationService
     private readonly IDataProtector _secrets;
     private readonly SamlSettings _samlSettings;
     private readonly OidcSettings _oidcSettings;
+    private readonly IEmailService _email;
 
     public FederationService(
         AuthCenterDbContext db,
@@ -56,7 +57,8 @@ public sealed partial class FederationService : IFederationService
         FederationMetadataCache metadata,
         IDataProtectionProvider dataProtection,
         IOptions<SamlSettings> samlSettings,
-        IOptions<OidcSettings> oidcSettings)
+        IOptions<OidcSettings> oidcSettings,
+        IEmailService email)
     {
         _db = db;
         _users = users;
@@ -72,6 +74,7 @@ public sealed partial class FederationService : IFederationService
         _secrets = dataProtection.CreateProtector("AuthCenter.FederationProviderSecrets.v1");
         _samlSettings = samlSettings.Value;
         _oidcSettings = oidcSettings.Value;
+        _email = email;
     }
 
     /// <summary>The absolute hosted OIDC callback, when <c>Oidc:PublicOrigin</c> is configured.</summary>
@@ -234,9 +237,10 @@ public sealed partial class FederationService : IFederationService
     /// </summary>
     private async Task<OperationResult<ApplicationUser>> ResolveFederatedUserAsync(FederationProvider provider, UpstreamIdentity identity, CancellationToken ct)
     {
-        var providerKey = $"Federation:{provider.Id:N}";
-        var link = await _db.ExternalIdentityProviders.Include(item => item.User)
-            .FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == identity.Subject && item.IsActive, ct);
+        var providerKey = ProviderKey(provider);
+        var existing = await _db.ExternalIdentityProviders.Include(item => item.User)
+            .FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == identity.Subject, ct);
+        var link = existing is { IsActive: true } ? existing : null;
         ApplicationUser? user = link?.User;
         if (user is null)
         {
@@ -254,7 +258,16 @@ public sealed partial class FederationService : IFederationService
                 if (!created.Succeeded) return OperationResult<ApplicationUser>.Failure("JIT_PROVISIONING_FAILED", string.Join("; ", created.Errors.Select(item => item.Description)));
                 await _audit.LogAsync("FEDERATION_USER_JIT_PROVISIONED", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), ct: ct);
             }
-            _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = user.Id, Provider = providerKey, ProviderUserId = identity.Subject, Email = identity.Email, DisplayName = identity.Name, LinkedAt = _clock.UtcNow, LastUsedAt = _clock.UtcNow, IsActive = true });
+            // An identity the user unlinked earlier keeps its row (the pair is unique): link it again.
+            if (existing is not null)
+            {
+                existing.UserId = user.Id; existing.Email = identity.Email; existing.DisplayName = identity.Name;
+                existing.LinkedAt = _clock.UtcNow; existing.LastUsedAt = _clock.UtcNow; existing.IsActive = true;
+            }
+            else
+            {
+                _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = user.Id, Provider = providerKey, ProviderUserId = identity.Subject, Email = identity.Email, DisplayName = identity.Name, LinkedAt = _clock.UtcNow, LastUsedAt = _clock.UtcNow, IsActive = true });
+            }
         }
         else link!.LastUsedAt = _clock.UtcNow;
 
@@ -278,6 +291,44 @@ public sealed partial class FederationService : IFederationService
         await _db.SaveChangesAsync(ct);
         return OperationResult<ApplicationUser>.Success(user);
     }
+
+    /// <summary>
+    /// Links an upstream identity to an existing account at that account's request (portal). The
+    /// identity must not belong to another account; a previously unlinked row is reused. The
+    /// account's owner is told by email, since a new way to sign in was added.
+    /// </summary>
+    private async Task<OperationResult<FederationProviderSummary>> LinkIdentityAsync(Guid providerId, Guid userId, string subject, string email, string name, FederationCaller caller, CancellationToken ct)
+    {
+        var provider = await _db.FederationProviders.AsNoTracking().Include(item => item.ApplicationSystem).FirstOrDefaultAsync(item => item.Id == providerId && item.IsActive, ct);
+        if (provider is null)
+            return OperationResult<FederationProviderSummary>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "The identity provider is no longer available.");
+        var user = await _users.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
+            return OperationResult<FederationProviderSummary>.Failure("USER_INACTIVE", "User account is inactive.");
+        var providerKey = ProviderKey(provider);
+        var existing = await _db.ExternalIdentityProviders.FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == subject, ct);
+        if (existing is { IsActive: true } && existing.UserId != userId)
+        {
+            await _audit.LogAsync("FEDERATION_LINK_REJECTED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), caller.IpAddress, caller.UserAgent, new { reason = "IdentityInUse" }, ct);
+            return OperationResult<FederationProviderSummary>.Failure("FEDERATION_IDENTITY_IN_USE", "This identity is already linked to another account.");
+        }
+        if (existing is null)
+        {
+            _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = userId, Provider = providerKey, ProviderUserId = subject, Email = email, DisplayName = name, LinkedAt = _clock.UtcNow, IsActive = true });
+        }
+        else
+        {
+            existing.UserId = userId; existing.Email = email; existing.DisplayName = name;
+            existing.LinkedAt = _clock.UtcNow; existing.IsActive = true;
+        }
+        await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("FEDERATION_IDENTITY_LINKED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), caller.IpAddress, caller.UserAgent, ct: ct);
+        await _email.SendSecurityNoticeAsync(user.Email!, user.FullName, "Identity provider linked",
+            $"You can now sign in with {provider.Name}. If this was not you, unlink it from your account portal and change your password.", ct);
+        return OperationResult<FederationProviderSummary>.Success(new FederationProviderSummary { Id = provider.Id, Name = provider.Name, Protocol = provider.Protocol.ToString() });
+    }
+
+    private static string ProviderKey(FederationProvider provider) => $"Federation:{provider.Id:N}";
 
     /// <summary>
     /// The provider is authoritative for its mapped groups: memberships follow the upstream values

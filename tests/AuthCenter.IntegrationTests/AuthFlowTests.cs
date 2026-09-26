@@ -596,11 +596,7 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         return body.Data;
     }
 
-    private static string ComputeTotp(string secretBase32)
-    {
-        var totp = new Totp(Base32Encoding.ToBytes(secretBase32));
-        return totp.ComputeTotp(DateTime.UtcNow);
-    }
+    private static string ComputeTotp(string secretBase32) => TestTotp.Code(secretBase32);
 
     private async Task<(Guid UserId, Guid ApplicationId)> CreateUserWithApplicationAccessAsync(
         string email,

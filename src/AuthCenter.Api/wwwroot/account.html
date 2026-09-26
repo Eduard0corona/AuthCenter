@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="referrer" content="no-referrer">
+  <title>Tu cuenta · AuthCenter</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script type="module" src="/assets/account.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <main id="main" class="auth-shell">
+    <section class="auth-panel" aria-labelledby="page-title">
+      <div class="brand">
+        <img id="brand-logo" alt="" hidden>
+        <div>
+          <strong id="brand-name">AuthCenter</strong>
+          <div class="muted">Identidad segura para tus aplicaciones</div>
+        </div>
+      </div>
+      <div>
+        <h1 id="page-title">Tu cuenta</h1>
+        <p id="page-subtitle" class="muted"></p>
+      </div>
+
+      <form id="password-form" class="stack" novalidate hidden method="post">
+        <label>Correo electrónico <input id="account-email" type="email" autocomplete="username" readonly></label>
+        <label>Nueva contraseña <input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label>Confirmar contraseña <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button id="password-submit" type="submit">Guardar contraseña</button>
+      </form>
+
+      <form id="confirm-form" class="stack" novalidate hidden method="post">
+        <p id="confirm-detail"></p>
+        <button id="confirm-submit" type="submit">Confirmar</button>
+      </form>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p id="next" hidden><a id="next-link" class="button" href="/login">Iniciar sesión</a></p>
+      <nav id="legal" class="actions" aria-label="Enlaces legales"></nav>
+    </section>
+    <aside class="auth-hero" aria-label="Información de seguridad">
+      <div><p class="badge">Passwordless · MFA · OIDC · SAML</p><h2>Una identidad, controles consistentes.</h2><p>Los enlaces que te enviamos caducan pronto y sólo funcionan una vez.</p></div>
+    </aside>
+  </main>
+</body>
+</html>

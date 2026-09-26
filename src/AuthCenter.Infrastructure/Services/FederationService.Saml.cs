@@ -130,8 +130,8 @@ public sealed partial class FederationService
             return new FederationCompletion(await StoreResultAsync(transaction, outcome, ct), null);
         if (!outcome.IsSuccess)
             return new FederationCompletion(null, OperationResult<Contracts.Responses.Auth.AuthResponse>.Failure(outcome.ErrorCode!, outcome.Message!));
-        var (user, provider, authentication) = outcome.Data!;
-        return new FederationCompletion(null, await _auth.CompleteFederatedSignInAsync(user.Id, provider.ApplicationSystem.Code, authentication, ipAddress, userAgent, ct));
+        var (user, provider, authentication, _) = outcome.Data!;
+        return new FederationCompletion(null, await _auth.CompleteFederatedSignInAsync(user!.Id, provider.ApplicationSystem.Code, authentication, ipAddress, userAgent, ct));
     }
 
     public async Task<OperationResult<string>> GetSamlMetadataAsync(Guid providerId, CancellationToken ct = default)
@@ -166,7 +166,7 @@ public sealed partial class FederationService
             return OperationResult<FederatedAuthentication>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "SAML provider or signing certificate is unavailable.");
         var identity = await ReadSamlIdentityAsync(provider, remoteCertificate!, transaction.RequestId!, samlResponse, ct);
         return identity.IsSuccess
-            ? await AuthenticateUpstreamIdentityAsync(provider, identity.Data!, "SAML2", ipAddress, userAgent, ct)
+            ? await AuthenticateUpstreamIdentityAsync(provider, identity.Data!, transaction, "SAML2", ipAddress, userAgent, ct)
             : await FailAsync(provider, identity.ErrorCode!, identity.Message!, "SAML2", ipAddress, userAgent, ct);
     }
 

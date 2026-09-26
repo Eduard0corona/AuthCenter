@@ -12,6 +12,7 @@ public class OAuthInteractionContextResponse
     public string? LoginHint { get; init; }
     public bool RequiresFreshLogin { get; init; }
     public bool AllowPasswordLogin { get; init; }
+    public bool AllowMagicLink { get; init; }
 
     /// <summary>The application has active federation providers, so the login offers home realm discovery.</summary>
     public bool FederationAvailable { get; init; }

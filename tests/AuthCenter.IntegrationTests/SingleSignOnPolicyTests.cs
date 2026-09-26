@@ -57,7 +57,7 @@ public sealed class SingleSignOnPolicyTests : IClassFixture<HttpsAuthCenterFacto
         var verified = await PostAsync(browser, csrf, "/ui-api/session/mfa", new VerifyMfaRequest
         {
             MfaPendingToken = stepUp.GetProperty("mfaPendingToken").GetString()!,
-            TotpCode = new Totp(Base32Encoding.ToBytes(secret)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(secret)
         });
         csrf = (await ReadDataAsync(verified)).GetProperty("csrfToken").GetString()!;
         var complete = await CompleteAsync(browser, csrf, interactionId);
@@ -76,7 +76,7 @@ public sealed class SingleSignOnPolicyTests : IClassFixture<HttpsAuthCenterFacto
     }
 
     [Fact]
-    public async Task ApplicationRequiringMfa_ForAUserWithoutMfa_AsksToEnrollInsteadOfIssuingACode()
+    public async Task ApplicationRequiringMfa_ForAUserWithoutMfa_EnrollsInPlaceAndCompletesTheRequest()
     {
         using var admin = await CreateAdminClientAsync();
         var application = await CreateApplicationAsync(admin, requireMfa: true);
@@ -85,11 +85,34 @@ public sealed class SingleSignOnPolicyTests : IClassFixture<HttpsAuthCenterFacto
         using var browser = CreateBrowser();
         var csrf = await SignInAsync(browser, email, password);
 
-        var interactionId = InteractionId(await browser.GetAsync(AuthorizeUrl(targetClient).Url));
-        var stepUp = await PostAsync(browser, csrf, $"/oauth/interactions/{interactionId}/step-up", null);
+        var (url, verifier) = AuthorizeUrl(targetClient);
+        var interactionId = InteractionId(await browser.GetAsync(url));
+        var stepUp = await ReadDataAsync(await PostAsync(browser, csrf, $"/oauth/interactions/{interactionId}/step-up", null));
 
-        Assert.Equal(HttpStatusCode.BadRequest, stepUp.StatusCode);
-        Assert.Equal("MFA_SETUP_REQUIRED", (await stepUp.Content.ReadFromJsonAsync<ApiResponse<object>>())!.ErrorCode);
+        // No code is issued: the hosted login enrolls the authenticator with a single-use token.
+        Assert.True(stepUp.GetProperty("requiresMfaEnrollment").GetBoolean());
+        Assert.False(stepUp.TryGetProperty("mfaPendingToken", out _));
+        var enrollmentToken = stepUp.GetProperty("enrollmentToken").GetString()!;
+        var setup = await ReadDataAsync(await PostAsync(browser, csrf, "/ui-api/session/mfa/enrollment/start", new TotpEnrollmentRequest { EnrollmentToken = enrollmentToken }));
+        var secret = setup.GetProperty("secretBase32").GetString()!;
+        var wrong = await PostAsync(browser, csrf, "/ui-api/session/mfa/enrollment/complete", new TotpEnrollmentRequest { EnrollmentToken = enrollmentToken, TotpCode = "000000" });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        var enrolled = await ReadDataAsync(await PostAsync(browser, csrf, "/ui-api/session/mfa/enrollment/complete", new TotpEnrollmentRequest
+        {
+            EnrollmentToken = enrollmentToken,
+            TotpCode = TestTotp.Code(secret)
+        }));
+        Assert.Equal(8, enrolled.GetProperty("backupCodes").GetArrayLength());
+        csrf = enrolled.GetProperty("csrfToken").GetString()!;
+
+        var complete = await CompleteAsync(browser, csrf, interactionId);
+        var redirectUrl = (await ReadDataAsync(complete)).GetProperty("redirectUrl").GetString()!;
+        var tokens = await ExchangeAsync(targetClient, QueryHelpers.ParseQuery(new Uri(redirectUrl).Query)["code"].ToString(), verifier);
+        var idToken = new JwtSecurityTokenHandler().ReadJwtToken(tokens.GetProperty("id_token").GetString());
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.MultiFactor, Claim(idToken, "acr"));
+        // The enrollment token was spent with the enrollment.
+        var replay = await PostAsync(browser, csrf, "/ui-api/session/mfa/enrollment/start", new TotpEnrollmentRequest { EnrollmentToken = enrollmentToken });
+        Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
     }
 
     [Fact]
@@ -375,7 +398,7 @@ public sealed class SingleSignOnPolicyTests : IClassFixture<HttpsAuthCenterFacto
         var setup = (await (await client.PostAsync("/api/auth/mfa/setup", null)).Content.ReadFromJsonAsync<ApiResponse<MfaSetupResponse>>())!.Data!;
         var enable = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest
         {
-            TotpCode = new Totp(Base32Encoding.ToBytes(setup.SecretBase32)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(setup.SecretBase32)
         });
         enable.EnsureSuccessStatusCode();
         return setup.SecretBase32;

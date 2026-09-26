@@ -20,7 +20,7 @@ public sealed class ReauthenticationService : IReauthenticationService
     private const string ProofPurpose = "reauthentication_proof";
     private static readonly HashSet<string> AllowedPurposes = new(StringComparer.Ordinal)
     {
-        "account.change-email", "account.change-password", "account.delete",
+        "account.change-email", "account.change-password", "account.delete", "account.link-provider",
         "factor.enroll", "factor.change", "passkey.manage", "session.revoke-all",
         "admin.mfa.reset", "admin.user.delete",
         "admin.oauth-client.rotate-secret", "admin.oauth-client.deactivate", "admin.oauth-client.activate",

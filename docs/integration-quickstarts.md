@@ -45,7 +45,14 @@ En la consola (`/admin-v2/oauth-clients`) o con `POST /api/oauth/clients`:
 
 El `LoginUrl` debe ser el login hospedado de AuthCenter: `/oauth/authorize` lo usa cuando no hay
 una sesión SSO válida y el login aplica la marca, las políticas y el MFA de la aplicación del
-cliente.
+cliente. El login hospedado ofrece contraseña, passkeys, enlace de acceso por correo, recuperación
+de contraseña, federación y segundo factor; si la aplicación exige un factor que el usuario no
+tiene, lo inscribe en el mismo flujo (app de autenticación con QR y códigos de respaldo, o passkey)
+y la solicitud continúa. Para que los correos de AuthCenter (restablecer contraseña, invitación,
+confirmación y cambio de correo, enlace de acceso) abran las páginas hospedadas, configura
+`ActionLinks:DefaultBaseUrl` (o `ActionLinks:ApplicationBaseUrls:<código>`) con el origen público
+de AuthCenter. El portal de cuenta (`/portal`) permite al usuario gestionar contraseña, MFA,
+passkeys, sesiones, aplicaciones y proveedores vinculados.
 
 ## BFF .NET
 

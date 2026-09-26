@@ -172,12 +172,15 @@ git-ignored and its values are for local use only.
 | `RateLimiting:DistributedEnabled` | Shares the counters of every instance in SQL Server instead of memory |
 | `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client; federation discovery 30/min per address and 10/min per email, federation start and completion 20/min per address |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
-| `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
+| `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup, creating the database if it does not exist (default: on only in Development). Instances starting together serialize on a SQL Server application lock |
 | `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |
 | `Database:SeedOnStartup` | Seed the `AUTHCENTER` application, roles, permissions, and admin user at startup (default: on only in Development) |
 | `Seed:AdminEmail` | Initial admin user email |
 | `Seed:AdminPassword` | Initial admin user password |
 | `Seed:AdminFullName` | Initial admin user full name |
+| `ActionLinks:DefaultBaseUrl` | Origin the links in AuthCenter's emails point to (password reset, invitation, email confirmation and change, magic link). Point it at AuthCenter's public origin to use the hosted pages, or at an application that hosts its own |
+| `ActionLinks:ApplicationBaseUrls:{code}` | Per-application origin for those links. The paths are `ActionLinks:*Path` (defaults `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link`, the hosted pages) |
+| `Email:DevelopmentPickupDirectory` | Development and tests only: write each email as a JSON file in this directory instead of sending it. Startup fails if it is set in any other environment |
 
 The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, invalid, or still uses a placeholder. Outside `Development` and `Testing`, it also fails when:
 
@@ -252,8 +255,9 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 
 | Route | Purpose |
 |---|---|
-| `/login` | Hosted password, MFA, passkey, enterprise federation and OAuth consent flow with application branding |
-| `/portal` | Self-service sessions, trusted devices, passkeys, linked identities and consent grants |
+| `/login` | Hosted sign-in with application branding: password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); OAuth consent and step-up; an authorization request that expires tells the user to go back to the application |
+| `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications, linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
+| `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link` | Pages the links in AuthCenter's emails open when `ActionLinks` point at AuthCenter. The single-use token leaves the address bar at once, the pages send no referrer and each action needs a click |
 | `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
 | `/admin-v2/` | React administrative console under progressive migration |
 
@@ -282,7 +286,8 @@ SDKs and executable integration examples live under `sdk/` and `samples/`. See
 | POST | `/api/auth/resend-email-confirmation` | Resend email confirmation |
 | POST | `/api/auth/forgot-password` | Send password reset token |
 | POST | `/api/auth/reset-password` | Reset password or accept invitation |
-| POST | `/api/auth/change-password` | Change the current user's password |
+| POST | `/api/auth/change-password` | Change the current user's password (the owner is told by email) |
+| GET | `/api/auth/applications` | Applications the current user can use, directly or through groups |
 | POST | `/api/auth/forced-change-password` | Complete a forced password change |
 
 ### Social and passwordless login
@@ -304,8 +309,18 @@ SDKs and executable integration examples live under `sdk/` and `samples/`. See
 | GET | `/api/auth/mfa/status` | Current MFA status |
 | POST | `/api/auth/mfa/setup` | Start TOTP enrollment (returns QR payload) |
 | POST | `/api/auth/mfa/enable` | Confirm and enable TOTP |
-| DELETE | `/api/auth/mfa` | Disable MFA |
-| POST | `/api/auth/mfa/verify` | Complete a login pending MFA |
+| DELETE | `/api/auth/mfa` | Disable MFA with an authenticator, backup or (email factor) emailed code |
+| POST | `/api/auth/mfa/verify` | Complete a login pending MFA (up to 5 attempts per pending sign-in) |
+| POST | `/api/auth/mfa/backup-codes` | Regenerate backup codes |
+| POST | `/api/auth/mfa/email-otp/setup` | Start email OTP enrollment |
+| POST | `/api/auth/mfa/email-otp/enable` | Confirm and enable email OTP |
+| POST | `/api/auth/mfa/email-otp/send` | Send an email OTP for a pending login |
+| POST | `/api/auth/mfa/email-otp/verification` | Email a code that confirms managing an enabled email factor (disabling it) |
+
+Each authenticator code is accepted once: the time step it matched cannot be used again, so an
+observed code cannot be replayed. When an application requires a factor the user has not set up,
+sign-in answers `MFA_SETUP_REQUIRED` (or `PASSKEY_ENROLLMENT_REQUIRED`): the hosted login receives
+a single-use enrollment token to set it up in place, JSON clients a fixed message.
 
 ### Passkeys / WebAuthn
 
@@ -335,10 +350,6 @@ Cross-origin browser calls must use credentials mode so the protected ceremony c
 CORS credentials are enabled only for explicitly configured origins. A completed assertion is
 treated as phishing-resistant MFA by application access policies, and its signature counter is
 persisted before tokens are issued.
-| POST | `/api/auth/mfa/backup-codes` | Regenerate backup codes |
-| POST | `/api/auth/mfa/email-otp/setup` | Start email OTP enrollment |
-| POST | `/api/auth/mfa/email-otp/enable` | Confirm and enable email OTP |
-| POST | `/api/auth/mfa/email-otp/send` | Send an email OTP for a pending login |
 
 ### Sessions, devices, and account
 
@@ -350,8 +361,8 @@ persisted before tokens are issued.
 | GET | `/api/auth/trusted-devices` | List trusted devices |
 | DELETE | `/api/auth/trusted-devices/{deviceId}` | Remove one trusted device |
 | DELETE | `/api/auth/trusted-devices` | Remove every trusted device |
-| POST | `/api/auth/email-change/request` | Request an email change |
-| POST | `/api/auth/email-change/confirm` | Confirm an email change |
+| POST | `/api/auth/email-change/request` | Request an email change (the current address is warned; the link names the account) |
+| POST | `/api/auth/email-change/confirm` | Confirm an email change (the previous address is told) |
 | DELETE | `/api/auth/account` | Delete the current user's account |
 
 ### OAuth 2.0 / OpenID Connect provider
@@ -616,6 +627,15 @@ its mapped groups, so each sign-in adds and removes those memberships (other gro
 and a change closes the user's existing sessions. When Entra ID moves the groups out of the token
 (overage), memberships are left as they are.
 
+**Linking from the portal.** `GET /ui-api/session/federation/linkable` lists the active providers
+of the user's applications. `POST /ui-api/session/federation/start` with `link: true` (from a
+signed-in browser, with a single-use `account.link-provider` reauthentication proof) signs in at the
+provider and returns to the portal with a single-use result that
+`POST /ui-api/session/federation/link` redeems: the upstream identity is linked to that account
+(never matched by email), only from the same browser and while the same account is signed in, and
+only if it is not linked to another account. The owner is told by email. An identity unlinked
+earlier is linked again on its row, since the pair (provider, subject) is unique.
+
 The JSON API (`/api/federation/oidc/begin|complete`, `/api/federation/saml/begin`) remains for
 integrations that host their own callback; it runs the same access policy and MFA gate and answers
 `mfaPendingToken` when a second factor is needed.
@@ -718,7 +738,16 @@ The `AUTHCENTER` application is seeded automatically with:
 
 ```bash
 dotnet test
+# Hosted pages: unit tests, then the end-to-end suite against the Release API, SQL Server and Chromium
+cd tests/AuthCenter.HostedUi.Tests && npm ci && npm test
+AUTHCENTER_RELATIONAL_TEST_CONNECTION="Server=localhost,1433;User Id=sa;Password=...;TrustServerCertificate=true" npx playwright test
 ```
+
+The end-to-end suite builds nothing: run `dotnet build -c Release` first. It starts the API in
+Development on `http://localhost:5071` with a new database, an RSA key generated for the run, rate
+limiting off and emails written to a pickup directory, and drives the login, the portal and the
+emailed-link pages with a virtual WebAuthn authenticator (`HOSTED_UI_CHROMIUM` can point at a
+local Chromium). The same variable runs the SQL Server integration tests of `dotnet test`.
 
 ## Repository Notes
 

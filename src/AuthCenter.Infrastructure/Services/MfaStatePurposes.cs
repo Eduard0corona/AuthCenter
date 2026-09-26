@@ -11,4 +11,7 @@ public static class MfaStatePurposes
 
     /// <summary>Code sent to complete a pending sign-in. Keyed by the pending token's jti.</summary>
     public const string EmailOtpVerify = "emailotp_verify";
+
+    /// <summary>A TOTP time step already accepted for a user. Keyed by user id and step.</summary>
+    public const string TotpStepUsed = "totp_step_used";
 }

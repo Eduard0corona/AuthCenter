@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
@@ -19,6 +20,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -318,6 +321,22 @@ try
         var lockAcquired = false;
         if (db.Database.IsRelational())
         {
+            // The bootstrap lock lives in the application's database, so a first start creates the
+            // (empty) database before taking it; the migrations then build the schema.
+            if (migrateOnStartup)
+            {
+                var creator = db.GetService<IRelationalDatabaseCreator>();
+                if (!await creator.ExistsAsync())
+                {
+                    try { await creator.CreateAsync(); }
+                    catch (DbException)
+                    {
+                        // Another instance may have created it first.
+                        if (!await creator.ExistsAsync()) throw;
+                    }
+                }
+            }
+
             await db.Database.OpenConnectionAsync();
             await using var acquireCommand = db.Database.GetDbConnection().CreateCommand();
             acquireCommand.CommandText = "DECLARE @result int; EXEC @result = sp_getapplock @Resource = 'AuthCenter.DatabaseBootstrap', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 60000; SELECT @result;";
@@ -366,11 +385,14 @@ try
 
     app.Use(async (ctx, next) =>
     {
+        // Emailed links carry single-use tokens in the query: they must never leak as a referrer.
+        var tokenPage = HostedPages.ActionPaths.Any(path => ctx.Request.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
         ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
         ctx.Response.Headers.Append("X-Frame-Options", "DENY");
-        ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+        ctx.Response.Headers.Append("Referrer-Policy", tokenPage ? "no-referrer" : "strict-origin-when-cross-origin");
         ctx.Response.Headers.Append("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
-        if (ctx.Request.Path.StartsWithSegments("/login") ||
+        if (tokenPage ||
+            ctx.Request.Path.StartsWithSegments("/login") ||
             ctx.Request.Path.Equals("/login.html") ||
             ctx.Request.Path.Equals("/logout") ||
             ctx.Request.Path.Equals("/logout.html") ||
@@ -464,6 +486,16 @@ try
     app.MapGet("/portal", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "portal.html"),
         "text/html; charset=utf-8"));
+    // Pages that emailed links open when ActionLinks points at AuthCenter itself.
+    foreach (var path in HostedPages.ActionPaths)
+    {
+        var page = path == HostedPages.MagicLinkPath ? "login.html" : "account.html";
+        app.MapGet(path, (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.File(Path.Combine(app.Environment.WebRootPath, page), "text/html; charset=utf-8");
+        });
+    }
     app.MapGet("/admin", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "admin.html"),
         "text/html; charset=utf-8"));
@@ -541,6 +573,9 @@ public partial class Program
         {
             throw new InvalidOperationException("Authentication:Google:ClientId must not use the placeholder value outside Development.");
         }
+
+        if (!string.IsNullOrWhiteSpace(configuration["Email:DevelopmentPickupDirectory"]))
+            throw new InvalidOperationException("Email:DevelopmentPickupDirectory is only allowed in Development and automated tests.");
 
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         if (allowedOrigins.Length == 0)

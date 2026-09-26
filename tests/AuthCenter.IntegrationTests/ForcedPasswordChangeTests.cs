@@ -93,7 +93,7 @@ public sealed class ForcedPasswordChangeTests : IClassFixture<AuthCenterWebAppli
         var verify = await client.PostAsJsonAsync("/api/auth/mfa/verify", new VerifyMfaRequest
         {
             MfaPendingToken = mfaPending.MfaPendingToken,
-            TotpCode = new Totp(Base32Encoding.ToBytes(secret)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(secret)
         });
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
         var auth = await verify.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
@@ -152,7 +152,7 @@ public sealed class ForcedPasswordChangeTests : IClassFixture<AuthCenterWebAppli
         var setup = (await (await client.PostAsync("/api/auth/mfa/setup", null)).Content.ReadFromJsonAsync<ApiResponse<MfaSetupResponse>>())!.Data!;
         var enable = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest
         {
-            TotpCode = new Totp(Base32Encoding.ToBytes(setup.SecretBase32)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(setup.SecretBase32)
         });
         enable.EnsureSuccessStatusCode();
         return setup.SecretBase32;

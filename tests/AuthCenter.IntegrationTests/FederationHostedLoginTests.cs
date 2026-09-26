@@ -133,7 +133,7 @@ public sealed class FederationHostedLoginTests : IClassFixture<FederationAuthCen
         var verified = await PostAsync(browser, "/ui-api/session/mfa", new VerifyMfaRequest
         {
             MfaPendingToken = pending.GetProperty("mfaPendingToken").GetString()!,
-            TotpCode = new Totp(Base32Encoding.ToBytes(secret)).ComputeTotp(DateTime.UtcNow)
+            TotpCode = TestTotp.Code(secret)
         });
         Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/ui-api/session")).StatusCode);
@@ -427,6 +427,160 @@ public sealed class FederationHostedLoginTests : IClassFixture<FederationAuthCen
         Assert.False(completed.TryGetProperty("accessToken", out _));
     }
 
+    [Fact]
+    public async Task PortalLink_AddsTheOrganizationIdentityToTheSignedInAccount()
+    {
+        var idp = _factory.IdentityProviders.CreateOidc();
+        var provider = await CreateOidcProviderAsync(idp);
+        var (email, password) = await CreateLocalUserAsync();
+        using var browser = CreateBrowser();
+        var csrf = await SignInAsync(browser, email, password);
+
+        var linkable = await ReadDataAsync(await browser.GetAsync("/ui-api/session/federation/linkable"));
+        Assert.Contains(linkable.EnumerateArray(), item => item.GetProperty("id").GetGuid() == provider.Id && !item.GetProperty("linked").GetBoolean());
+
+        // A link adds a way to sign in, so it needs a fresh proof of the account's owner.
+        var linkRequest = new { providerId = provider.Id, applicationCode = DomainConstants.SystemCodes.AuthCenter, returnUrl = "/portal#providers", link = true };
+        var withoutProof = await PostAsync(browser, "/ui-api/session/federation/start", linkRequest, csrf);
+        Assert.Equal(HttpStatusCode.Forbidden, withoutProof.StatusCode);
+        Assert.Equal("REAUTHENTICATION_REQUIRED", await ErrorCodeAsync(withoutProof));
+
+        var start = await StartLinkAsync(browser, csrf, password, linkRequest);
+        var subject = Guid.NewGuid().ToString("N");
+        // The upstream email differs from the account's: a link is explicit, never matched by email.
+        var callback = await browser.GetAsync(PathAndQuery(idp.SignIn(start, new FakeUpstreamUser(subject, $"corp-{Guid.NewGuid():N}@contoso.test"))));
+        Assert.Equal(HttpStatusCode.SeeOther, callback.StatusCode);
+        Assert.StartsWith("/portal?federation_link=", callback.Headers.Location!.OriginalString, StringComparison.Ordinal);
+        Assert.EndsWith("#providers", callback.Headers.Location.OriginalString, StringComparison.Ordinal);
+        var handle = LocationQuery(callback)["federation_link"].ToString().Split('#')[0];
+
+        // A link result never signs anybody in.
+        var asSignIn = await PostAsync(browser, "/ui-api/session/federation/complete", new { handle }, csrf);
+        Assert.Equal("FEDERATION_RESULT_INVALID", await ErrorCodeAsync(asSignIn));
+        var linked = await ReadDataAsync(await PostAsync(browser, "/ui-api/session/federation/link", new { handle }, csrf));
+        Assert.Equal(provider.Id, linked.GetProperty("id").GetGuid());
+        var replay = await PostAsync(browser, "/ui-api/session/federation/link", new { handle }, csrf);
+        Assert.Equal("FEDERATION_RESULT_INVALID", await ErrorCodeAsync(replay));
+
+        var providers = await ReadDataAsync(await browser.GetAsync("/api/auth/external-providers"));
+        Assert.Contains(providers.EnumerateArray(), item => item.GetProperty("providerName").GetString() == provider.Name && item.GetProperty("enterprise").GetBoolean());
+        linkable = await ReadDataAsync(await browser.GetAsync("/ui-api/session/federation/linkable"));
+        Assert.Contains(linkable.EnumerateArray(), item => item.GetProperty("id").GetGuid() == provider.Id && item.GetProperty("linked").GetBoolean());
+
+        // The organization identity now signs in to this account.
+        using var other = CreateBrowser();
+        var signInHandle = await FederateDirectlyAsync(other, provider, idp, new FakeUpstreamUser(subject, $"corp-{Guid.NewGuid():N}@contoso.test"));
+        var session = await ReadDataAsync(await PostAsync(other, "/ui-api/session/federation/complete", new { handle = signInHandle }));
+        Assert.Equal(email, session.GetProperty("user").GetProperty("email").GetString());
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        Assert.True(await db.AuditLogs.AnyAsync(log => log.Action == "FEDERATION_IDENTITY_LINKED" && log.EntityId == provider.Id.ToString()));
+        Assert.Contains(await OutboxMail.ReadAsync(scope.ServiceProvider), mail => mail.Kind == "security-notice" && mail.ToEmail == email);
+    }
+
+    [Fact]
+    public async Task PortalLink_RedeemedWhileAnotherAccountIsSignedIn_IsRejected()
+    {
+        var idp = _factory.IdentityProviders.CreateOidc();
+        var provider = await CreateOidcProviderAsync(idp);
+        var (email, password) = await CreateLocalUserAsync();
+        var (otherEmail, otherPassword) = await CreateLocalUserAsync();
+        using var browser = CreateBrowser();
+        var csrf = await SignInAsync(browser, email, password);
+        var start = await StartLinkAsync(browser, csrf, password, new { providerId = provider.Id, applicationCode = DomainConstants.SystemCodes.AuthCenter, link = true });
+        var handle = LocationQuery(await browser.GetAsync(PathAndQuery(idp.SignIn(start, new FakeUpstreamUser(Guid.NewGuid().ToString("N"), "someone@contoso.test")))))["federation_link"].ToString();
+
+        // Another account signs in on the same browser before the result is redeemed.
+        var otherCsrf = await SignInAsync(browser, otherEmail, otherPassword, csrf);
+        var redeemed = await PostAsync(browser, "/ui-api/session/federation/link", new { handle }, otherCsrf);
+
+        Assert.Equal(HttpStatusCode.BadRequest, redeemed.StatusCode);
+        Assert.Equal("FEDERATION_LINK_USER_MISMATCH", await ErrorCodeAsync(redeemed));
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        Assert.False(await db.ExternalIdentityProviders.AnyAsync(item => item.Provider == $"Federation:{provider.Id:N}"));
+    }
+
+    [Fact]
+    public async Task PortalLink_OfAnIdentityLinkedToAnotherAccount_IsRejected()
+    {
+        var idp = _factory.IdentityProviders.CreateOidc();
+        var provider = await CreateOidcProviderAsync(idp);
+        var subject = Guid.NewGuid().ToString("N");
+        // A first sign-in provisions an account for the upstream identity.
+        using (var first = CreateBrowser())
+        {
+            var handle = await FederateDirectlyAsync(first, provider, idp, new FakeUpstreamUser(subject, $"jit-{Guid.NewGuid():N}@contoso.test"));
+            Assert.Equal(HttpStatusCode.OK, (await PostAsync(first, "/ui-api/session/federation/complete", new { handle })).StatusCode);
+        }
+        var (email, password) = await CreateLocalUserAsync();
+        using var browser = CreateBrowser();
+        var csrf = await SignInAsync(browser, email, password);
+        var start = await StartLinkAsync(browser, csrf, password, new { providerId = provider.Id, applicationCode = DomainConstants.SystemCodes.AuthCenter, link = true });
+        var linkHandle = LocationQuery(await browser.GetAsync(PathAndQuery(idp.SignIn(start, new FakeUpstreamUser(subject, "jit@contoso.test")))))["federation_link"].ToString();
+
+        var redeemed = await PostAsync(browser, "/ui-api/session/federation/link", new { handle = linkHandle }, csrf);
+
+        Assert.Equal("FEDERATION_IDENTITY_IN_USE", await ErrorCodeAsync(redeemed));
+    }
+
+    [Fact]
+    public async Task UnlinkedIdentity_SignsInAgain_ByReusingItsLink()
+    {
+        var idp = _factory.IdentityProviders.CreateOidc();
+        var provider = await CreateOidcProviderAsync(idp);
+        var (email, password) = await CreateLocalUserAsync();
+        var subject = Guid.NewGuid().ToString("N");
+        // The verified email links the upstream identity to the local account.
+        using (var first = CreateBrowser())
+        {
+            var handle = await FederateDirectlyAsync(first, provider, idp, new FakeUpstreamUser(subject, email));
+            Assert.Equal(HttpStatusCode.OK, (await PostAsync(first, "/ui-api/session/federation/complete", new { handle })).StatusCode);
+        }
+        using var browser = CreateBrowser();
+        var csrf = await SignInAsync(browser, email, password);
+        var link = (await ReadDataAsync(await browser.GetAsync("/api/auth/external-providers"))).EnumerateArray().Single();
+        using (var unlink = new HttpRequestMessage(HttpMethod.Delete, $"/api/auth/external-providers/{link.GetProperty("id").GetGuid()}"))
+        {
+            unlink.Headers.Add("X-AuthCenter-CSRF", csrf);
+            Assert.Equal(HttpStatusCode.OK, (await browser.SendAsync(unlink)).StatusCode);
+        }
+
+        // The pair (provider, subject) is unique: signing in again reactivates the same link.
+        using var again = CreateBrowser();
+        var againHandle = await FederateDirectlyAsync(again, provider, idp, new FakeUpstreamUser(subject, email));
+        var session = await ReadDataAsync(await PostAsync(again, "/ui-api/session/federation/complete", new { handle = againHandle }));
+        Assert.Equal(email, session.GetProperty("user").GetProperty("email").GetString());
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var rows = await db.ExternalIdentityProviders.AsNoTracking().Where(item => item.Provider == $"Federation:{provider.Id:N}" && item.ProviderUserId == subject).ToListAsync();
+        Assert.True(Assert.Single(rows).IsActive);
+    }
+
+    private async Task<string> StartLinkAsync(HttpClient browser, string csrf, string password, object request)
+    {
+        var proof = await ReadDataAsync(await PostAsync(browser, "/api/auth/reauth/password", new PasswordReauthenticationRequest { Password = password, Purpose = "account.link-provider" }, csrf));
+        using var start = new HttpRequestMessage(HttpMethod.Post, "/ui-api/session/federation/start") { Content = JsonContent.Create(request) };
+        start.Headers.Add("X-AuthCenter-CSRF", csrf);
+        start.Headers.Add("X-AuthCenter-Reauthentication", proof.GetProperty("proofToken").GetString());
+        return (await ReadDataAsync(await browser.SendAsync(start))).GetProperty("redirectUrl").GetString()!;
+    }
+
+    private static async Task<string> SignInAsync(HttpClient browser, string email, string password, string? csrf = null)
+    {
+        var login = await PostAsync(browser, "/ui-api/session/login", new LoginRequest { Email = email, Password = password, ApplicationCode = DomainConstants.SystemCodes.AuthCenter }, csrf);
+        return (await ReadDataAsync(login)).GetProperty("csrfToken").GetString()!;
+    }
+
+    private async Task<(string Email, string Password)> CreateLocalUserAsync()
+    {
+        var email = $"local-{Guid.NewGuid():N}@example.test";
+        var password = TestSecretGenerator.CreatePassword();
+        await CreateLocalUserAsync(email, password);
+        return (email, password);
+    }
+
     private async Task<FederationProviderDto> CreateOidcProviderAsync(
         FakeOidcProvider idp,
         string? issuer = null,
@@ -632,7 +786,7 @@ public sealed class FederationHostedLoginTests : IClassFixture<FederationAuthCen
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
         await client.AddReauthenticationProofAsync(password, "factor.enroll");
         var setup = await ReadAsync<MfaSetupResponse>(await client.PostAsync("/api/auth/mfa/setup", null));
-        var enable = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest { TotpCode = new Totp(Base32Encoding.ToBytes(setup.SecretBase32)).ComputeTotp(DateTime.UtcNow) });
+        var enable = await client.PostAsJsonAsync("/api/auth/mfa/enable", new EnableMfaRequest { TotpCode = TestTotp.Code(setup.SecretBase32) });
         enable.EnsureSuccessStatusCode();
         return setup.SecretBase32;
     }
