@@ -42,23 +42,24 @@ test("filters users by pending access and application, and keeps a deep-linked p
   await expect(page).toHaveURL(/pendingAccess=true/);
 });
 
-test("the dashboard's pending-access metric opens the filtered user list", async ({ page }) => {
+test("the dashboard's pending-access metric opens the access requests waiting for a decision", async ({ page }) => {
   let lastQuery = "";
   await mockShell(page);
   await page.route("**/api/admin-dashboard", (route) => json(route, {
-    generatedAt: "2026-09-26T12:00:00Z", activeUsers: 10, inactiveUsers: 0, activeApplications: 1, activeGroups: 0, pendingAccessRequests: 1,
+    generatedAt: "2026-09-26T12:00:00Z", activeUsers: 10, inactiveUsers: 0, activeApplications: 1, activeGroups: 0, pendingAccessRequests: 1, activeAccessReviews: 0, overdueAccessReviews: 0, pendingAccessReviewItems: 0, separationOfDutiesViolations: 0,
     activeFederationProviders: 0, expiringProvisioningTokens: 0, unverifiedEventHooks: 0, deadLetterDeliveries: 0, failedLoginsLast24Hours: 0, highRiskObservationsLast24Hours: 0
   }));
   await page.route("**/api/applications?**", (route) => json(route, { items: [], totalCount: 0, page: 1, pageSize: 100, totalPages: 0 }));
-  await page.route("**/api/users?**", (route) => {
+  await page.route("**/api/governance/access-requests?**", (route) => {
     lastQuery = route.request().url();
-    return json(route, { items: [user(3, true)], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 });
+    return json(route, { items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 });
   });
 
   await page.goto("/admin-v2/");
   await page.getByRole("link", { name: /Solicitudes de acceso pendientes/ }).click();
-  await expect(page.getByRole("combobox", { name: "Acceso", exact: true })).toHaveValue("true");
-  await expect.poll(() => lastQuery).toContain("hasPendingAccess=true");
+  await expect(page.getByRole("heading", { level: 1, name: "Solicitudes de acceso" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Estado", exact: true })).toHaveValue("Pending");
+  await expect.poll(() => lastQuery).toContain("status=Pending");
 });
 
 test("searches users by keyboard in the access policy simulation", async ({ page }) => {

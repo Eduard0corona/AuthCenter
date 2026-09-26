@@ -10,6 +10,7 @@ using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,8 @@ public class UserAccessService : IUserAccessService
     private readonly IActionLinkService _actionLinkService;
     private readonly IRefreshTokenService _refreshTokens;
     private readonly ICurrentUserService _currentUser;
+    private readonly IAccessGovernanceService _governance;
+    private readonly ISeparationOfDutiesChecker _separationOfDuties;
 
     public UserAccessService(
         AuthCenterDbContext db,
@@ -33,7 +36,9 @@ public class UserAccessService : IUserAccessService
         IEmailService emailService,
         IActionLinkService actionLinkService,
         IRefreshTokenService refreshTokens,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IAccessGovernanceService governance,
+        ISeparationOfDutiesChecker separationOfDuties)
     {
         _db = db;
         _userManager = userManager;
@@ -42,6 +47,8 @@ public class UserAccessService : IUserAccessService
         _actionLinkService = actionLinkService;
         _refreshTokens = refreshTokens;
         _currentUser = currentUser;
+        _governance = governance;
+        _separationOfDuties = separationOfDuties;
     }
 
     public async Task<PagedResult<UserDto>> GetAllUsersAsync(PaginationQuery pagination, CancellationToken ct = default)
@@ -200,9 +207,12 @@ public class UserAccessService : IUserAccessService
             if (!result.Succeeded)
                 return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", result.Errors.Select(error => error.Description)));
 
+            if (await _separationOfDuties.CheckUserAsync(user.Id, request.RoleIds.Distinct().ToList(), null, ct) is { } conflict)
+                return OperationResult<UserDto>.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
+
             if (request.GrantApplicationAccess)
             {
-                var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct);
+                var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId!.Value, request.ApplicationAccessIsActive, ct, AccessRequestSource.Administrator);
                 if (!accessResult.IsSuccess)
                     return OperationResult<UserDto>.Failure(accessResult.ErrorCode, accessResult.Message);
             }
@@ -268,7 +278,10 @@ public class UserAccessService : IUserAccessService
                     return OperationResult<UserDto>.Failure("USER_CREATION_FAILED", string.Join(", ", createResult.Errors.Select(error => error.Description)));
             }
 
-            var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct);
+            if (await _separationOfDuties.CheckUserAsync(user.Id, request.RoleIds.Distinct().ToList(), null, ct) is { } conflict)
+                return OperationResult<UserDto>.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
+
+            var accessResult = await GrantAccessAsync(user.Id, request.ApplicationSystemId, request.GrantActiveAccess, ct, AccessRequestSource.Administrator);
             if (!accessResult.IsSuccess)
                 return OperationResult<UserDto>.Failure(accessResult.ErrorCode, accessResult.Message);
 
@@ -392,6 +405,11 @@ public class UserAccessService : IUserAccessService
             !await HasAnotherEffectiveSuperAdminAsync(userId, ct))
             return OperationResult<UserDto>.Failure("LAST_SUPER_ADMIN", "The last effective SuperAdmin cannot lose AuthCenter access or its privileged role.");
 
+        var addedRoleIds = roleIds.Except(existingRoleIds).ToList();
+        var removedRoleIds = existingRoleIds.Except(roleIds).ToList();
+        if (await _separationOfDuties.CheckUserAsync(userId, addedRoleIds, removedRoleIds, ct) is { } conflict)
+            return OperationResult<UserDto>.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
+
         var existingAccess = await _db.UserApplicationAccesses.Where(access => access.UserId == userId).ToListAsync(ct);
         var now = _dateTimeProvider.UtcNow;
         foreach (var access in existingAccess)
@@ -413,6 +431,7 @@ public class UserAccessService : IUserAccessService
         _db.UserRoles.RemoveRange(_db.UserRoles.Where(userRole => userRole.UserId == userId && !roleIds.Contains(userRole.RoleId)));
         _db.UserRoles.AddRange(roleIds.Where(id => !existingRoleIds.Contains(id)).Select(id => new IdentityUserRole<Guid> { UserId = userId, RoleId = id }));
         AddAudit("USER_DIRECT_ACCESS_REPLACED", userId, new { applicationCount = applicationIds.Count, roleCount = roleIds.Count });
+        await CloseGrantedRequestsAsync(userId, applicationIds, roleIds, ct);
         await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         if (transaction is not null)
@@ -421,7 +440,8 @@ public class UserAccessService : IUserAccessService
         return OperationResult<UserDto>.Success((await GetUserByIdAsync(userId, ct))!);
     }
 
-    public async Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default)
+    public async Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default,
+        AccessRequestSource pendingSource = AccessRequestSource.Registration)
     {
         if (!await _db.Users.AnyAsync(user => user.Id == userId, ct))
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
@@ -451,31 +471,18 @@ public class UserAccessService : IUserAccessService
         }
 
         AddAudit(isActive ? "USER_APPLICATION_ACCESS_GRANTED" : "USER_APPLICATION_ACCESS_PENDING", userId, new { applicationSystemId });
+        if (isActive)
+        {
+            var directRoles = await _db.UserRoles.Where(userRole => userRole.UserId == userId).Select(userRole => userRole.RoleId).ToListAsync(ct);
+            await CloseGrantedRequestsAsync(userId, [applicationSystemId], directRoles.ToHashSet(), ct);
+        }
+        else
+        {
+            // Pending access waits on a request its application's owners (or an administrator) decide.
+            await _governance.OpenPendingRequestAsync(userId, applicationSystemId, pendingSource, ct);
+        }
         await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, application.Code, ct);
-        return OperationResult.Success();
-    }
-
-    public async Task<OperationResult> ApproveApplicationAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
-    {
-        var access = await _db.UserApplicationAccesses
-            .FirstOrDefaultAsync(a => a.UserId == userId && a.ApplicationSystemId == applicationSystemId, ct);
-
-        if (access is null)
-            return OperationResult.Failure("ACCESS_NOT_FOUND", "User does not have pending access for this application.");
-
-        if (access.IsActive)
-            return OperationResult.Failure("ACCESS_ALREADY_ACTIVE", "User access is already active for this application.");
-
-        access.IsActive = true;
-        access.RevokedAt = null;
-        AddAudit("USER_APPLICATION_ACCESS_APPROVED", userId, new { applicationSystemId });
-        await _db.SaveChangesAsync(ct);
-        var applicationCode = await _db.ApplicationSystems
-            .Where(application => application.Id == applicationSystemId)
-            .Select(application => application.Code)
-            .SingleAsync(ct);
-        await _refreshTokens.RevokeAllForUserAsync(userId, applicationCode, ct);
         return OperationResult.Success();
     }
 
@@ -498,6 +505,8 @@ public class UserAccessService : IUserAccessService
         access.IsActive = false;
         access.RevokedAt = _dateTimeProvider.UtcNow;
         AddAudit("USER_APPLICATION_ACCESS_REVOKED", userId, new { applicationSystemId });
+        foreach (var request in await _db.AccessRequests.Where(item => item.UserId == userId && item.ApplicationSystemId == applicationSystemId && item.Status == AccessRequestStatus.Pending).ToListAsync(ct))
+            Close(request, AccessRequestStatus.Rejected, "Access revoked by an administrator.");
         await _db.SaveChangesAsync(ct);
         var applicationCode = await _db.ApplicationSystems
             .Where(application => application.Id == applicationSystemId)
@@ -528,6 +537,8 @@ public class UserAccessService : IUserAccessService
         if (!await _db.UserApplicationAccesses.AnyAsync(access => access.UserId == userId &&
             access.ApplicationSystemId == role.ApplicationSystemId.Value && access.IsActive && access.ApplicationSystem.IsActive, ct))
             return OperationResult.Failure("ROLE_APP_ACCESS_REQUIRED", "Grant direct application access before assigning this direct role.");
+        if (await _separationOfDuties.CheckUserAsync(userId, [roleId], null, ct) is { } conflict)
+            return OperationResult.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
 
         var result = await _userManager.AddToRoleAsync(user, role.Name);
         if (!result.Succeeded)
@@ -537,6 +548,9 @@ public class UserAccessService : IUserAccessService
         }
 
         AddAudit("USER_ROLE_ASSIGNED", userId, new { roleId });
+        var heldRoles = await _db.UserRoles.Where(userRole => userRole.UserId == userId).Select(userRole => userRole.RoleId).ToListAsync(ct);
+        heldRoles.Add(roleId);
+        await CloseGrantedRequestsAsync(userId, [role.ApplicationSystemId.Value], heldRoles.ToHashSet(), ct);
         await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
 
@@ -698,6 +712,10 @@ public class UserAccessService : IUserAccessService
         user.NormalizedUserName = anonymizedEmail.ToUpperInvariant();
 
         await _userManager.UpdateAsync(user);
+        // A deleted user owns nothing and asks for nothing.
+        _db.ApplicationOwners.RemoveRange(await _db.ApplicationOwners.Where(owner => owner.UserId == userId).ToListAsync(ct));
+        foreach (var request in await _db.AccessRequests.Where(item => item.UserId == userId && item.Status == AccessRequestStatus.Pending).ToListAsync(ct))
+            Close(request, AccessRequestStatus.Cancelled, "The account was deleted.");
         AddAudit("USER_ANONYMIZED", userId);
         await _db.SaveChangesAsync(ct);
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
@@ -914,6 +932,38 @@ public class UserAccessService : IUserAccessService
     private IQueryable<ApplicationUser> IsEffectiveSuperAdminQuery(Guid roleId, Guid applicationId) => _db.Users.Where(user => user.IsActive &&
         user.ApplicationAccesses.Any(access => access.ApplicationSystemId == applicationId && access.IsActive && access.ApplicationSystem.IsActive) &&
         _db.UserRoles.Any(userRole => userRole.UserId == user.Id && userRole.RoleId == roleId));
+
+    /// <summary>
+    /// Pending requests an administrator's change satisfied (access to the application, and the
+    /// requested role when there is one) are approved by it.
+    /// </summary>
+    private async Task CloseGrantedRequestsAsync(Guid userId, IReadOnlyCollection<Guid> applicationIds, IReadOnlySet<Guid> roleIds, CancellationToken ct)
+    {
+        var requests = await _db.AccessRequests
+            .Where(item => item.UserId == userId && applicationIds.Contains(item.ApplicationSystemId) && item.Status == AccessRequestStatus.Pending)
+            .ToListAsync(ct);
+        foreach (var request in requests.Where(item => item.RequestedRoleId is null || roleIds.Contains(item.RequestedRoleId.Value)))
+            Close(request, AccessRequestStatus.Approved, "Granted by an administrator.");
+    }
+
+    private void Close(AccessRequest request, AccessRequestStatus status, string comment)
+    {
+        request.Status = status;
+        request.DecidedAt = _dateTimeProvider.UtcNow;
+        request.DecidedByUserId = _currentUser.UserId;
+        request.DecisionComment = comment;
+        _db.AuditLogs.Add(new AuditLog
+        {
+            Id = Guid.NewGuid(),
+            UserId = _currentUser.UserId,
+            Action = status == AccessRequestStatus.Approved ? "ACCESS_REQUEST_APPROVED" : status == AccessRequestStatus.Rejected ? "ACCESS_REQUEST_REJECTED" : "ACCESS_REQUEST_CANCELLED",
+            EntityName = nameof(AccessRequest),
+            EntityId = request.Id.ToString(),
+            MetadataJson = JsonSerializer.Serialize(new { userId = request.UserId, applicationSystemId = request.ApplicationSystemId, reason = comment }),
+            TraceId = System.Diagnostics.Activity.Current?.TraceId.ToHexString(),
+            CreatedAt = _dateTimeProvider.UtcNow
+        });
+    }
 
     private void AddAudit(string action, Guid subjectUserId, object? metadata = null) => _db.AuditLogs.Add(new AuditLog
     {

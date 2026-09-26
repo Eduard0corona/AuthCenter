@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Groups;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Groups;
@@ -19,19 +20,22 @@ public class DirectoryGroupService : IDirectoryGroupService
     private readonly ICurrentUserService _currentUser;
     private readonly IRefreshTokenService _refreshTokens;
     private readonly DynamicGroupMembershipService _dynamicGroups;
+    private readonly ISeparationOfDutiesChecker _separationOfDuties;
 
     public DirectoryGroupService(
         AuthCenterDbContext db,
         IDateTimeProvider clock,
         ICurrentUserService currentUser,
         IRefreshTokenService refreshTokens,
-        DynamicGroupMembershipService dynamicGroups)
+        DynamicGroupMembershipService dynamicGroups,
+        ISeparationOfDutiesChecker separationOfDuties)
     {
         _db = db;
         _clock = clock;
         _currentUser = currentUser;
         _refreshTokens = refreshTokens;
         _dynamicGroups = dynamicGroups;
+        _separationOfDuties = separationOfDuties;
     }
 
     public async Task<PagedResult<DirectoryGroupDto>> GetAllAsync(DirectoryGroupQuery query, CancellationToken ct = default)
@@ -169,6 +173,8 @@ public class DirectoryGroupService : IDirectoryGroupService
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
         if (await _db.UserGroupMemberships.AnyAsync(membership => membership.GroupId == groupId && membership.UserId == userId, ct))
             return OperationResult.Failure("MEMBER_EXISTS", "User is already a member of this group.");
+        if (await _separationOfDuties.CheckMembershipAsync(groupId, userId, ct) is { } conflict)
+            return OperationResult.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
 
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         _db.UserGroupMemberships.Add(new UserGroupMembership
@@ -272,6 +278,8 @@ public class DirectoryGroupService : IDirectoryGroupService
             return OperationResult.Failure("GROUP_APP_ACCESS_REQUIRED", "Assign the role's application to the group first.");
         if (await _db.GroupRoleAssignments.AnyAsync(assignment => assignment.GroupId == groupId && assignment.RoleId == roleId, ct))
             return OperationResult.Failure("ROLE_ALREADY_ASSIGNED", "Role is already assigned to this group.");
+        if (await _separationOfDuties.CheckGroupAsync(groupId, [roleId], null, ct) is { } conflict)
+            return OperationResult.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
 
         await RevokeMemberSessionsAsync(groupId, role.ApplicationSystem.Code, ct);
         _db.GroupRoleAssignments.Add(new GroupRoleAssignment
@@ -347,6 +355,8 @@ public class DirectoryGroupService : IDirectoryGroupService
 
         var existingApplicationIds = group.ApplicationAssignments.Select(assignment => assignment.ApplicationSystemId).ToHashSet();
         var existingRoleIds = group.RoleAssignments.Select(assignment => assignment.RoleId).ToHashSet();
+        if (await _separationOfDuties.CheckGroupAsync(groupId, roleIds.Except(existingRoleIds).ToList(), existingRoleIds.Except(roleIds).ToList(), ct) is { } conflict)
+            return OperationResult<DirectoryGroupDto>.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
         var affectedApplicationCodes = group.ApplicationAssignments
             .Where(assignment => !applicationIds.Contains(assignment.ApplicationSystemId))
             .Select(assignment => assignment.ApplicationSystem.Code)
@@ -409,6 +419,18 @@ public class DirectoryGroupService : IDirectoryGroupService
         if (group.IsActive == active)
             return OperationResult.Failure(active ? "GROUP_ALREADY_ACTIVE" : "GROUP_ALREADY_INACTIVE",
                 active ? "Group is already active." : "Group is already inactive.");
+
+        if (active)
+        {
+            // Reactivating gives every member the group's roles again.
+            var roles = await _db.GroupRoleAssignments
+                .Where(assignment => assignment.GroupId == groupId && assignment.Role.IsActive &&
+                    assignment.Group.ApplicationAssignments.Any(application => application.ApplicationSystemId == assignment.Role.ApplicationSystemId))
+                .Select(assignment => assignment.RoleId)
+                .ToListAsync(ct);
+            if (await _separationOfDuties.CheckGroupAsync(groupId, roles, null, ct) is { } conflict)
+                return OperationResult.Failure(SeparationOfDutiesConflict.ErrorCode, conflict.Message, conflict.Details);
+        }
 
         await RevokeMemberSessionsAsync(groupId, null, ct);
         group.IsActive = active;

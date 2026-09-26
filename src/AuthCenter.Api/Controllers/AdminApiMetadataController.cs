@@ -18,6 +18,8 @@ public sealed class AdminApiMetadataController(IHostEnvironment environment, ICo
             ["FORBIDDEN"] = "The caller lacks permission.", ["REAUTHENTICATION_REQUIRED"] = "A single-use step-up proof is required.",
             ["CONCURRENCY_CONFLICT"] = "The resource changed after it was loaded.", ["IDEMPOTENCY_KEY_REQUIRED"] = "A valid idempotency key is required.",
             ["LAST_SUPER_ADMIN"] = "The operation would remove the last effective SuperAdmin.", ["SYSTEM_ROLE_ASSIGNMENT_FORBIDDEN"] = "The system role cannot be assigned by this caller.",
+            ["SOD_CONFLICT"] = "The change would give a user two roles a separation of duties rule keeps apart.",
+            ["SELF_APPROVAL_FORBIDDEN"] = "Nobody decides their own access request.", ["SELF_REVIEW_FORBIDDEN"] = "Nobody reviews their own access.",
             ["INTERNAL_ERROR"] = "An unexpected server error occurred; provide traceId to support."
         },
         StepUpPurposes = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -42,7 +44,14 @@ public sealed class AdminApiMetadataController(IHostEnvironment environment, ICo
             ["GET /api/provisioning-tokens/{id}/diagnostics"] = "AUTHCENTER_PROVISIONING_READ", ["GET /api/provisioning-tokens/{id}/requests"] = "AUTHCENTER_PROVISIONING_READ",
             ["GET /api/saml/identity-provider"] = "AUTHCENTER_SAML_APPS_READ", ["GET /api/saml/service-providers"] = "AUTHCENTER_SAML_APPS_READ",
             ["POST /api/saml/service-providers"] = "AUTHCENTER_SAML_APPS_WRITE", ["PUT /api/saml/service-providers/{id}"] = "AUTHCENTER_SAML_APPS_WRITE",
-            ["DELETE /api/saml/service-providers/{id}"] = "AUTHCENTER_SAML_APPS_WRITE", ["POST /api/saml/service-providers/parse-metadata"] = "AUTHCENTER_SAML_APPS_WRITE"
+            ["DELETE /api/saml/service-providers/{id}"] = "AUTHCENTER_SAML_APPS_WRITE", ["POST /api/saml/service-providers/parse-metadata"] = "AUTHCENTER_SAML_APPS_WRITE",
+            ["GET /api/governance/applications/{id}"] = "AUTHCENTER_GOVERNANCE_READ", ["PUT /api/governance/applications/{id}"] = "AUTHCENTER_GOVERNANCE_WRITE",
+            ["GET /api/governance/access-requests"] = "AUTHCENTER_GOVERNANCE_READ", ["POST /api/governance/access-requests/{id}/approve"] = "AUTHCENTER_GOVERNANCE_WRITE",
+            ["POST /api/governance/access-requests/{id}/reject"] = "AUTHCENTER_GOVERNANCE_WRITE", ["GET /api/governance/access-reviews"] = "AUTHCENTER_GOVERNANCE_READ",
+            ["POST /api/governance/access-reviews"] = "AUTHCENTER_GOVERNANCE_WRITE", ["POST /api/governance/access-reviews/{id}/items/{itemId}/decision"] = "AUTHCENTER_GOVERNANCE_WRITE",
+            ["POST /api/governance/access-reviews/{id}/cancel"] = "AUTHCENTER_GOVERNANCE_WRITE", ["GET /api/governance/sod-rules"] = "AUTHCENTER_GOVERNANCE_READ",
+            ["POST /api/governance/sod-rules"] = "AUTHCENTER_GOVERNANCE_WRITE", ["PUT /api/governance/sod-rules/{id}"] = "AUTHCENTER_GOVERNANCE_WRITE",
+            ["DELETE /api/governance/sod-rules/{id}"] = "AUTHCENTER_GOVERNANCE_WRITE", ["GET /api/governance/sod-violations"] = "AUTHCENTER_GOVERNANCE_READ"
         }
     }));
 }

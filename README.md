@@ -207,6 +207,9 @@ git-ignored and its values are for local use only.
 | `Seed:AdminFullName` | Initial admin user full name |
 | `ActionLinks:DefaultBaseUrl` | Origin the links in AuthCenter's emails point to (password reset, invitation, email confirmation and change, magic link). Point it at AuthCenter's public origin to use the hosted pages, or at an application that hosts its own |
 | `ActionLinks:ApplicationBaseUrls:{code}` | Per-application origin for those links. The paths are `ActionLinks:*Path` (defaults `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link`, the hosted pages) |
+| `Governance:AccessRequestLifetimeDays` | Days a portal access request waits for a decision before it expires (default 30, from 1 to 365) |
+| `Governance:MaxPendingRequestsPerUser` | Portal requests a user may have waiting at once (default 10) |
+| `Governance:MaintenanceIntervalMinutes` | Minutes between the runs that expire requests and complete or repeat access reviews (default 15); `Governance:MaintenanceEnabled` turns them off |
 | `Email:DevelopmentPickupDirectory` | Development and tests only: write each email as a JSON file in this directory instead of sending it. Startup fails if it is set in any other environment |
 
 The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, invalid, or still uses a placeholder. Outside `Development` and `Testing`, it also fails when:
@@ -283,9 +286,9 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 | Route | Purpose |
 |---|---|
 | `/login` | Hosted sign-in with application branding: password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); OAuth consent and step-up; an authorization request that expires tells the user to go back to the application |
-| `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications (**Abrir** signs in to a SAML application that accepts sign-ins started by AuthCenter), linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
+| `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications (**Abrir** signs in to a SAML application that accepts sign-ins started by AuthCenter; access requests with their status), approvals for application owners (access requests and access reviews), linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
 | `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link` | Pages the links in AuthCenter's emails open when `ActionLinks` point at AuthCenter. The single-use token leaves the address bar at once, the pages send no referrer and each action needs a click |
-| `/admin-v2/` | Administrative console: directory and profile schema, applications, OAuth clients and API catalog, SAML applications, lifecycle, federation, roles, permissions and access policies, System Log and Event Hooks. `/admin` redirects here |
+| `/admin-v2/` | Administrative console: directory and profile schema, applications (with their owners), OAuth clients and API catalog, SAML applications, lifecycle, federation, roles, permissions and access policies, access governance (requests, reviews, separation of duties), System Log and Event Hooks. `/admin` redirects here |
 
 These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
 written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
@@ -503,7 +506,7 @@ by default and registration rejects lifetimes above one hour. See
 | PUT | `/api/users/{id}/access` | Atomically replace direct applications and roles and revoke sessions |
 | POST | `/api/users/invitations` | Invite a user to an application |
 | POST | `/api/users/{id}/applications/{appId}` | Grant application access |
-| PATCH | `/api/users/{id}/applications/{appId}/approve` | Approve pending application access |
+| PATCH | `/api/users/{id}/applications/{appId}/approve` | Approve pending application access and the request behind it (same checks as the access requests queue; a revoked access is granted again with the POST above, never approved) |
 | DELETE | `/api/users/{id}/applications/{appId}` | Revoke application access |
 | POST | `/api/users/{id}/roles/{roleId}` | Assign role |
 | DELETE | `/api/users/{id}/roles/{roleId}` | Remove role |
@@ -594,6 +597,42 @@ Administrative access requires `AUTHCENTER_ACCESS_POLICIES_READ` or
 to 50 CIDR ranges. To prevent locking every administrator out of the identity control plane,
 `AUTHCENTER` must always retain an active unconditional `Allow` fallback whenever it has active
 rules; give that fallback the lowest precedence (the largest priority number).
+
+### Access governance
+
+Application owners, access requests with approval, periodic access reviews and separation of duties
+(`AUTHCENTER_GOVERNANCE_READ`/`_WRITE`; on upgrade, roles holding `AUTHCENTER_USERS_READ`/`_WRITE`
+received them). The console groups them under **Gobierno**; owners act from their portal.
+
+- **Owners.** `GET`/`PUT /api/governance/applications/{id}` sets up to 20 active users as owners of an
+  application and whether users may request it from the portal (`version` protects concurrent edits).
+  Owners decide the application's access requests and review its access; nobody decides their own
+  request or reviews their own access, administrators included. Without owners, governance
+  administrators decide.
+- **Access requests.** A user asks from the portal (`POST /api/auth/access-requests` with a
+  justification, optionally for one of the application's non-system roles); owners are emailed and
+  decide in the portal (`/api/auth/approvals`), administrators in the queue
+  (`/api/governance/access-requests`, `POST .../{id}/approve|reject`; a rejection needs a reason the
+  user reads). Registrations of applications that require approval and users an administrator left
+  with pending access create a request too, so the pending-access approval of the users page approves
+  that request. Approving grants the access (and the role) after the separation of duties check;
+  portal requests expire after `Governance:AccessRequestLifetimeDays` and the requester can cancel them.
+- **Access reviews.** `POST /api/governance/access-reviews` starts a campaign for one application: its
+  items are the active users that can use it now, directly or through groups. Owners keep or revoke
+  each access (portal or console); a revocation removes the direct access at once, and access that
+  comes from a group is flagged for someone to remove the membership. At the due date the campaign
+  completes and what nobody reviewed is kept or revoked, as configured; a recurring campaign starts
+  again `RecurrenceMonths` after the previous one started. The maintenance runs every
+  `Governance:MaintenanceIntervalMinutes`, one instance per campaign.
+- **Separation of duties.** `/api/governance/sod-rules` keeps two roles (of any applications) apart.
+  Administrative changes that would give someone both roles, directly or through groups, are refused
+  with `SOD_CONFLICT` (direct roles, direct access replacement, group memberships, a group's roles,
+  reactivating a group, approving a request) and recorded as `SOD_CONFLICT_BLOCKED`. Combinations that
+  arrive from SCIM, dynamic group rules or federation are not blocked (the identity provider is the
+  source of truth) and are listed with how each role is held at `GET /api/governance/sod-violations`
+  and counted on the dashboard.
+- Audit events (and event hooks): `APPLICATION_GOVERNANCE_UPDATED`, `ACCESS_REQUEST_*`, `ACCESS_REVIEW_*`,
+  `SOD_RULE_*` and `SOD_CONFLICT_BLOCKED`.
 
 ### Enterprise federation
 
@@ -856,12 +895,13 @@ curl -X POST https://localhost:7001/api/auth/google \
 
 The `AUTHCENTER` application is seeded automatically with:
 - **SuperAdmin** role (all permissions)
-- **Admin** role: manages users, groups, access policies and the profile schema; reads
-  applications, roles, permissions, the System Log, event hooks, federation and provisioning tokens
+- **Admin** role: manages users, groups, access policies, the profile schema and access governance;
+  reads applications, roles, permissions, the System Log, event hooks, federation and provisioning tokens
 - All permissions enumerated under `AUTHCENTER_*`. Event hooks, federation and provisioning have
   their own `AUTHCENTER_EVENT_HOOKS_*`, `AUTHCENTER_FEDERATION_*` and `AUTHCENTER_PROVISIONING_*`
   permissions; roles that held `AUTHCENTER_APPLICATIONS_*` before them received them on upgrade. SAML applications have
-  `AUTHCENTER_SAML_APPS_*`, received on upgrade by the roles that held `AUTHCENTER_OAUTH_CLIENTS_*`
+  `AUTHCENTER_SAML_APPS_*`, received on upgrade by the roles that held `AUTHCENTER_OAUTH_CLIENTS_*`;
+  access governance has `AUTHCENTER_GOVERNANCE_*`, received by the roles that held `AUTHCENTER_USERS_*`
 
 ## Running Tests
 

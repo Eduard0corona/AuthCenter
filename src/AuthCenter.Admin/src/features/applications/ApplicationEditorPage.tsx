@@ -15,6 +15,7 @@ import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
+import { ApplicationGovernancePanel } from "../governance/ApplicationGovernancePanel";
 import { applicationDefaults, applicationPayload, applicationSchema, type ApplicationFormValues } from "./application";
 import type { BrandingFormValues } from "./branding";
 
@@ -159,6 +160,8 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
           <button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear aplicación" : "Guardar configuración"}</button>
         </div> : <p className="muted">Solicita el permiso AUTHCENTER_APPLICATIONS_WRITE para modificar esta configuración.</p>}
       </form>
+
+      {current && permissions.has("AUTHCENTER_GOVERNANCE_READ") ? <ApplicationGovernancePanel applicationId={current.id} /> : null}
 
       {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="application-actions">
         <div className="settings-panel__heading"><div><h2 id="application-actions">Operación</h2><p>El branding mantiene el contrato completo; la aplicación del sistema no puede desactivarse.</p></div></div>

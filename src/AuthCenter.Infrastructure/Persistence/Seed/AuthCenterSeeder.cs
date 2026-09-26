@@ -78,6 +78,8 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.ProvisioningWrite, "Manage provisioning tokens"),
             (DomainConstants.Permissions.SamlAppsRead, "Read SAML applications and the identity provider"),
             (DomainConstants.Permissions.SamlAppsWrite, "Manage SAML applications"),
+            (DomainConstants.Permissions.GovernanceRead, "Read application owners, access requests, access reviews and separation of duties"),
+            (DomainConstants.Permissions.GovernanceWrite, "Manage application owners, decide access requests, run access reviews and separation of duties rules"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -116,6 +118,8 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.EventHooksRead,
                 DomainConstants.Permissions.FederationRead,
                 DomainConstants.Permissions.ProvisioningRead,
+                DomainConstants.Permissions.GovernanceRead,
+                DomainConstants.Permissions.GovernanceWrite,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);

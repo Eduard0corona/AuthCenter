@@ -53,6 +53,14 @@ const navigation: NavigationGroup[] = [
     ]
   },
   {
+    label: "Gobierno",
+    items: [
+      { label: "Solicitudes de acceso", to: "/access-requests", permission: "AUTHCENTER_GOVERNANCE_READ" },
+      { label: "Revisiones de acceso", to: "/access-reviews", permission: "AUTHCENTER_GOVERNANCE_READ" },
+      { label: "Segregación de funciones", to: "/sod-rules", permission: "AUTHCENTER_GOVERNANCE_READ" }
+    ]
+  },
+  {
     label: "Operación",
     items: [
       { label: "Event Hooks", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ" },

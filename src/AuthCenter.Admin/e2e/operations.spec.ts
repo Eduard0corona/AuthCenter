@@ -28,7 +28,7 @@ const auditEntry = {
 test("shows platform metrics that link to filtered pages, the environment and the version", async ({ page }) => {
   await mockShell(page);
   await page.route("**/api/admin-dashboard", (route) => json(route, {
-    generatedAt: "2026-09-26T12:00:00Z", activeUsers: 1280, inactiveUsers: 42, activeApplications: 7, activeGroups: 18, pendingAccessRequests: 3,
+    generatedAt: "2026-09-26T12:00:00Z", activeUsers: 1280, inactiveUsers: 42, activeApplications: 7, activeGroups: 18, pendingAccessRequests: 3, activeAccessReviews: 0, overdueAccessReviews: 0, pendingAccessReviewItems: 0, separationOfDutiesViolations: 0,
     activeFederationProviders: 2, expiringProvisioningTokens: 1, unverifiedEventHooks: 0, deadLetterDeliveries: 4, failedLoginsLast24Hours: 12, highRiskObservationsLast24Hours: 0
   }));
   await page.route("**/api/event-hooks/deliveries?**", (route) => json(route, paged([deadLetter])));

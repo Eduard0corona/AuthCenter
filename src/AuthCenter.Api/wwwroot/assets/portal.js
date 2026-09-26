@@ -5,7 +5,7 @@ import {
 import { qrSvg } from "./qr.js";
 
 const message = document.querySelector("#status");
-const panels = ["overview", "security", "sessions", "applications", "providers", "consents", "account"];
+const panels = ["overview", "security", "sessions", "applications", "approvals", "providers", "consents", "account"];
 const params = new URLSearchParams(location.search);
 // Back from linking an enterprise provider: the single-use result leaves the address bar at once.
 const federationLink = params.get("federation_link");
@@ -18,6 +18,9 @@ let session = null;
 let profile = null;
 let mfa = null;
 let passkeys = [];
+let requestable = [];
+// The access review whose items are open in the approvals panel.
+let openReview = null;
 
 document.querySelector("#logout").addEventListener("click", signOut);
 document.querySelectorAll("[data-panel]").forEach(link => link.addEventListener("click", event => {
@@ -32,10 +35,11 @@ const ready = new Promise(resolve => { markReady = resolve; });
 
 async function refresh() {
   try {
-    const [me, sessions, devices, passkeyItems, providers, linkable, consents, applications, mfaStatus] = await Promise.all([
+    const [me, sessions, devices, passkeyItems, providers, linkable, consents, applications, mfaStatus, catalog, requests, approvals] = await Promise.all([
       api("/api/auth/me"), api("/api/auth/sessions"), api("/api/auth/trusted-devices"), api("/api/auth/passkeys"),
       api("/api/auth/external-providers"), api("/ui-api/session/federation/linkable"), api("/oauth/consents"),
-      api("/api/auth/applications"), api("/api/auth/mfa/status")
+      api("/api/auth/applications"), api("/api/auth/mfa/status"), api("/api/auth/access-requests/catalog"),
+      api("/api/auth/access-requests"), api("/api/auth/approvals")
     ]);
     profile = me;
     mfa = mfaStatus;
@@ -47,6 +51,8 @@ async function refresh() {
     renderPasskeys();
     renderSessions(sessions, devices);
     renderApplications(applications);
+    renderAccessRequests(catalog, requests);
+    renderApprovals(approvals);
     renderProviders(providers, linkable);
     renderConsents(consents);
     renderAccount();
@@ -136,6 +142,170 @@ function renderApplications(applications) {
     item.launchUrl ? launchLink(item.launchUrl, item.name) : null,
     item.supportUrl ? externalLink(item.supportUrl, "Soporte") : null
   ].filter(Boolean), "Todavía no tienes acceso a aplicaciones.", item => item.logoUrl);
+}
+
+const requestStatuses = { Pending: "Pendiente", Approved: "Aprobada", Rejected: "Rechazada", Cancelled: "Cancelada", Expired: "Expirada" };
+const requestSources = { Portal: "Solicitada en el portal", Registration: "Registro que requiere aprobación", Administrator: "Alta de un administrador" };
+
+function renderAccessRequests(catalog, requests) {
+  requestable = catalog;
+  const form = document.querySelector("#request-access-form");
+  form.hidden = catalog.length === 0;
+  document.querySelector("#request-access-help").textContent = catalog.length
+    ? "Pide acceso a otra aplicación, o un rol en una que ya usas. Sus responsables deciden y te avisamos por correo."
+    : "Ninguna aplicación acepta solicitudes de acceso por ahora.";
+  const select = document.querySelector("#request-application");
+  const selected = select.value;
+  select.replaceChildren(...catalog.map(item => {
+    const option = element("option", "", item.hasAccess ? `${item.name} (ya tienes acceso)` : item.name);
+    option.value = item.id;
+    return option;
+  }));
+  if (catalog.some(item => item.id === selected)) select.value = selected;
+  renderRequestableRoles();
+
+  renderList("requests-list", requests, item => [
+    item.roleName ? `${item.applicationName} · ${item.roleName}` : item.applicationName,
+    [
+      `${requestStatuses[item.status] ?? item.status} · ${formatDate(item.createdAt)}`,
+      item.status === "Pending" && item.expiresAt ? `vence ${formatDate(item.expiresAt)}` : null,
+      item.decisionComment ? `“${item.decisionComment}”` : null
+    ].filter(Boolean).join(" · ")
+  ], item => item.status === "Pending"
+    ? [button("Cancelar", "secondary", () => mutate(`/api/auth/access-requests/${item.id}/cancel`, "POST", null, "Solicitud cancelada."))]
+    : [], "No has solicitado accesos.");
+}
+
+function renderRequestableRoles() {
+  const application = requestable.find(item => item.id === document.querySelector("#request-application").value);
+  const roles = document.querySelector("#request-role");
+  const none = element("option", "", "Sin un rol en particular");
+  none.value = "";
+  roles.replaceChildren(none, ...(application?.roles ?? []).map(role => {
+    const option = element("option", "", role.name);
+    option.value = role.id;
+    return option;
+  }));
+}
+
+function renderApprovals(approvals) {
+  const nav = document.querySelector("#approvals-nav");
+  const owner = approvals.requests.length > 0 || approvals.reviews.length > 0;
+  // Once shown it stays, so deciding the last item does not pull the panel away.
+  if (owner) nav.hidden = false;
+  renderList("approval-requests-list", approvals.requests, item => [
+    `${item.requester.fullName} (${item.requester.email})`,
+    [
+      item.roleName ? `${item.applicationName} · ${item.roleName}` : item.applicationName,
+      requestSources[item.source] ?? item.source,
+      formatDate(item.createdAt),
+      item.justification ? `“${item.justification}”` : null
+    ].filter(Boolean).join(" · ")
+  ], item => [
+    button("Aprobar", "", () => decideRequest(item, true)),
+    button("Rechazar", "danger", () => decideRequest(item, false))
+  ], "No hay solicitudes esperando tu decisión.");
+  renderList("reviews-list", approvals.reviews, item => [
+    `${item.name} · ${item.applicationName}`,
+    `${item.pendingItems} de ${item.totalItems} por revisar · vence ${formatDate(item.dueAt)}${item.revokeUnreviewed ? " · lo no revisado se revoca" : " · lo no revisado se mantiene"}`
+  ], item => [button("Revisar", "", () => openReviewItems(item))], "No tienes revisiones de acceso en curso.");
+  if (openReview) {
+    const current = approvals.reviews.find(item => item.id === openReview.id);
+    if (current) void openReviewItems(current, false);
+    else closeReview();
+  }
+}
+
+async function openReviewItems(review, focus = true) {
+  openReview = review;
+  const detail = document.querySelector("#review-detail");
+  detail.hidden = false;
+  const title = document.querySelector("#review-title");
+  title.textContent = `${review.name} · ${review.applicationName}`;
+  document.querySelector("#review-summary").textContent =
+    `Decide si cada persona debe conservar el acceso. ${review.revokeUnreviewed ? "Lo que nadie revise se revocará" : "Lo que nadie revise se mantendrá"} el ${formatDate(review.dueAt)}.`;
+  try {
+    const items = await api(`/api/auth/approvals/reviews/${review.id}/items?pageSize=100`);
+    renderList("review-items", items.items, item => [
+      `${item.user.fullName} (${item.user.email})`,
+      [
+        item.hasDirectAccess ? "Acceso directo" : null,
+        item.groups.length ? `Por grupo: ${item.groups.join(", ")}` : null,
+        item.roles.length ? `Roles: ${item.roles.join(", ")}` : null,
+        reviewDecision(item)
+      ].filter(Boolean).join(" · ")
+    ], item => item.canDecide
+      ? [button("Mantener", "secondary", () => decideReviewItem(item, "Keep")), button("Revocar", "danger", () => decideReviewItem(item, "Revoke"))]
+      : [], "La revisión no tiene accesos.");
+    if (focus) title.focus();
+  } catch (error) { status(message, errorText(error), "error"); }
+}
+
+function closeReview() {
+  openReview = null;
+  document.querySelector("#review-detail").hidden = true;
+}
+
+function reviewDecision(item) {
+  if (item.decision === "Pending") return item.canDecide ? "Sin revisar" : "Sin revisar (tu propio acceso lo revisa otra persona)";
+  const decided = item.decision === "Keep" ? "Se mantiene" : "Revocado";
+  const remaining = item.remediationRequired ? "sigue con acceso por sus grupos hasta que un administrador lo quite" : null;
+  return [decided, remaining, item.comment ? `“${item.comment}”` : null].filter(Boolean).join(" · ");
+}
+
+async function decideRequest(item, approve) {
+  const who = `${item.requester.fullName} (${item.requester.email})`;
+  const what = item.roleName ? `${item.applicationName} con el rol ${item.roleName}` : item.applicationName;
+  const comment = await askDecision(
+    approve ? "Aprobar la solicitud" : "Rechazar la solicitud",
+    approve ? `${who} tendrá acceso a ${what}.` : `${who} no tendrá acceso a ${what}. Cuéntale por qué.`,
+    approve ? "Comentario (opcional)" : "Motivo",
+    !approve,
+    approve ? "Aprobar" : "Rechazar");
+  if (comment === null) return;
+  await mutate(`/api/auth/approvals/requests/${item.id}/${approve ? "approve" : "reject"}`, "POST", null,
+    approve ? "Solicitud aprobada. Le avisamos por correo." : "Solicitud rechazada. Le avisamos por correo.", { comment: comment || null });
+}
+
+async function decideReviewItem(item, decision) {
+  const revoke = decision === "Revoke";
+  const comment = await askDecision(
+    revoke ? "Revocar el acceso" : "Mantener el acceso",
+    revoke
+      ? `${item.user.fullName} perderá el acceso directo${item.groups.length ? "; el que le dan sus grupos debe quitarlo un administrador" : ""}.`
+      : `${item.user.fullName} conservará el acceso.`,
+    "Comentario (opcional)", false, revoke ? "Revocar" : "Mantener");
+  if (comment === null) return;
+  await mutate(`/api/auth/approvals/reviews/${item.campaignId}/items/${item.id}`, "POST", null,
+    revoke ? "Acceso revocado." : "Acceso mantenido.", { decision, comment: comment || null });
+}
+
+/** Asks for the comment of a decision; resolves null when cancelled. */
+function askDecision(title, description, label, required, confirmLabel) {
+  const dialog = document.querySelector("#decision-dialog");
+  const form = document.querySelector("#decision-form");
+  const field = document.querySelector("#decision-comment");
+  const feedback = document.querySelector("#decision-status");
+  document.querySelector("#decision-title").textContent = title;
+  document.querySelector("#decision-description").textContent = description;
+  document.querySelector("#decision-label").textContent = label;
+  document.querySelector("#decision-submit").textContent = confirmLabel;
+  field.required = required;
+  field.value = "";
+  status(feedback, "");
+  dialog.showModal();
+  field.focus();
+  return new Promise(resolve => {
+    const close = value => { form.onsubmit = null; dialog.onclose = null; if (dialog.open) dialog.close(); resolve(value); };
+    document.querySelector("#decision-cancel").onclick = () => close(null);
+    dialog.onclose = () => close(null);
+    form.onsubmit = event => {
+      event.preventDefault();
+      const value = field.value.trim();
+      if (required && !value) return status(feedback, "Escribe el motivo.", "error");
+      close(value);
+    };
+  });
 }
 
 function renderProviders(providers, linkable) {
@@ -293,6 +463,20 @@ document.querySelector("#delete-form").addEventListener("submit", async event =>
     await api("/api/auth/account", { method: "DELETE", body: JSON.stringify({ password: password || null, confirmDeletion: true }) });
     location.replace("/login");
   } catch (error) { status(message, errorText(error), "error"); }
+});
+
+document.querySelector("#request-application").addEventListener("change", renderRequestableRoles);
+
+document.querySelector("#request-access-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  await ready;
+  const applicationSystemId = document.querySelector("#request-application").value;
+  const roleId = document.querySelector("#request-role").value || null;
+  const justification = document.querySelector("#request-justification").value.trim();
+  if (!applicationSystemId) return status(message, "Elige la aplicación.", "error");
+  if (!justification) return status(message, "Cuenta para qué necesitas el acceso.", "error");
+  if (await mutate("/api/auth/access-requests", "POST", null, "Solicitud enviada. Te avisaremos por correo cuando la decidan.", { applicationSystemId, roleId, justification }))
+    document.querySelector("#request-justification").value = "";
 });
 
 // --- Two-step verification -------------------------------------------------------------------
@@ -587,7 +771,21 @@ const errorMessages = {
   PASSKEY_LIMIT_REACHED: "Alcanzaste el número máximo de passkeys. Elimina una antes de agregar otra.",
   INVALID_PASSKEY_ATTESTATION: "No pudimos registrar la passkey. Inténtalo de nuevo.",
   INVALID_PASSKEY_ASSERTION: "No pudimos verificar tu passkey. Inténtalo de nuevo.",
-  PASSKEY_CEREMONY_EXPIRED: "La operación con passkey expiró. Inténtalo de nuevo."
+  PASSKEY_CEREMONY_EXPIRED: "La operación con passkey expiró. Inténtalo de nuevo.",
+  ACCESS_REQUEST_EXISTS: "Ya tienes una solicitud esperando decisión para esa aplicación.",
+  ACCESS_ALREADY_ACTIVE: "Ya tienes acceso a esa aplicación. Si necesitas un rol, elígelo.",
+  ROLE_ALREADY_ASSIGNED: "Ya tienes ese rol.",
+  ACCESS_REQUEST_LIMIT: "Tienes demasiadas solicitudes pendientes. Espera a que decidan alguna.",
+  ACCESS_REQUEST_NOT_ALLOWED: "Esa aplicación ya no acepta solicitudes de acceso.",
+  ACCESS_REQUEST_NOT_PENDING: "Esa solicitud ya no está pendiente.",
+  ACCESS_REQUEST_EXPIRED: "La solicitud expiró; la persona puede pedir el acceso otra vez.",
+  ACCESS_REQUEST_FORBIDDEN: "Sólo los responsables de la aplicación deciden sus solicitudes.",
+  SELF_APPROVAL_FORBIDDEN: "No puedes decidir tu propia solicitud.",
+  SELF_REVIEW_FORBIDDEN: "No puedes revisar tu propio acceso.",
+  SOD_CONFLICT: "Aprobarla combinaría roles incompatibles (segregación de funciones). Un administrador debe resolverlo.",
+  USER_INACTIVE: "La cuenta de quien la pidió está inactiva.",
+  ACCESS_REVIEW_ITEM_DECIDED: "Ese acceso ya fue revisado.",
+  ACCESS_REVIEW_NOT_ACTIVE: "La revisión ya terminó."
 };
 
 function errorText(error) {

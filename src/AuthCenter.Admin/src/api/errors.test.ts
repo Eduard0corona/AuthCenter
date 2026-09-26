@@ -26,6 +26,12 @@ describe("errorMessage", () => {
     expect(errorMessage("boom")).toBe("Ocurrió un error inesperado.");
   });
 
+  it("names who and which roles a separation of duties conflict is about", () => {
+    const error = new ApiError(409, "SOD_CONFLICT", "ana@example.com would hold both 'CRM:Compras' and 'CRM:Pagos'…", ["ana@example.com", "CRM:Compras", "CRM:Pagos", "Pagos"]);
+
+    expect(errorMessage(error)).toBe("ana@example.com tendría a la vez los roles «CRM:Compras» y «CRM:Pagos», que la regla de segregación de funciones «Pagos» no permite.");
+  });
+
   it("recognizes a lazy chunk from a previous deployment", () => {
     expect(isStaleBuildError(new TypeError("Failed to fetch dynamically imported module: /admin-v2/assets/UsersPage-abc.js"))).toBe(true);
     expect(isStaleBuildError(new Error("Cannot read properties of undefined"))).toBe(false);

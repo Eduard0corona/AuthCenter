@@ -13,7 +13,8 @@ const modules = [
   { title: "Roles", description: "RBAC, permisos y alcance por aplicación.", to: "/roles", permission: "AUTHCENTER_ROLES_READ", accent: "blue" },
   { title: "Permisos", description: "Catálogo de capacidades por aplicación.", to: "/permissions", permission: "AUTHCENTER_PERMISSIONS_READ", accent: "emerald" },
   { title: "System Log", description: "Eventos administrativos y trazabilidad.", to: "/system-log", permission: "AUTHCENTER_AUDIT_LOGS_READ", accent: "amber" },
-  { title: "Event Hooks", description: "Suscripciones, entregas y replay controlado.", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ", accent: "emerald" }
+  { title: "Event Hooks", description: "Suscripciones, entregas y replay controlado.", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ", accent: "emerald" },
+  { title: "Gobierno de accesos", description: "Solicitudes, revisiones periódicas y segregación de funciones.", to: "/access-requests", permission: "AUTHCENTER_GOVERNANCE_READ", accent: "violet" }
 ];
 
 type Tone = "neutral" | "attention" | "critical";
@@ -76,7 +77,9 @@ function metrics(data: AdminDashboard): Metric[] {
   const attention = (value: number): Tone => (value > 0 ? "attention" : "neutral");
   return [
     { key: "users", label: "Usuarios activos", value: data.activeUsers, detail: `${data.inactiveUsers.toLocaleString("es-MX")} inactivos o eliminados`, to: "/users?active=true", permission: "AUTHCENTER_USERS_READ", tone: "neutral" },
-    { key: "pending", label: "Solicitudes de acceso pendientes", value: data.pendingAccessRequests, detail: "Esperan aprobación", to: "/users?pendingAccess=true", permission: "AUTHCENTER_USERS_READ", tone: attention(data.pendingAccessRequests) },
+    { key: "pending", label: "Solicitudes de acceso pendientes", value: data.pendingAccessRequests, detail: "Esperan la decisión de sus responsables", to: "/access-requests?status=Pending", permission: "AUTHCENTER_GOVERNANCE_READ", tone: attention(data.pendingAccessRequests) },
+    { key: "reviews", label: "Revisiones de acceso en curso", value: data.activeAccessReviews, detail: `${data.pendingAccessReviewItems.toLocaleString("es-MX")} accesos por revisar${data.overdueAccessReviews > 0 ? ` · ${data.overdueAccessReviews.toLocaleString("es-MX")} vencidas` : ""}`, to: "/access-reviews?status=Active", permission: "AUTHCENTER_GOVERNANCE_READ", tone: data.overdueAccessReviews > 0 ? "critical" : attention(data.pendingAccessReviewItems) },
+    { key: "sod", label: "Violaciones de segregación de funciones", value: data.separationOfDutiesViolations, detail: "Usuarios con roles incompatibles", to: "/sod-rules", permission: "AUTHCENTER_GOVERNANCE_READ", tone: data.separationOfDutiesViolations > 0 ? "critical" : "neutral" },
     { key: "applications", label: "Aplicaciones activas", value: data.activeApplications, to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ", tone: "neutral" },
     { key: "groups", label: "Grupos activos", value: data.activeGroups, to: "/groups", permission: "AUTHCENTER_GROUPS_READ", tone: "neutral" },
     { key: "federation", label: "Proveedores federados activos", value: data.activeFederationProviders, to: "/federation", permission: "AUTHCENTER_FEDERATION_READ", tone: "neutral" },

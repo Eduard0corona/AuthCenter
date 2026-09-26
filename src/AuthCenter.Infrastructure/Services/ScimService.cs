@@ -137,9 +137,16 @@ public sealed partial class ScimService : IScimService
             var result = await _users.CreateAsync(entity);
             if (!result.Succeeded)
                 return Failure<Guid>("invalidValue", string.Join("; ", result.Errors.Select(error => error.Description)));
-            var access = await _access.GrantAccessAsync(entity.Id, appId, entity.IsActive, ct);
+            // The identity provider decides: an inactive user's access is revoked, never pending approval.
+            var access = await _access.GrantAccessAsync(entity.Id, appId, true, ct);
             if (!access.IsSuccess)
                 return Failure<Guid>("invalidValue", access.Message);
+            if (!entity.IsActive)
+            {
+                var granted = await _db.UserApplicationAccesses.SingleAsync(item => item.UserId == entity.Id && item.ApplicationSystemId == appId, ct);
+                granted.IsActive = false;
+                granted.RevokedAt = now;
+            }
             _db.ScimResourceLinks.Add(new ScimResourceLink { Id = Guid.NewGuid(), ApplicationSystemId = appId, ResourceType = UserType, ResourceId = entity.Id, ExternalId = user.ExternalId, CreatedAt = now, UpdatedAt = now });
             await _db.SaveChangesAsync(ct);
             var mapped = await ApplyMappedValuesAsync(entity.Id, MappedValues(payload, await MappingsAsync(appId, ct), clearMissing: false), ct);
@@ -264,6 +271,8 @@ public sealed partial class ScimService : IScimService
             }
             var access = await _db.UserApplicationAccesses.SingleAsync(item => item.UserId == user.Id && item.ApplicationSystemId == appId, ct);
             access.IsActive = user.IsActive;
+            // Deprovisioned is revoked, not pending approval.
+            access.RevokedAt = user.IsActive ? null : access.RevokedAt ?? now;
             await _db.SaveChangesAsync(ct);
             if (wasActive && !user.IsActive)
                 await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);

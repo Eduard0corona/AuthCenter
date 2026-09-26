@@ -58,7 +58,7 @@ public class GroupsController : ControllerBase
         var result = await _groups.CreateAsync(request, ct);
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetById), new { groupId = result.Data!.Id }, ApiResponse<object>.Ok(result.Data))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     [HttpPut("{groupId:guid}")]
@@ -71,7 +71,7 @@ public class GroupsController : ControllerBase
         var result = await _groups.UpdateAsync(groupId, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     [HttpPatch("{groupId:guid}/activate")]
@@ -124,11 +124,11 @@ public class GroupsController : ControllerBase
         var result = await _groups.SetAccessAsync(groupId, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     private IActionResult ToActionResult(OperationResult result) =>
         result.IsSuccess
             ? Ok(ApiResponse.Ok())
-            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
 }

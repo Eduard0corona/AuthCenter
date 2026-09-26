@@ -38,6 +38,12 @@ const ApiResourceEditorPage = lazy(() => import("../features/api-resources/ApiRe
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
 const EventHookEditorPage = lazy(() => import("../features/event-hooks/EventHookEditorPage"));
 const EventDeliveriesPage = lazy(() => import("../features/event-hooks/EventDeliveriesPage"));
+const AccessRequestsPage = lazy(() => import("../features/governance/AccessRequestsPage"));
+const AccessReviewsPage = lazy(() => import("../features/governance/AccessReviewsPage"));
+const AccessReviewEditorPage = lazy(() => import("../features/governance/AccessReviewEditorPage"));
+const AccessReviewDetailPage = lazy(() => import("../features/governance/AccessReviewDetailPage"));
+const SodRulesPage = lazy(() => import("../features/governance/SodRulesPage"));
+const SodRuleEditorPage = lazy(() => import("../features/governance/SodRuleEditorPage"));
 
 const loading = <PageState title="Cargando módulo" detail="Estamos preparando esta sección." busy />;
 
@@ -86,6 +92,13 @@ export function AppRouter() {
           <Route path="permissions" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionsPage /></PermissionRoute>} />
           <Route path="permissions/new" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_WRITE"><PermissionEditorPage create /></PermissionRoute>} />
           <Route path="permissions/:permissionId" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionEditorPage /></PermissionRoute>} />
+          <Route path="access-requests" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessRequestsPage /></PermissionRoute>} />
+          <Route path="access-reviews" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessReviewsPage /></PermissionRoute>} />
+          <Route path="access-reviews/new" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_WRITE"><AccessReviewEditorPage /></PermissionRoute>} />
+          <Route path="access-reviews/:reviewId" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessReviewDetailPage /></PermissionRoute>} />
+          <Route path="sod-rules" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><SodRulesPage /></PermissionRoute>} />
+          <Route path="sod-rules/new" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_WRITE"><SodRuleEditorPage create /></PermissionRoute>} />
+          <Route path="sod-rules/:ruleId" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><SodRuleEditorPage /></PermissionRoute>} />
           <Route path="system-log" element={<PermissionRoute permission="AUTHCENTER_AUDIT_LOGS_READ"><SystemLogPage /></PermissionRoute>} />
           <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_READ"><EventHooksPage /></PermissionRoute>} />
           <Route path="event-hooks/new" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_WRITE"><EventHookEditorPage create /></PermissionRoute>} />

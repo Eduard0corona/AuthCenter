@@ -64,6 +64,7 @@ public static class InfrastructureServiceExtensions
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
         services.AddHostedService<RetentionCleanupService>();
+        services.Configure<GovernanceSettings>(configuration.GetSection("Governance"));
 
         services.AddHttpClient("GitHub", client =>
         {
@@ -159,6 +160,11 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<Services.Saml.SamlIdentityProviderKeys>();
         services.AddScoped<ISamlIdentityProviderService, Services.Saml.SamlIdentityProviderService>();
         services.AddScoped<ISamlServiceProviderService, Services.Saml.SamlServiceProviderService>();
+        services.AddScoped<ISeparationOfDutiesChecker, Services.Governance.SeparationOfDutiesChecker>();
+        services.AddScoped<ISeparationOfDutiesService, Services.Governance.SeparationOfDutiesService>();
+        services.AddScoped<IAccessGovernanceService, Services.Governance.AccessGovernanceService>();
+        services.AddScoped<IAccessReviewService, Services.Governance.AccessReviewService>();
+        services.AddHostedService<Services.Governance.GovernanceMaintenanceService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();

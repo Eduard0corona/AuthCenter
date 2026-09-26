@@ -7,6 +7,7 @@ using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Users;
 using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -80,15 +81,29 @@ public sealed class AdminConsoleContractTests : IClassFixture<AuthCenterWebAppli
             CreatedAt = DateTime.UtcNow
         };
         Assert.True((await users.CreateAsync(user)).Succeeded);
+        var applicationId = await db.ApplicationSystems.Where(application => application.Code == DomainConstants.SystemCodes.AuthCenter).Select(application => application.Id).SingleAsync();
         db.UserApplicationAccesses.Add(new UserApplicationAccess
         {
             Id = Guid.NewGuid(),
             UserId = user.Id,
-            ApplicationSystemId = await db.ApplicationSystems.Where(application => application.Code == DomainConstants.SystemCodes.AuthCenter).Select(application => application.Id).SingleAsync(),
+            ApplicationSystemId = applicationId,
             IsActive = isActive,
             CreatedAt = DateTime.UtcNow,
             RevokedAt = revoked ? DateTime.UtcNow : null
         });
+        // Pending access always waits on the request its owners decide (the services record both).
+        if (!isActive && !revoked)
+        {
+            db.AccessRequests.Add(new AccessRequest
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                ApplicationSystemId = applicationId,
+                Source = AccessRequestSource.Administrator,
+                Status = AccessRequestStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
         await db.SaveChangesAsync();
         return user.Id;
     }

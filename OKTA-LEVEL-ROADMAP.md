@@ -26,7 +26,7 @@ y evidencia de operación.
 | Experiencia administrativa | Consola admin, portal de usuario y login hospedado accesibles, con branding y consentimiento revocable | Custom domains administrados | Fase 5 lista |
 | Plataforma para desarrolladores | Discovery/JWKS, SDKs .NET/TypeScript, quickstarts y perfil de conformidad OIDC/SCIM | Publicación automatizada de paquetes cuando exista un registry organizacional | Fase 5 lista |
 | Operación | OpenTelemetry/Azure Monitor, SLO/burn rate, capacity/soak, scripts DR y runbooks además de CI/CD/Key Vault/health | Failover regional cuando se apruebe una segunda región | Fase 6 lista |
-| Gobierno | RBAC por aplicación | Entitlements, owners, solicitudes, revisiones periódicas y segregación de funciones | Pendiente |
+| Gobierno | RBAC por aplicación, owners por aplicación, solicitudes de acceso con aprobación, revisiones periódicas con recurrencia y segregación de funciones preventiva y detectiva | Entitlements finos por recurso y flujos de aprobación de varios niveles | Lista (F14 de la remediación) |
 
 ## Fases de entrega
 

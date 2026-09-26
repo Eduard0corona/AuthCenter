@@ -136,6 +136,7 @@ public sealed class OutboxDispatcherService : BackgroundService
             "magic-link" => sender.SendMagicLinkAsync(payload.ToEmail, payload.ToName, payload.Secret, payload.ActionUrl, ct),
             "mfa-otp" => sender.SendMfaEmailOtpAsync(payload.ToEmail, payload.ToName, payload.Secret, ct),
             "security-notice" => sender.SendSecurityNoticeAsync(payload.ToEmail, payload.ToName, payload.ApplicationName ?? "Security notice", payload.Secret, ct),
+            "notification" => sender.SendNotificationAsync(payload.ToEmail, payload.ToName, payload.ApplicationName ?? "AuthCenter", payload.Secret, payload.ActionUrl ?? string.Empty, payload.ActionLabel ?? "Open AuthCenter", ct),
             _ => throw new InvalidOperationException($"Unsupported outbox email kind '{payload.Kind}'.")
         };
 }

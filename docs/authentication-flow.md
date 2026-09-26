@@ -16,7 +16,11 @@ Client -> POST /api/auth/register
 5. Create ApplicationUser via UserManager.CreateAsync.
 6. Grant UserApplicationAccess:
    - Open -> IsActive = true.
-   - ApprovalRequired -> IsActive = false.
+   - ApprovalRequired -> IsActive = false, plus the AccessRequest behind it (source Registration,
+     asking for the default role); the application's owners are emailed. An owner decides it from
+     the portal, or an administrator from the console queue or the users page; nobody decides their
+     own request and separation of duties is checked first. A rejected request leaves the access
+     revoked, never pending.
 7. Assign DefaultRole if configured.
 8. If RequireEmailConfirmation is true, send the confirmation link (same transaction).
 9. Commit. The first sign-in runs after the commit: its services (risk signals, sessions) write

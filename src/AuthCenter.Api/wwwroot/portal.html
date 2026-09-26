@@ -14,6 +14,7 @@
       <a href="#security" data-panel="security">Seguridad</a>
       <a href="#sessions" data-panel="sessions">Sesiones</a>
       <a href="#applications" data-panel="applications">Aplicaciones</a>
+      <a href="#approvals" data-panel="approvals" id="approvals-nav" hidden>Aprobaciones</a>
       <a href="#providers" data-panel="providers">Proveedores</a>
       <a href="#consents" data-panel="consents">Consentimientos</a>
       <a href="#account" data-panel="account">Cuenta</a>
@@ -58,7 +59,32 @@
         <h3>Dispositivos de confianza</h3><div id="devices-list" class="list"></div>
       </section>
 
-      <section id="applications" class="panel" tabindex="-1" aria-labelledby="applications-title"><h2 id="applications-title">Mis aplicaciones</h2><p class="muted">Aplicaciones a las que tienes acceso, directamente o por tus grupos.</p><div id="applications-list" class="list"></div></section>
+      <section id="applications" class="panel" tabindex="-1" aria-labelledby="applications-title">
+        <h2 id="applications-title">Mis aplicaciones</h2><p class="muted">Aplicaciones a las que tienes acceso, directamente o por tus grupos.</p><div id="applications-list" class="list"></div>
+        <article class="card section" aria-labelledby="request-access-title">
+          <h3 id="request-access-title">Solicitar acceso</h3>
+          <p id="request-access-help" class="muted">Pide acceso a otra aplicación, o un rol en una que ya usas. Sus responsables deciden y te avisamos por correo.</p>
+          <form id="request-access-form" class="stack" novalidate method="post" hidden>
+            <label>Aplicación <select id="request-application" required></select></label>
+            <label>Rol <select id="request-role"><option value="">Sin un rol en particular</option></select></label>
+            <label>Justificación <textarea id="request-justification" maxlength="1000" rows="3" required></textarea></label>
+            <div class="actions"><button type="submit">Enviar solicitud</button></div>
+          </form>
+        </article>
+        <h3>Mis solicitudes</h3><div id="requests-list" class="list"></div>
+      </section>
+
+      <section id="approvals" class="panel" tabindex="-1" aria-labelledby="approvals-title">
+        <h2 id="approvals-title">Aprobaciones</h2>
+        <p class="muted">Solicitudes y revisiones de acceso de las aplicaciones de las que eres responsable.</p>
+        <h3>Solicitudes de acceso</h3><div id="approval-requests-list" class="list"></div>
+        <h3>Revisiones de acceso</h3><div id="reviews-list" class="list"></div>
+        <div id="review-detail" class="section" hidden>
+          <h3 id="review-title" tabindex="-1"></h3>
+          <p id="review-summary" class="muted"></p>
+          <div id="review-items" class="list"></div>
+        </div>
+      </section>
 
       <section id="providers" class="panel" tabindex="-1" aria-labelledby="providers-title">
         <h2 id="providers-title">Proveedores de identidad</h2>
@@ -99,6 +125,16 @@
       <label id="reauth-password-field">Contraseña <input id="reauth-password" type="password" autocomplete="current-password"></label>
       <div class="actions"><button id="reauth-submit" type="submit">Confirmar</button><button id="reauth-passkey" class="secondary" type="button" hidden>Usar una passkey</button><button id="reauth-cancel" class="secondary" type="button">Cancelar</button></div>
       <p id="reauth-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="decision-dialog" aria-labelledby="decision-title">
+    <form id="decision-form" class="stack" novalidate method="post">
+      <h2 id="decision-title"></h2>
+      <p id="decision-description"></p>
+      <label><span id="decision-label">Comentario</span> <textarea id="decision-comment" maxlength="1000" rows="3"></textarea></label>
+      <div class="actions"><button id="decision-submit" type="submit">Confirmar</button><button id="decision-cancel" class="secondary" type="button">Cancelar</button></div>
+      <p id="decision-status" class="status" role="status" aria-live="polite"></p>
     </form>
   </dialog>
 

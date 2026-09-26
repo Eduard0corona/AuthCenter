@@ -528,6 +528,10 @@ export interface AdminDashboard {
   activeApplications: number;
   activeGroups: number;
   pendingAccessRequests: number;
+  activeAccessReviews: number;
+  overdueAccessReviews: number;
+  pendingAccessReviewItems: number;
+  separationOfDutiesViolations: number;
   activeFederationProviders: number;
   expiringProvisioningTokens: number;
   unverifiedEventHooks: number;
@@ -623,4 +627,124 @@ export interface SamlIdentityProvider {
   certificate: SamlCertificate | null;
   nameIdFormats: string[];
   attributeSources: string[];
+}
+
+/** A user as governance shows them: owners, requesters, reviewers. */
+export interface GovernanceUser {
+  id: string;
+  fullName: string;
+  email: string;
+  isActive: boolean;
+}
+
+export interface ApplicationGovernance {
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  accessRequestsEnabled: boolean;
+  owners: GovernanceUser[];
+  /** 0 until the settings are first saved. */
+  version: number;
+}
+
+export type AccessRequestStatus = "Pending" | "Approved" | "Rejected" | "Cancelled" | "Expired";
+export type AccessRequestSource = "Portal" | "Registration" | "Administrator";
+
+export interface AccessRequest {
+  id: string;
+  requester: GovernanceUser;
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  roleId: string | null;
+  roleName: string | null;
+  source: AccessRequestSource;
+  status: AccessRequestStatus;
+  justification: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  decidedAt: string | null;
+  decidedBy: GovernanceUser | null;
+  decisionComment: string | null;
+  version: number;
+}
+
+export interface SeparationOfDutiesRole {
+  id: string;
+  name: string;
+  applicationSystemId: string | null;
+  applicationCode: string | null;
+  isActive: boolean;
+}
+
+export interface SeparationOfDutiesRule {
+  id: string;
+  name: string;
+  description: string | null;
+  firstRole: SeparationOfDutiesRole;
+  secondRole: SeparationOfDutiesRole;
+  isActive: boolean;
+  violationCount: number;
+  createdAt: string;
+  updatedAt: string | null;
+  version: number;
+}
+
+export interface SeparationOfDutiesHolding {
+  roleId: string;
+  roleName: string;
+  applicationCode: string | null;
+  direct: boolean;
+  groups: string[];
+}
+
+export interface SeparationOfDutiesViolation {
+  ruleId: string;
+  ruleName: string;
+  user: GovernanceUser;
+  firstRole: SeparationOfDutiesHolding;
+  secondRole: SeparationOfDutiesHolding;
+}
+
+export type AccessReviewStatus = "Active" | "Completed" | "Cancelled";
+export type AccessReviewDecision = "Pending" | "Keep" | "Revoke";
+
+export interface AccessReview {
+  id: string;
+  name: string;
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  status: AccessReviewStatus;
+  createdAt: string;
+  dueAt: string;
+  completedAt: string | null;
+  revokeUnreviewed: boolean;
+  recurrenceMonths: number | null;
+  previousCampaignId: string | null;
+  totalItems: number;
+  pendingItems: number;
+  keptItems: number;
+  revokedItems: number;
+  remediationItems: number;
+  reviewers: GovernanceUser[];
+  version: number;
+}
+
+export interface AccessReviewItem {
+  id: string;
+  campaignId: string;
+  user: GovernanceUser;
+  hasDirectAccess: boolean;
+  groups: string[];
+  roles: string[];
+  decision: AccessReviewDecision;
+  decidedAt: string | null;
+  decidedBy: GovernanceUser | null;
+  decidedAutomatically: boolean;
+  comment: string | null;
+  outcome: string | null;
+  remediationRequired: boolean;
+  canDecide: boolean;
+  version: number;
 }

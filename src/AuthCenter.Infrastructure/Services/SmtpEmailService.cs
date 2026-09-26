@@ -88,6 +88,25 @@ public class SmtpEmailService : IEmailService
         await SendAsync(toEmail, toName, $"{subject} - AuthCenter", body, "Security notice", ct);
     }
 
+    public async Task SendNotificationAsync(string toEmail, string toName, string subject, string detail, string actionUrl, string actionLabel, CancellationToken ct = default)
+    {
+        var encoder = HtmlEncoder.Default;
+        var safeLink = encoder.Encode(actionUrl);
+        var body = $"""
+        <html><body style="font-family:sans-serif;max-width:600px;margin:auto">
+          <h2>{encoder.Encode(subject)}</h2>
+          <p>Hello <strong>{encoder.Encode(toName)}</strong>,</p>
+          <p>{encoder.Encode(detail)}</p>
+          <p><a href="{safeLink}" style="background:#0066cc;color:white;padding:12px 20px;border-radius:4px;text-decoration:none">
+            {encoder.Encode(actionLabel)}
+          </a></p>
+          <p style="word-break:break-all;font-size:13px;color:#555">{safeLink}</p>
+          <hr/><p style="color:#888;font-size:12px">AuthCenter - centralized identity service</p>
+        </body></html>
+        """;
+        await SendAsync(toEmail, toName, $"{subject} - AuthCenter", body, "Access governance", ct);
+    }
+
     private async Task SendAsync(
         string toEmail,
         string toName,

@@ -18,7 +18,11 @@ const ENTITY_ROUTES: Record<string, EntityRoute> = {
   EventHook: { label: "Event hook", permission: "AUTHCENTER_EVENT_HOOKS_READ", path: (id) => `/event-hooks/${id}` },
   ProfileMapping: { label: "Profile mapping", permission: "AUTHCENTER_USERS_READ", path: (id) => `/profile-mappings/${id}` },
   DynamicGroupRule: { label: "Group rule", permission: "AUTHCENTER_GROUPS_READ", path: (id) => `/group-rules/${id}` },
-  UserProfileAttributeDefinition: { label: "Atributo de perfil", permission: "AUTHCENTER_PROFILE_SCHEMAS_READ", path: (id) => `/profile-schema/${id}` }
+  UserProfileAttributeDefinition: { label: "Atributo de perfil", permission: "AUTHCENTER_PROFILE_SCHEMAS_READ", path: (id) => `/profile-schema/${id}` },
+  SamlServiceProvider: { label: "Aplicación SAML", permission: "AUTHCENTER_SAML_APPS_READ", path: (id) => `/saml-apps/${id}` },
+  AccessRequest: { label: "Solicitud de acceso", permission: "AUTHCENTER_GOVERNANCE_READ", path: () => "/access-requests?status=all" },
+  AccessReviewCampaign: { label: "Revisión de acceso", permission: "AUTHCENTER_GOVERNANCE_READ", path: (id) => `/access-reviews/${id}` },
+  SeparationOfDutiesRule: { label: "Regla de segregación de funciones", permission: "AUTHCENTER_GOVERNANCE_READ", path: (id) => `/sod-rules/${id}` }
 };
 
 export function entityLabel(entityName: string | null): string {

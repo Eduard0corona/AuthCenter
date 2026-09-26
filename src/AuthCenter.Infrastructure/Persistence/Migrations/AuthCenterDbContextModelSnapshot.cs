@@ -22,6 +22,183 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DecisionComment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Justification")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid?>("RequestedRoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedRoleId");
+
+                    b.HasIndex("ApplicationSystemId", "Status");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.ToTable("AccessRequests", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessReviewCampaign", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DueAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<bool>("NextStarted")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("PreviousCampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("RecurrenceMonths")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("RevokeUnreviewed")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationSystemId");
+
+                    b.HasIndex("Status", "DueAt");
+
+                    b.ToTable("AccessReviewCampaigns", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessReviewItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("DecidedAutomatically")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Decision")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GroupNames")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("HasDirectAccess")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<bool>("RemediationRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("RoleNames")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("CampaignId", "Decision");
+
+                    b.HasIndex("CampaignId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("AccessReviewItems", (string)null);
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApiResource", b =>
                 {
                     b.Property<Guid>("Id")
@@ -310,6 +487,54 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ApplicationBrandingSettings");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationGovernance", b =>
+                {
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AccessRequestsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ApplicationSystemId");
+
+                    b.ToTable("ApplicationGovernance", (string)null);
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationOwner", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApplicationSystemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ApplicationSystemId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("ApplicationOwners", (string)null);
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
@@ -1833,6 +2058,52 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("ScimResourceLinks", (string)null);
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.SeparationOfDutiesRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("FirstRoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<Guid>("SecondRoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FirstRoleId");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("SecondRoleId");
+
+                    b.ToTable("SeparationOfDutiesRules", (string)null);
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.SingleSignOnSessionClient", b =>
                 {
                     b.Property<Guid>("SessionId")
@@ -2270,6 +2541,62 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessRequest", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationRole", "RequestedRole")
+                        .WithMany()
+                        .HasForeignKey("RequestedRoleId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("RequestedRole");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessReviewCampaign", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessReviewItem", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.AccessReviewCampaign", "Campaign")
+                        .WithMany("Items")
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Campaign");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApiResource", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
@@ -2360,6 +2687,36 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationGovernance", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithOne()
+                        .HasForeignKey("AuthCenter.Domain.Entities.ApplicationGovernance", "ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationOwner", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationSystem", "ApplicationSystem")
+                        .WithMany()
+                        .HasForeignKey("ApplicationSystemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationSystem");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApplicationRegistrationSettings", b =>
@@ -2691,6 +3048,25 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                     b.Navigation("ApplicationSystem");
                 });
 
+            modelBuilder.Entity("AuthCenter.Domain.Entities.SeparationOfDutiesRule", b =>
+                {
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationRole", "FirstRole")
+                        .WithMany()
+                        .HasForeignKey("FirstRoleId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("AuthCenter.Domain.Entities.ApplicationRole", "SecondRole")
+                        .WithMany()
+                        .HasForeignKey("SecondRoleId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("FirstRole");
+
+                    b.Navigation("SecondRole");
+                });
+
             modelBuilder.Entity("AuthCenter.Domain.Entities.SingleSignOnSessionClient", b =>
                 {
                     b.HasOne("AuthCenter.Domain.Entities.OAuthClient", "OAuthClient")
@@ -2881,6 +3257,11 @@ namespace AuthCenter.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("AuthCenter.Domain.Entities.AccessReviewCampaign", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("AuthCenter.Domain.Entities.ApiResource", b =>

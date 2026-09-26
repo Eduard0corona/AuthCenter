@@ -55,6 +55,11 @@ public static class DomainConstants
         public const string SamlAppsRead = "AUTHCENTER_SAML_APPS_READ";
         public const string SamlAppsWrite = "AUTHCENTER_SAML_APPS_WRITE";
 
+        // Access governance: application owners, access requests, access reviews and separation of
+        // duties. Migration AddAccessGovernance grants them to every role that manages users.
+        public const string GovernanceRead = "AUTHCENTER_GOVERNANCE_READ";
+        public const string GovernanceWrite = "AUTHCENTER_GOVERNANCE_WRITE";
+
         public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
         {
             UsersRead, UsersWrite, ApplicationsRead, ApplicationsWrite, RolesRead, RolesWrite,
@@ -62,7 +67,7 @@ public static class DomainConstants
             GroupsRead, GroupsWrite, AccessPoliciesRead, AccessPoliciesWrite,
             ProfileSchemasRead, ProfileSchemasWrite,
             EventHooksRead, EventHooksWrite, FederationRead, FederationWrite, ProvisioningRead, ProvisioningWrite,
-            SamlAppsRead, SamlAppsWrite
+            SamlAppsRead, SamlAppsWrite, GovernanceRead, GovernanceWrite
         };
     }
 

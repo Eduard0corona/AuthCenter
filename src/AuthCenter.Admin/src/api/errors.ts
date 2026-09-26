@@ -11,6 +11,9 @@ const GENERIC_MESSAGES: Record<string, string> = {
   INVALID_CSRF_TOKEN: "Tu sesión se renovó. Vuelve a intentarlo.",
   IDEMPOTENCY_KEY_REQUIRED: "La operación necesita una clave de idempotencia. Vuelve a intentarlo.",
   RATE_LIMITED: "Hay demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+  SELF_APPROVAL_FORBIDDEN: "Nadie decide su propia solicitud de acceso.",
+  SELF_REVIEW_FORBIDDEN: "Nadie revisa su propio acceso.",
+  ACCESS_NOT_PENDING: "El acceso fue revocado, no solicitado: otórgalo de nuevo en lugar de aprobarlo.",
   INTERNAL_ERROR: "AuthCenter no pudo completar la operación."
 };
 
@@ -23,6 +26,10 @@ export function errorMessage(error: unknown, messages: Record<string, string> = 
   if (isStaleBuildError(error)) return "La consola se actualizó mientras estaba abierta. Recarga la página para continuar.";
   if (isNetworkError(error)) return "No pudimos conectar con AuthCenter. Revisa tu conexión e inténtalo de nuevo.";
   if (!(error instanceof ApiError)) return error instanceof Error && error.message ? error.message : fallback;
+  if (error.code === "SOD_CONFLICT" && error.details.length >= 4 && !messages[error.code]) {
+    const [email, firstRole, secondRole, rule] = error.details;
+    return `${email} tendría a la vez los roles «${firstRole}» y «${secondRole}», que la regla de segregación de funciones «${rule}» no permite.`;
+  }
   const base = messages[error.code] ?? GENERIC_MESSAGES[error.code] ?? error.message;
   const details = error.details.filter((detail) => detail && detail !== error.message);
   const text = details.length > 0 ? `${base} ${details.join(" ")}` : base;
