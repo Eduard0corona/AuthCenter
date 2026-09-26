@@ -6,6 +6,7 @@ using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Lifecycle;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
+using AuthCenter.Infrastructure.Services.Scim;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthCenter.Infrastructure.Services;
@@ -73,7 +74,8 @@ public sealed class LifecycleAutomationService : ILifecycleAutomationService
         var item = await MappingQuery().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
         if (item is null) return OperationResult<ProfileMappingSimulationDto>.Failure("PROFILE_MAPPING_NOT_FOUND", "Mapping not found.");
         if (request.SourceDocument.ValueKind != JsonValueKind.Object) return OperationResult<ProfileMappingSimulationDto>.Failure("INVALID_SOURCE_DOCUMENT", "A JSON object is required.");
-        var found = TryResolvePath(request.SourceDocument, item.SourcePath, out var value);
+        JsonElement value = default;
+        var found = ScimPath.TryParse(item.SourcePath, out var path) && path.TryResolve(request.SourceDocument, out value);
         return OperationResult<ProfileMappingSimulationDto>.Success(new ProfileMappingSimulationDto { IsValid = found, SourcePath = item.SourcePath, TargetAttributeName = item.TargetAttributeDefinition.Key, Value = found ? value.Clone() : null, Errors = found ? [] : ["Source path was not found."] });
     }
 
@@ -151,10 +153,16 @@ public sealed class LifecycleAutomationService : ILifecycleAutomationService
 
     private IQueryable<ProfileMapping> MappingQuery() => _db.ProfileMappings.Include(x => x.ApplicationSystem).Include(x => x.TargetAttributeDefinition);
     private IQueryable<DynamicGroupRule> RuleQuery() => _db.DynamicGroupRules.Include(x => x.DirectoryGroup).Include(x => x.ProfileAttributeDefinition);
-    private async Task<(string Code, string Message)?> ValidateMappingAsync(Guid appId, string sourceSystem, string sourcePath, Guid definitionId, CancellationToken ct) =>
-        !string.Equals(sourceSystem, "SCIM", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(sourcePath) || sourcePath.Length > 300 ||
-        !await _db.ApplicationSystems.AnyAsync(x => x.Id == appId && x.IsActive, ct) || !await _db.UserProfileAttributeDefinitions.AnyAsync(x => x.Id == definitionId && x.IsActive, ct)
-            ? ("INVALID_PROFILE_MAPPING", "Active application, SCIM source path, and active target definition are required.") : null;
+    private async Task<(string Code, string Message)?> ValidateMappingAsync(Guid appId, string sourceSystem, string sourcePath, Guid definitionId, CancellationToken ct)
+    {
+        if (!string.Equals(sourceSystem, "SCIM", StringComparison.OrdinalIgnoreCase) ||
+            !await _db.ApplicationSystems.AnyAsync(x => x.Id == appId && x.IsActive, ct) || !await _db.UserProfileAttributeDefinitions.AnyAsync(x => x.Id == definitionId && x.IsActive, ct))
+            return ("INVALID_PROFILE_MAPPING", "Active application, SCIM source path, and active target definition are required.");
+        // The path is read exactly as SCIM requests are (ScimService), so what validates here maps there.
+        return ScimPath.TryParse(sourcePath, out _)
+            ? null
+            : ("INVALID_PROFILE_MAPPING", "The source path must be a SCIM attribute path, such as name.givenName, emails[type eq \"work\"].value or urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department.");
+    }
     private async Task<((string Code, string Message)? Error, string ExpectedJson)> ValidateRuleAsync(Guid groupId, Guid definitionId, string op, JsonElement expected, CancellationToken ct)
     {
         var definition = await _db.UserProfileAttributeDefinitions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == definitionId && x.IsActive, ct);
@@ -169,7 +177,6 @@ public sealed class LifecycleAutomationService : ILifecycleAutomationService
             : (("INVALID_GROUP_RULE_VALUE", message), string.Empty);
     }
     private Task<string?> ApplicationCodeAsync(Guid id, CancellationToken ct) => _db.ApplicationSystems.Where(x => x.Id == id).Select(x => x.Code).SingleOrDefaultAsync(ct);
-    private static bool TryResolvePath(JsonElement root, string path, out JsonElement value) { value = root; foreach (var segment in path.Trim().TrimStart('$', '.').Split('.', StringSplitOptions.RemoveEmptyEntries)) if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(segment, out value)) return false; return true; }
     private static ProfileMappingDto Map(ProfileMapping x) => new() { Id = x.Id, ApplicationSystemId = x.ApplicationSystemId, ApplicationName = x.ApplicationSystem.Name, SourceSystem = x.SourceSystem, SourcePath = x.SourcePath, TargetAttributeDefinitionId = x.TargetAttributeDefinitionId, TargetAttributeName = x.TargetAttributeDefinition.Key, IsAuthoritative = x.IsAuthoritative, IsActive = x.IsActive, CreatedAt = x.CreatedAt, Version = x.Version };
     private static DynamicGroupRuleDto Map(DynamicGroupRule x) => new() { Id = x.Id, DirectoryGroupId = x.DirectoryGroupId, GroupName = x.DirectoryGroup.Name, ProfileAttributeDefinitionId = x.ProfileAttributeDefinitionId, AttributeName = x.ProfileAttributeDefinition.Key, Operator = x.Operator, ExpectedValue = JsonDocument.Parse(x.ExpectedValueJson).RootElement.Clone(), IsActive = x.IsActive, CreatedAt = x.CreatedAt, Version = x.Version };
 }

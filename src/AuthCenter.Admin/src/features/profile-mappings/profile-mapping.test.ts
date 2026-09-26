@@ -24,10 +24,11 @@ describe("profile mapping form", () => {
     expect(profileMappingUpdatePayload(valid, 4)).toMatchObject({ sourceSystem: "SCIM", isActive: false, version: 4 });
   });
 
-  it("rejects paths that are not dot-separated property chains", () => {
-    expect(profileMappingSchema.safeParse({ ...valid, sourcePath: "name[0].given" }).success).toBe(false);
-    expect(profileMappingSchema.safeParse({ ...valid, sourcePath: "a".repeat(301) }).success).toBe(false);
-    expect(profileMappingSchema.safeParse({ ...valid, sourcePath: "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User.department" }).success).toBe(true);
+  it("accepts SCIM attribute paths and rejects anything else", () => {
+    for (const path of ["name.givenName", "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department", "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User.department", "emails[type eq \"work\"].value", "$.department"])
+      expect(profileMappingSchema.safeParse({ ...valid, sourcePath: path }).success).toBe(true);
+    for (const path of ["name[0].given", "emails[type ne \"work\"].value", "name given", "a".repeat(301)])
+      expect(profileMappingSchema.safeParse({ ...valid, sourcePath: path }).success).toBe(false);
   });
 
   it("only accepts JSON objects as simulation documents", () => {

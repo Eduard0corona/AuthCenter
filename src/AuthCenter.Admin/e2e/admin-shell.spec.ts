@@ -543,6 +543,8 @@ test("creates, rotates and revokes a scoped provisioning token with step-up", as
   const proofHeaders: string[] = [];
   let replacementRevoked = false;
 
+  await page.route("**/api/provisioning-tokens/*/diagnostics", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { tokenId: provisioningTokenId, lastUsedAt: null, lastSucceededAt: null, lastFailedAt: null, last24Hours: { total: 0, failed: 0 }, last7Days: { total: 0, failed: 0 }, failures: [] } }) }));
+  await page.route("**/api/provisioning-tokens/*/requests?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 } }) }));
   await page.route("**/api/provisioning-tokens", async (route) => {
     createPayload = route.request().postDataJSON() as Record<string, unknown>;
     await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { id: provisioningTokenId, token: createdCredential, scopes: provisioningToken.scopes, expiresAt: provisioningToken.expiresAt } }) });
@@ -603,6 +605,46 @@ test("creates, rotates and revokes a scoped provisioning token with step-up", as
 
   expect(proofPurposes).toEqual(["admin.provisioning-token.rotate", "admin.provisioning-token.revoke"]);
   expect(proofHeaders).toEqual(["proof-1", "proof-2"]);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("shows what the SCIM client did with a token", async ({ page }) => {
+  const diagnostics = {
+    tokenId: provisioningTokenId, lastUsedAt: "2026-09-26T10:00:00Z", lastSucceededAt: "2026-09-26T09:58:00Z", lastFailedAt: "2026-09-26T10:00:00Z",
+    last24Hours: { total: 3, failed: 2 }, last7Days: { total: 12, failed: 2 },
+    failures: [
+      { statusCode: 403, scimType: null, count: 1, lastAt: "2026-09-26T10:00:00Z", lastDetail: "The provisioning token does not have the scim.groups.read scope." },
+      { statusCode: 400, scimType: "invalidValue", count: 1, lastAt: "2026-09-26T09:59:00Z", lastDetail: "userName must be a bounded email address." }
+    ]
+  };
+  const entry = (id: string, method: string, path: string, statusCode: number, scimType: string | null, detail: string | null) =>
+    ({ id, createdAt: "2026-09-26T10:00:00Z", method, path, statusCode, scimType, detail, durationMs: 12, traceId: "4bf92f3577b34da6a3ce929d0e0e4736" });
+  const failed = [entry("r2", "GET", "/scim/v2/Groups", 403, null, diagnostics.failures[0]!.lastDetail), entry("r3", "POST", "/scim/v2/Users", 400, "invalidValue", diagnostics.failures[1]!.lastDetail)];
+  const requestedUrls: string[] = [];
+  await page.route(`**/api/provisioning-tokens/${provisioningTokenId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: provisioningToken }) }));
+  await page.route(`**/api/provisioning-tokens/${provisioningTokenId}/diagnostics`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: diagnostics }) }));
+  await page.route(`**/api/provisioning-tokens/${provisioningTokenId}/requests?**`, async (route) => {
+    requestedUrls.push(route.request().url());
+    const items = route.request().url().includes("outcome=failed") ? failed : [entry("r1", "GET", "/scim/v2/Users", 200, null, null), ...failed];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items, totalCount: items.length, page: 1, pageSize: 20, totalPages: 1 } }) });
+  });
+
+  await page.goto(`/admin-v2/provisioning-tokens/${provisioningTokenId}`);
+  const origin = await page.evaluate(() => window.location.origin);
+  await expect(page.getByText(`${origin}/scim/v2`)).toBeVisible();
+  const panel = page.getByRole("region", { name: "Diagnóstico SCIM" });
+  await expect(panel.getByText("3 solicitudes, 2 fallidas")).toBeVisible();
+  const week = panel.getByRole("table", { name: "Errores de los últimos 7 días" });
+  await expect(week.getByRole("row", { name: /403 Sin permiso/ })).toContainText("scim.groups.read");
+  await expect(week.getByRole("row", { name: /400 Solicitud inválida \(invalidValue\)/ })).toBeVisible();
+  const requests = panel.getByRole("table", { name: "Solicitudes SCIM" });
+  await expect(requests.getByRole("row")).toHaveCount(4);
+  await expect(requests.getByRole("row", { name: /200 Correcta/ })).toContainText("GET /scim/v2/Users");
+
+  await panel.getByLabel("Resultado").selectOption("failed");
+  await expect.poll(() => requestedUrls.at(-1)).toContain("outcome=failed");
+  await expect(requests.getByRole("row")).toHaveCount(3);
+  await expect(page.locator("main")).not.toContainText("acp_");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 

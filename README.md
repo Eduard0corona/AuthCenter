@@ -121,10 +121,12 @@ server-paginated metadata, filters by application and lifecycle state, and suppo
 explicit SCIM scopes and an expiration of at most one year. The raw token is held in browser memory
 only for the create or rotate response and is discarded after the operator explicitly closes the
 reveal dialog. Rotation and revocation require separate purpose-bound single-use reauthentication
-proofs; historical token values cannot be retrieved.
+proofs; historical token values cannot be retrieved. Each token's page shows the SCIM base URL to
+configure in the identity provider and a SCIM diagnostics panel: request counts for the last day and
+week, the kinds of failure with their last detail, and every request with its outcome and trace id.
 
 Lifecycle automation is managed at `/admin-v2/profile-mappings` and `/admin-v2/group-rules`. Profile
-mappings bind a dot-separated SCIM path (URN extensions included) to an active universal-profile
+mappings bind a SCIM attribute path (sub-attributes, value filters and extension URNs) to an active universal-profile
 attribute, can be validated before they are created, and expose a simulation panel that resolves the
 path against an operator-supplied SCIM document without persisting anything. Group rules compare a
 profile attribute with an expected value (`eq`, `ne`, `in`, `contains`, `startsWith`, `gt`, `gte`,
@@ -666,10 +668,36 @@ integrations that host their own callback; it runs the same access policy and MF
 ### SCIM and lifecycle automation
 
 Provisioning tokens are created at `/api/provisioning-tokens`; the raw value is returned once.
-Send it as `Authorization: Bearer acp_...` to `/scim/v2/Users` or `/scim/v2/Groups`. Tokens are
-application-bound and use separate read/write scopes. Filters support bounded `userName`,
-`externalId`, or `displayName eq`; pagination accepts `startIndex` and `count` up to 200. DELETE
-deprovisions rather than erasing identity history.
+Send it as `Authorization: Bearer acp_...` to the SCIM 2.0 endpoints under `/scim/v2`. Tokens are
+application-bound and use separate read/write scopes: a revoked or expired token answers 401, a
+token without the operation's scope 403 (`WWW-Authenticate: Bearer error="insufficient_scope"`).
+
+- Discovery: `ServiceProviderConfig`, `ResourceTypes` and `Schemas` (core User and Group, and the
+  enterprise User extension) are public.
+- Users and Groups support GET, POST, PUT (replace), PATCH and DELETE. PATCH accepts the shapes
+  identity providers send: operations with a path (`name.givenName`, `emails[type eq "work"].value`,
+  `urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department`, `members[value eq "id"]`)
+  and without one (an object of attributes, extension URNs flattened or nested); `op` is
+  case-insensitive and `active` may come as text. Removing members with a value list, replacing the
+  whole list and adding to it all work. PUT replaces the resource (an omitted `externalId` or mapped
+  attribute is cleared; an omitted `active` is kept). DELETE deprovisions rather than erasing identity
+  history.
+- Lists filter with `userName`, `emails`, `externalId`, `displayName` or `id` `eq`, sort with
+  `sortBy`/`sortOrder` (`userName`, `displayName`, `externalId`, `id`, `meta.created`,
+  `meta.lastModified`) and page with `startIndex`/`count` (at most 200; `count=0` returns only the
+  total). `attributes` and `excludedAttributes` project any response.
+- Every resource carries `meta.version`, also sent as a weak `ETag`: `If-None-Match` answers 304 to a
+  GET of an unchanged resource, and `If-Match` on PUT, PATCH or DELETE answers 412 when the resource
+  changed since. Creations answer 201 with `Location`.
+- Attributes AuthCenter does not keep are ignored unless a profile mapping of the application reads
+  them; mapped attributes are validated against the profile schema (`invalidValue` otherwise), returned
+  at their SCIM path and part of the resource version. User writes are atomic.
+
+Each request made with a known token is recorded for the console (`GET
+/api/provisioning-tokens/{id}/diagnostics` summarizes the last 24 hours and 7 days and the kinds of
+failure; `GET /api/provisioning-tokens/{id}/requests?outcome=failed` lists them) with method, path,
+status, SCIM error type and detail, duration and trace id, never the payload. Records are kept for
+`Retention:TokenHistoryDays`.
 
 `GET /api/provisioning-tokens` and `GET /api/provisioning-tokens/{id}` return only metadata,
 including application, scopes, lifecycle status, expiration and last use. Rotation and revocation

@@ -34,6 +34,42 @@ public sealed class AdminTransactionsRelationalTests
         await AssertOkAsync(await admin.DeleteAsync($"/api/users/{userId}"));
     }
 
+    [RelationalFact]
+    public async Task ScimUserWrites_AreAtomic()
+    {
+        const string enterprise = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
+        const string employeeNumber = $"{enterprise}:employeeNumber";
+        await using var factory = new SqlServerWebApplicationFactory();
+        using var admin = await CreateAdminClientAsync(factory);
+        var applicationId = await DataIdAsync(await admin.GetAsync("/api/applications?page=1&pageSize=1"), items: true);
+        var definitionId = await DataIdAsync(await admin.PostAsJsonAsync("/api/profile-schema", new { key = $"level-{Guid.NewGuid():N}"[..20], displayName = "Level", dataType = "Integer" }));
+        await DataIdAsync(await admin.PostAsJsonAsync("/api/lifecycle/profile-mappings", new { applicationSystemId = applicationId, sourcePath = employeeNumber, targetAttributeDefinitionId = definitionId }));
+        var token = JsonDocument.Parse(await (await admin.PostAsJsonAsync("/api/provisioning-tokens", new { applicationSystemId = applicationId, name = "relational", scopes = new[] { "scim.users.read", "scim.users.write" }, expiresAt = DateTime.UtcNow.AddHours(1) })).Content.ReadAsStringAsync())
+            .RootElement.GetProperty("data").GetProperty("token").GetString();
+        using var scim = factory.CreateClient();
+        scim.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // A refused mapped value leaves no user behind.
+        var refusedEmail = $"refused-{Guid.NewGuid():N}@example.com";
+        Assert.Equal(HttpStatusCode.BadRequest, (await scim.PostAsJsonAsync("/scim/v2/Users", new Dictionary<string, object> { ["userName"] = refusedEmail, [enterprise] = new { employeeNumber = "many" } })).StatusCode);
+        var search = await scim.GetAsync($"/scim/v2/Users?filter={Uri.EscapeDataString($"userName eq \"{refusedEmail}\"")}");
+        Assert.Equal(0, JsonDocument.Parse(await search.Content.ReadAsStringAsync()).RootElement.GetProperty("totalResults").GetInt32());
+
+        // Nor a half-applied change: the new userName is rolled back with the refused value.
+        var email = $"atomic-{Guid.NewGuid():N}@example.com";
+        var created = await scim.PostAsJsonAsync("/scim/v2/Users", new Dictionary<string, object> { ["userName"] = email, [enterprise] = new { employeeNumber = 7 } });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString();
+        var patch = new HttpRequestMessage(HttpMethod.Patch, $"/scim/v2/Users/{id}")
+        {
+            Content = JsonContent.Create(new { Operations = new object[] { new { op = "replace", path = "userName", value = $"renamed-{email}" }, new { op = "replace", path = employeeNumber, value = "many" } } })
+        };
+        Assert.Equal(HttpStatusCode.BadRequest, (await scim.SendAsync(patch)).StatusCode);
+        var user = JsonDocument.Parse(await (await scim.GetAsync($"/scim/v2/Users/{id}")).Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal(email, user.GetProperty("userName").GetString());
+        Assert.Equal(7, user.GetProperty(enterprise).GetProperty("employeeNumber").GetInt32());
+    }
+
     private static async Task AssertOkAsync(HttpResponseMessage response)
     {
         var body = await response.Content.ReadAsStringAsync();

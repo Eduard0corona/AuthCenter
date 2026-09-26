@@ -8,6 +8,22 @@ public sealed class ProvisioningTokenConfiguration : IEntityTypeConfiguration<Pr
 {
     public void Configure(EntityTypeBuilder<ProvisioningToken> b) { b.ToTable("ProvisioningTokens"); b.HasKey(x => x.Id); b.Property(x => x.Name).HasMaxLength(150).IsRequired(); b.Property(x => x.TokenHash).HasMaxLength(64).IsRequired(); b.Property(x => x.ScopesJson).HasMaxLength(1000); b.HasIndex(x => x.TokenHash).IsUnique(); b.HasIndex(x => new { x.ApplicationSystemId, x.ExpiresAt }); b.HasOne(x => x.ApplicationSystem).WithMany().HasForeignKey(x => x.ApplicationSystemId).OnDelete(DeleteBehavior.Cascade); }
 }
+public sealed class ScimRequestLogConfiguration : IEntityTypeConfiguration<ScimRequestLog>
+{
+    public void Configure(EntityTypeBuilder<ScimRequestLog> b)
+    {
+        b.ToTable("ScimRequestLogs");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Method).HasMaxLength(10);
+        b.Property(x => x.Path).HasMaxLength(300);
+        b.Property(x => x.ScimType).HasMaxLength(40);
+        b.Property(x => x.Detail).HasMaxLength(500);
+        b.Property(x => x.TraceId).HasMaxLength(64);
+        b.HasIndex(x => new { x.ProvisioningTokenId, x.CreatedAt });
+        b.HasIndex(x => x.CreatedAt);
+        b.HasOne(x => x.ProvisioningToken).WithMany().HasForeignKey(x => x.ProvisioningTokenId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
 public sealed class ScimResourceLinkConfiguration : IEntityTypeConfiguration<ScimResourceLink>
 {
     public void Configure(EntityTypeBuilder<ScimResourceLink> b) { b.ToTable("ScimResourceLinks"); b.HasKey(x => x.Id); b.Property(x => x.ResourceType).HasMaxLength(20); b.Property(x => x.ExternalId).HasMaxLength(300); b.HasIndex(x => new { x.ApplicationSystemId, x.ResourceType, x.ResourceId }).IsUnique(); b.HasIndex(x => new { x.ApplicationSystemId, x.ResourceType, x.ExternalId }).IsUnique().HasFilter("[ExternalId] IS NOT NULL"); b.HasOne(x => x.ApplicationSystem).WithMany().HasForeignKey(x => x.ApplicationSystemId).OnDelete(DeleteBehavior.Cascade); }

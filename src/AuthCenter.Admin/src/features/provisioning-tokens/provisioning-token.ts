@@ -52,3 +52,28 @@ export function provisioningTokenRotationPayload(values: ProvisioningTokenRotati
   const parsed = provisioningTokenRotationSchema.parse(values);
   return new Date(parsed.expiresAt).toISOString();
 }
+
+const scimOutcomes: Record<number, string> = {
+  200: "Correcta",
+  201: "Creado",
+  204: "Sin contenido",
+  304: "Sin cambios",
+  400: "Solicitud inválida",
+  401: "No autenticada",
+  403: "Sin permiso",
+  404: "No encontrado",
+  409: "Conflicto",
+  412: "Versión obsoleta",
+  500: "Error interno"
+};
+
+/** A SCIM response in words: its status and, for client errors, the SCIM error type. */
+export function describeScimOutcome(statusCode: number, scimType: string | null): string {
+  const label = scimOutcomes[statusCode] ?? (statusCode < 400 ? "Correcta" : "Error");
+  return scimType ? `${statusCode} ${label} (${scimType})` : `${statusCode} ${label}`;
+}
+
+/** The address a provisioning client is configured with; the console is served by the same host as the API. */
+export function scimBaseUrl(origin: string = window.location.origin): string {
+  return `${origin}/scim/v2`;
+}

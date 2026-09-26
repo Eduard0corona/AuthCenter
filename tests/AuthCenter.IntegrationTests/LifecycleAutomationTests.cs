@@ -40,7 +40,8 @@ public sealed class LifecycleAutomationTests : IClassFixture<AuthCenterWebApplic
         var list = await scim.GetAsync($"/scim/v2/Users?filter={Uri.EscapeDataString($"userName eq \"{email}\"")}"); list.EnsureSuccessStatusCode(); using var listJson = JsonDocument.Parse(await list.Content.ReadAsStringAsync()); Assert.Equal(1, listJson.RootElement.GetProperty("totalResults").GetInt32());
         var patch = new HttpRequestMessage(HttpMethod.Patch, $"/scim/v2/Users/{id}") { Content = JsonContent.Create(new { schemas = new[] { "urn:ietf:params:scim:api:messages:2.0:PatchOp" }, Operations = new[] { new { op = "replace", path = "active", value = false } } }) }; var patched = await scim.SendAsync(patch); patched.EnsureSuccessStatusCode(); using var patchJson = JsonDocument.Parse(await patched.Content.ReadAsStringAsync()); Assert.False(patchJson.RootElement.GetProperty("active").GetBoolean());
         Assert.Equal(HttpStatusCode.NoContent, (await scim.DeleteAsync($"/scim/v2/Users/{id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await scim.GetAsync("/scim/v2/Groups")).StatusCode);
+        // A known token without the scope is forbidden, not unauthenticated.
+        Assert.Equal(HttpStatusCode.Forbidden, (await scim.GetAsync("/scim/v2/Groups")).StatusCode);
     }
 
     [Fact]

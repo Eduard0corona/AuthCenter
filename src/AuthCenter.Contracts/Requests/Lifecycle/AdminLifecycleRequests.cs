@@ -9,6 +9,12 @@ public sealed class ProvisioningTokenQuery : PaginationQuery
     public string? Status { get; init; }
 }
 
+/// <summary>The SCIM requests of a provisioning token; <c>outcome</c> is <c>succeeded</c> or <c>failed</c>.</summary>
+public sealed class ScimRequestLogQuery : PaginationQuery
+{
+    public string? Outcome { get; init; }
+}
+
 public sealed class UpdateEventHookRequest
 {
     public string Name { get; init; } = string.Empty;

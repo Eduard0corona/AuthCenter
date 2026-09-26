@@ -15,8 +15,9 @@ import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
 import { formatDate } from "../../utils/format";
 import { SecretRevealDialog } from "../oauth-clients/SecretRevealDialog";
-import { defaultExpiration, provisioningScopes, provisioningTokenDefaults, provisioningTokenPayload, provisioningTokenRotationPayload, provisioningTokenRotationSchema, provisioningTokenSchema, type ProvisioningTokenFormValues, type ProvisioningTokenRotationValues } from "./provisioning-token";
+import { defaultExpiration, provisioningScopes, scimBaseUrl, provisioningTokenDefaults, provisioningTokenPayload, provisioningTokenRotationPayload, provisioningTokenRotationSchema, provisioningTokenSchema, type ProvisioningTokenFormValues, type ProvisioningTokenRotationValues } from "./provisioning-token";
 import { TokenStatus } from "./ProvisioningTokensPage";
+import { ScimDiagnosticsPanel } from "./ScimDiagnosticsPanel";
 
 type SensitiveAction = "rotate" | "revoke" | null;
 
@@ -110,10 +111,11 @@ function ProvisioningTokenEditorPage({ create }: { create: boolean }) {
     </form> : current ? <>
       <section className="settings-panel" aria-labelledby="provisioning-token-detail">
         <div className="settings-panel__heading"><div><h2 id="provisioning-token-detail">Metadatos</h2><p>Estos datos permiten operar la credencial sin exponer el token original.</p></div><TokenStatus status={current.status} /></div>
-        <dl className="profile-summary"><div><dt>Aplicación</dt><dd>{current.applicationName}</dd></div><div><dt>Creado</dt><dd>{formatDate(current.createdAt)}</dd></div><div><dt>Expira</dt><dd>{formatDate(current.expiresAt)}</dd></div><div><dt>Último uso</dt><dd>{formatDate(current.lastUsedAt)}</dd></div></dl>
+        <dl className="profile-summary"><div><dt>Aplicación</dt><dd>{current.applicationName}</dd></div><div><dt>Creado</dt><dd>{formatDate(current.createdAt)}</dd></div><div><dt>Expira</dt><dd>{formatDate(current.expiresAt)}</dd></div><div><dt>Último uso</dt><dd>{formatDate(current.lastUsedAt)}</dd></div><div><dt>URL base SCIM</dt><dd className="mono">{scimBaseUrl()}</dd></div></dl>
         <div><p className="field-help">Scopes efectivos</p><div className="button-group" aria-label="Scopes efectivos">{current.scopes.map((scope) => <span className="tag mono" key={scope}>{scope}</span>)}</div></div>
         <p className="alert alert--info">AuthCenter almacena únicamente el hash de esta credencial; el valor original no puede recuperarse.</p>
       </section>
+      <ScimDiagnosticsPanel tokenId={current.id} />
       {canWrite && current.status === "active" ? <section className="settings-panel settings-panel--actions" aria-labelledby="provisioning-token-actions"><div className="settings-panel__heading"><div><h2 id="provisioning-token-actions">Rotación y revocación</h2><p>Ambas acciones requieren reautenticación y consumen una prueba de un solo uso.</p></div></div><div className="form-grid"><Field label="Expiración del reemplazo" error={rotationForm.formState.errors.expiresAt?.message} help="La rotación revoca esta credencial de inmediato."><input type="datetime-local" {...rotationForm.register("expiresAt")} /></Field></div><div className="button-group"><button className="button button--secondary" type="button" onClick={() => void rotationForm.handleSubmit(() => { rotate.reset(); setSensitiveAction("rotate"); })()}>Rotar token</button><button className="button button--danger-quiet" type="button" onClick={() => { revoke.reset(); setSensitiveAction("revoke"); }}>Revocar token</button></div>{actionError ? <p className="alert alert--error" role="alert">{errorMessage(actionError)}</p> : null}</section> : null}
     </> : null}
     <ReauthenticationDialog open={sensitiveAction !== null} purpose={sensitiveAction === "rotate" ? "admin.provisioning-token.rotate" : "admin.provisioning-token.revoke"} title={sensitiveAction === "rotate" ? "Rotar provisioning token" : "Revocar provisioning token"} detail={sensitiveAction === "rotate" ? "La credencial actual dejará de funcionar de inmediato y el reemplazo se mostrará una sola vez." : "La credencial dejará de autenticar solicitudes SCIM de inmediato. Esta acción no se puede deshacer."} confirmLabel={sensitiveAction === "rotate" ? "Verificar y rotar" : "Verificar y revocar"} dangerous={sensitiveAction === "revoke"} onCancel={() => setSensitiveAction(null)} onProof={async (proof) => { if (sensitiveAction === "rotate") await rotate.mutateAsync({ proofToken: proof, values: rotationForm.getValues() }); else if (sensitiveAction === "revoke") await revoke.mutateAsync(proof); }} />

@@ -286,6 +286,42 @@ export interface ProvisioningTokenMetadata {
   revokedAt: string | null;
 }
 
+export interface ScimRequestCounts {
+  total: number;
+  failed: number;
+}
+
+export interface ScimFailureSummary {
+  statusCode: number;
+  scimType: string | null;
+  count: number;
+  lastAt: string;
+  lastDetail: string | null;
+}
+
+/** How a provisioning token's SCIM integration is doing, from the requests it made (never their payloads). */
+export interface ScimDiagnostics {
+  tokenId: string;
+  lastUsedAt: string | null;
+  lastSucceededAt: string | null;
+  lastFailedAt: string | null;
+  last24Hours: ScimRequestCounts;
+  last7Days: ScimRequestCounts;
+  failures: ScimFailureSummary[];
+}
+
+export interface ScimRequestLogEntry {
+  id: string;
+  createdAt: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  scimType: string | null;
+  detail: string | null;
+  durationMs: number;
+  traceId: string | null;
+}
+
 export interface ProvisioningTokenCreated {
   id: string;
   token: string;
