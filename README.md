@@ -365,6 +365,7 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 | POST | `/oauth/authorize/complete` | Grant consent and issue the code |
 | GET | `/oauth/authorize/response/{responseId}` | One-time `form_post` delivery page for the browser that completed the interaction |
 | POST | `/oauth/interactions/{interactionId}/step-up` | Hosted login only: start the MFA or passkey step-up the client's application requires |
+| POST | `/oauth/introspect` | RFC 7662 introspection for confidential clients and the APIs a token was issued for |
 | GET/POST | `/oauth/logout` | OpenID Connect RP-initiated logout (`end_session_endpoint`) |
 | GET | `/oauth/logout/{logoutId}` | Hosted logout page context, only for the browser that started the request |
 | POST | `/oauth/logout/{logoutId}/confirm` | The user confirms a sign-out AuthCenter could not verify on its own |
@@ -376,6 +377,8 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 | PUT | `/api/oauth/clients/{clientId}` | Update a client |
 | POST | `/api/oauth/clients/{clientId}/rotate-secret` | Rotate the client secret |
 | DELETE | `/api/oauth/clients/{clientId}` | Deactivate a client |
+| GET/POST | `/api/api-resources` | List or register APIs (RFC 8707 resources) and their scopes |
+| GET/PUT | `/api/api-resources/{id}` | Read or update an API, its status and complete scope list |
 
 `/oauth/userinfo` accepts only access tokens issued by `/oauth/token`; first-party login tokens are
 rejected because they are not scoped to an OAuth client.
@@ -401,6 +404,20 @@ setting, the user's own MFA and the least demanding supported `acr_values`. A de
 to the client as `access_denied`; a weaker session is stepped up in the hosted login (second
 factor or passkey) without signing in again, and `prompt=none` reports `login_required` instead.
 OAuth refresh re-checks access and the published policy and revokes the grant family on denial.
+
+**APIs (resources).** Register each API in the catalog with an absolute URI identifier (for
+example `https://orders.example.com/api`), its scopes (unique across APIs) and the application
+that owns it. Clients are allowed API scopes like any other scope. An authorization or token
+request with API scopes (and optionally `resource`, RFC 8707) yields an access token whose
+audience is that API, plus `urn:authcenter:userinfo` when `openid` was granted, carrying the roles
+and permissions of the API's application; the user needs access to that application. One token
+has one API audience: a grant for several APIs names one with `resource` at the token endpoint
+(also on refresh). `client_credentials` accepts `resource` the same way. Token exchange
+(`urn:ietf:params:oauth:grant-type:token-exchange`, RFC 8693) lets a confidential client of the
+API's application trade the user token it received for a token to another API, with an `act`
+claim naming it and never outliving the original. `/oauth/introspect` (RFC 7662) reports a token
+active only to its client or the APIs of the caller's application, and only while the user and the
+single sign-on session behind it are still active.
 
 **Logout.** Register each client's exact `PostLogoutRedirectUris` and, optionally, a
 `BackchannelLogoutUri`. `/oauth/logout` accepts `id_token_hint`, `client_id`,

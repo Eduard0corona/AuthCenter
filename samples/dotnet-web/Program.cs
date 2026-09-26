@@ -8,7 +8,10 @@ builder.Services.AddAuthCenterBff(new AuthCenterBffOptions
 {
     Authority = new Uri(section["Authority"] ?? throw new InvalidOperationException("Set AuthCenter:Authority.")),
     ClientId = section["ClientId"] ?? throw new InvalidOperationException("Set AuthCenter:ClientId."),
-    ClientSecret = section["ClientSecret"] ?? throw new InvalidOperationException("Set AuthCenter:ClientSecret in a secret store.")
+    ClientSecret = section["ClientSecret"] ?? throw new InvalidOperationException("Set AuthCenter:ClientSecret in a secret store."),
+    // Optional: the API this BFF calls (see samples/dotnet-api). Its scopes must be requested too.
+    Resource = section["Resource"],
+    Scopes = section.GetSection("Scopes").Get<string[]>() ?? ["openid", "profile", "email", "offline_access"]
 });
 builder.Services.AddAuthorization(options =>
 {

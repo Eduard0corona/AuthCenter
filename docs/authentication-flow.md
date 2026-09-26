@@ -144,6 +144,35 @@ The client must compare returned `state`, validate the ID token signature/issuer
 and compare `nonce`. Never log authorization codes, client secrets, access tokens, refresh tokens,
 PKCE verifiers or ID tokens.
 
+## APIs, token exchange and introspection
+
+```
+Client -> GET /oauth/authorize?...&scope=openid orders.read&resource=https://orders.example.com/api
+Client -> POST /oauth/token  grant_type=authorization_code ... [resource=https://orders.example.com/api]
+
+1. orders.read is an API scope of the catalog; resource, when sent, must name exactly the APIs of
+   the requested API scopes (invalid_target otherwise).
+2. The user needs access to the application that owns the API.
+3. The access token audience is the API (plus urn:authcenter:userinfo with openid) and its roles
+   and permissions are those of the API's application. A grant covering several APIs requires
+   resource at the token endpoint, including on refresh; each token has one API audience.
+
+API -> POST /oauth/token  grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+          subject_token=<user token the API received>
+          subject_token_type=urn:ietf:params:oauth:token-type:access_token
+          resource=https://shipping.example.com/api
+
+4. Only a confidential client with that grant, of the application owning the subject token's API
+   (or the client the token was issued to), can exchange it. The new token keeps the user as sub,
+   names the caller in act, is limited to the caller's scopes for the target API and never
+   outlives the subject token.
+
+API -> POST /oauth/introspect token=<token>   (client_secret_basic or client_secret_post)
+
+5. active is true only for the token's client or the APIs of the caller's application, and only
+   while the user and the single sign-on session (sid) behind the token are active.
+```
+
 ## OpenID Connect logout
 
 ```

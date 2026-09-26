@@ -118,6 +118,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<BackchannelLogoutQueue>();
         services.AddScoped<ISingleSignOnSessionService, SingleSignOnSessionService>();
         services.AddScoped<IEndSessionService, EndSessionService>();
+        services.AddScoped<IApiResourceService, ApiResourceService>();
         services.AddScoped<IAuthenticationSessionIssuer, AuthenticationSessionIssuer>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<ITransientStateStore, TransientStateStore>();

@@ -251,6 +251,44 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
     }
 
     [Fact]
+    public async Task Bff_WithAResource_CallsTheApiWithTheApisAudienceAndPermissions()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var api = await CreateOrdersApiAsync(admin);
+        var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access", api.ReadScope], ["authorization_code", "refresh_token"]);
+        var logs = new List<string>();
+        await using var bff = await StartBffAsync(clientId, secret, logs, api.Identifier, ["openid", "profile", "email", "offline_access", api.ReadScope]);
+        using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
+        {
+            BaseAddress = new Uri(BffOrigin)
+        };
+
+        var callback = await SignInThroughBffAsync(browser, admin, "/auth/login");
+        Assert.True(callback.StatusCode == HttpStatusCode.Redirect, string.Join(Environment.NewLine, logs));
+        using var session = JsonDocument.Parse(await browser.GetStringAsync("/auth/session"));
+        Assert.Contains(api.Permission, session.RootElement.GetProperty("user").GetProperty("permissions").EnumerateArray().Select(item => item.GetString()));
+        var accessToken = await browser.GetStringAsync("/api-token");
+
+        await using var orders = await StartOrdersApiAsync(api.Identifier, api.ReadScope, api.Permission);
+        using var ordersClient = orders.GetTestServer().CreateClient();
+        ordersClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        Assert.Equal(HttpStatusCode.OK, (await ordersClient.GetAsync("/orders")).StatusCode);
+
+        // The API's own client inspects the token it received and exchanges it for another API.
+        var apiClient = CreateSdkClient(api.ApiClientId, api.ApiClientSecret, []);
+        var introspection = await apiClient.IntrospectAsync(accessToken);
+        Assert.True(introspection.Active);
+        Assert.Contains(api.Identifier, introspection.Audience!);
+        var exchanged = await apiClient.ExchangeTokenAsync(accessToken, api.ShippingIdentifier);
+        Assert.Equal("urn:ietf:params:oauth:token-type:access_token", exchanged.IssuedTokenType);
+        Assert.Equal(api.ShippingIdentifier, Assert.Single(new JwtSecurityTokenHandler().ReadJwtToken(exchanged.AccessToken).Audiences));
+
+        // A machine token for the API through the SDK.
+        var machine = await apiClient.ClientCredentialsForResourceAsync(api.Identifier, [api.ReadScope]);
+        Assert.Equal(api.Identifier, Assert.Single(new JwtSecurityTokenHandler().ReadJwtToken(machine.AccessToken).Audiences));
+    }
+
+    [Fact]
     public async Task ResourceApi_ValidatesTypeAudienceRolesPermissionsAndScopes()
     {
         using var admin = await CreateAdminClientAsync();
@@ -388,7 +426,7 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
         return (clientId, json.RootElement.GetProperty("data").GetProperty("clientSecret").GetString()!);
     }
 
-    private async Task<WebApplication> StartBffAsync(string clientId, string secret, List<string> logs)
+    private async Task<WebApplication> StartBffAsync(string clientId, string secret, List<string> logs, string? resource = null, IReadOnlyList<string>? scopes = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
         builder.WebHost.UseTestServer(options => options.BaseAddress = new Uri(BffOrigin));
@@ -398,7 +436,9 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
         {
             Authority = new Uri(HttpsAuthCenterFactory.Authority),
             ClientId = clientId,
-            ClientSecret = secret
+            ClientSecret = secret,
+            Resource = resource,
+            Scopes = scopes ?? ["openid", "profile", "email", "offline_access"]
         });
         builder.Services.Configure<OpenIdConnectOptions>(
             AuthCenterBffDefaults.OpenIdConnectScheme,
@@ -410,6 +450,9 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapAuthCenterBff();
+        // Test-only: exposes the session's access token so the test can play the downstream API call.
+        app.MapGet("/api-token", [Authorize(AuthenticationSchemes = AuthCenterBffDefaults.CookieScheme)] async (HttpContext context, IAuthCenterBffSessionManager sessions) =>
+            Results.Text(await sessions.GetAccessTokenAsync(context)));
         app.MapGet("/whoami", [Authorize(AuthenticationSchemes = AuthCenterBffDefaults.CookieScheme)] (HttpContext context) => Results.Ok(new
         {
             isInRole = context.User.IsInRole(DomainConstants.Roles.SuperAdmin),
@@ -440,6 +483,87 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
         app.MapGet("/role", () => "ok").RequireAuthorization("role");
         app.MapGet("/permission", () => "ok").RequireAuthorization("permission");
         app.MapGet("/scope", () => "ok").RequireAuthorization("scope");
+        await app.StartAsync();
+        return app;
+    }
+
+    private sealed record OrdersApi(string Identifier, string ReadScope, string Permission, string ShippingIdentifier, string ApiClientId, string ApiClientSecret);
+
+    /// <summary>
+    /// An Orders application with an Orders API and a Shipping API, a permission granted to the
+    /// seeded administrator there, and the Orders API's own confidential client.
+    /// </summary>
+    private async Task<OrdersApi> CreateOrdersApiAsync(HttpClient admin)
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var code = "SDKORD" + suffix.ToUpperInvariant();
+        var created = await admin.PostAsJsonAsync("/api/applications", new { Code = code, Name = "SDK orders " + code, RegistrationMode = "Closed" });
+        using var createdJson = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var applicationId = createdJson.RootElement.GetProperty("data").GetProperty("id").GetGuid();
+        var identifier = $"https://orders-{suffix}.sdk.test/api";
+        var shipping = $"https://shipping-{suffix}.sdk.test/api";
+        var readScope = $"orders{suffix}.read";
+        var shippingScope = $"shipping{suffix}.read";
+        foreach (var (resource, scope) in new[] { (identifier, readScope), (shipping, shippingScope) })
+        {
+            var response = await admin.PostAsJsonAsync("/api/api-resources", new { ApplicationSystemId = applicationId, Identifier = resource, DisplayName = resource, Scopes = new[] { new { Name = scope, DisplayName = scope } } });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        var apiClient = await admin.PostAsJsonAsync("/api/oauth/clients", new
+        {
+            ApplicationSystemId = applicationId,
+            ClientId = $"orders-api-{suffix}",
+            DisplayName = "Orders API",
+            ClientType = 0,
+            RedirectUris = Array.Empty<string>(),
+            AllowedScopes = new[] { readScope, shippingScope },
+            GrantTypes = new[] { "client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange" },
+            LoginUrl = $"{HttpsAuthCenterFactory.Authority}/login",
+            RequirePkce = false
+        });
+        var apiClientBody = await apiClient.Content.ReadAsStringAsync();
+        Assert.True(apiClient.IsSuccessStatusCode, apiClientBody);
+        using var apiClientJson = JsonDocument.Parse(apiClientBody);
+
+        var permission = $"ORDERS_{suffix.ToUpperInvariant()}_READ";
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+            var adminId = await db.Users.Where(user => user.Email == AuthCenterWebApplicationFactory.AdminEmail).Select(user => user.Id).SingleAsync();
+            db.UserApplicationAccesses.Add(new AuthCenter.Domain.Entities.UserApplicationAccess { Id = Guid.NewGuid(), UserId = adminId, ApplicationSystemId = applicationId, IsActive = true, CreatedAt = DateTime.UtcNow });
+            var entity = new AuthCenter.Domain.Entities.Permission { Id = Guid.NewGuid(), ApplicationSystemId = applicationId, Code = permission, Name = "Read orders", IsActive = true, CreatedAt = DateTime.UtcNow };
+            var role = new AuthCenter.Domain.Entities.ApplicationRole { Id = Guid.NewGuid(), Name = $"SDK_ORDERS_{suffix}", NormalizedName = $"SDK_ORDERS_{suffix}".ToUpperInvariant(), DisplayName = "Orders reader", ApplicationSystemId = applicationId, IsActive = true, CreatedAt = DateTime.UtcNow };
+            db.Permissions.Add(entity);
+            db.Roles.Add(role);
+            db.RolePermissions.Add(new AuthCenter.Domain.Entities.RolePermission { RoleId = role.Id, PermissionId = entity.Id, CreatedAt = DateTime.UtcNow });
+            db.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<Guid> { UserId = adminId, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        }
+
+        return new OrdersApi(identifier, readScope, permission, shipping,
+            apiClientJson.RootElement.GetProperty("data").GetProperty("client").GetProperty("clientId").GetString()!,
+            apiClientJson.RootElement.GetProperty("data").GetProperty("clientSecret").GetString()!);
+    }
+
+    /// <summary>The documented resource-server setup (samples/dotnet-api): audience, scope and permission.</summary>
+    private async Task<WebApplication> StartOrdersApiAsync(string audience, string scope, string permission)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddAuthentication().AddAuthCenterJwtBearer(new Uri(HttpsAuthCenterFactory.Authority), audience);
+        builder.Services.Configure<JwtBearerOptions>(
+            JwtBearerDefaults.AuthenticationScheme,
+            options => options.BackchannelHttpHandler = _factory.Server.CreateHandler());
+        builder.Services.AddAuthorization(options => options.AddPolicy("Orders.Read", policy => policy
+            .RequireAuthenticatedUser()
+            .RequireAuthCenterScope(scope)
+            .RequireAuthCenterPermission(permission)));
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapGet("/orders", () => "ok").RequireAuthorization("Orders.Read");
         await app.StartAsync();
         return app;
     }

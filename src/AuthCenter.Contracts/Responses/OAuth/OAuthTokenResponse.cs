@@ -24,4 +24,9 @@ public class OAuthTokenResponse
     [JsonPropertyName("scope")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Scope { get; init; }
+
+    /// <summary>RFC 8693: the type of the token issued by a token exchange.</summary>
+    [JsonPropertyName("issued_token_type")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IssuedTokenType { get; init; }
 }

@@ -7,7 +7,6 @@ namespace AuthCenter.Application.Validators;
 
 public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthClientRequest>
 {
-    private static readonly string[] ValidGrantTypes = ["authorization_code", "client_credentials", "refresh_token"];
 
     public CreateOAuthClientRequestValidator()
     {
@@ -61,8 +60,8 @@ public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthCl
 
         RuleFor(x => x.AllowedScopes)
             .NotEmpty().WithMessage("At least one scope must be allowed.")
-            .Must(scopes => scopes.All(s => DomainConstants.OAuthScopes.All.Contains(s)))
-            .WithMessage($"Allowed scopes must be a subset of: {string.Join(", ", DomainConstants.OAuthScopes.All)}");
+            .Must(scopes => scopes.All(s => DomainConstants.OAuthScopes.All.Contains(s) || ApiResourceValidationRules.IsApiScopeName(s)))
+            .WithMessage($"Allowed scopes must be OpenID Connect scopes ({string.Join(", ", DomainConstants.OAuthScopes.All)}) or API scopes registered in the API catalog.");
 
         RuleFor(x => x.AllowedScopes)
             .Must(OAuthClientValidationRules.HasUniqueValues)
@@ -70,8 +69,8 @@ public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthCl
 
         RuleFor(x => x.GrantTypes)
             .NotEmpty().WithMessage("At least one grant type is required.")
-            .Must(g => g.All(t => ValidGrantTypes.Contains(t)))
-            .WithMessage("Grant types must be one of: authorization_code, client_credentials, refresh_token.");
+            .Must(g => g.All(t => DomainConstants.OAuthGrantTypes.All.Contains(t)))
+            .WithMessage($"Grant types must be one of: {string.Join(", ", DomainConstants.OAuthGrantTypes.All)}.");
 
         RuleFor(x => x.GrantTypes)
             .Must(OAuthClientValidationRules.HasUniqueValues)
@@ -93,6 +92,11 @@ public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthCl
             .NotEqual((int)OAuthClientType.Public)
             .When(x => x.GrantTypes.Contains("client_credentials"))
             .WithMessage("Public clients cannot use client_credentials.");
+
+        RuleFor(x => x.ClientType)
+            .NotEqual((int)OAuthClientType.Public)
+            .When(x => x.GrantTypes.Contains(DomainConstants.OAuthGrantTypes.TokenExchange))
+            .WithMessage("Public clients cannot use token exchange.");
 
         RuleFor(x => x.GrantTypes)
             .Must(g => !g.Contains("refresh_token") || g.Contains("authorization_code"))

@@ -15,6 +15,9 @@ public class RefreshToken
 
     public string? OAuthClientId { get; set; }
     public string? GrantedScopes { get; set; }
+
+    /// <summary>For OAuth grants: space-separated API resource identifiers the grant covers.</summary>
+    public string? GrantedResources { get; set; }
     public Guid? TokenFamilyId { get; set; }
     public DateTime? AbsoluteExpiresAt { get; set; }
 

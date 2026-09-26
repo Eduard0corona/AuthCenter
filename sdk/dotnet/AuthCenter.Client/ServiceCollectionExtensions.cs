@@ -146,6 +146,8 @@ public static class ServiceCollectionExtensions
             oidc.CallbackPath = options.CallbackPath;
             oidc.SignedOutCallbackPath = options.SignedOutCallbackPath;
             oidc.SignedOutRedirectUri = "/";
+            if (options.Resource is not null)
+                oidc.Resource = options.Resource;
             oidc.EventsType = typeof(AuthCenterOpenIdConnectEvents);
             oidc.Scope.Clear();
             foreach (var scope in options.Scopes.Distinct(StringComparer.Ordinal)) oidc.Scope.Add(scope);

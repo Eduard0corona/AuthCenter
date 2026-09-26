@@ -19,6 +19,12 @@ public sealed class AuthCenterBffOptions
 
     /// <summary>Receives OpenID Connect back-channel logout tokens; register it as the client's back-channel logout URI.</summary>
     public string BackchannelLogoutPath { get; init; } = "/auth/backchannel-logout";
+    /// <summary>
+    /// RFC 8707 resource indicator of the API the BFF calls with the user's token. Its access
+    /// token then has that API as audience; include the API's scopes in <see cref="Scopes"/>.
+    /// </summary>
+    public string? Resource { get; init; }
+
     public TimeSpan SessionLifetime { get; init; } = TimeSpan.FromHours(8);
     public TimeSpan RefreshBeforeExpiration { get; init; } = TimeSpan.FromMinutes(1);
 
@@ -43,6 +49,9 @@ public sealed class AuthCenterBffOptions
             throw new ArgumentOutOfRangeException(nameof(SessionLifetime));
         if (RefreshBeforeExpiration < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(RefreshBeforeExpiration));
+        if (Resource is not null &&
+            (!Uri.TryCreate(Resource, UriKind.Absolute, out var resource) || !string.IsNullOrEmpty(resource.Fragment)))
+            throw new ArgumentException("The resource must be an absolute URI without a fragment.", nameof(Resource));
 
         ValidatePath(CallbackPath, nameof(CallbackPath));
         ValidatePath(LoginPath, nameof(LoginPath));

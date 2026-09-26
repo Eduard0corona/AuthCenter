@@ -6,6 +6,7 @@ using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using AuthCenter.Domain.Constants;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -46,7 +47,10 @@ public class OAuthController : ControllerBase
 
     private async Task<IActionResult> AuthorizeAsync(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> parameters, CancellationToken ct)
     {
-        var values = parameters.ToDictionary(item => item.Key, item => item.Value.ToString(), StringComparer.Ordinal);
+        var parameterList = parameters.ToList();
+        var values = parameterList.ToDictionary(item => item.Key, item => item.Value.ToString(), StringComparer.Ordinal);
+        // RFC 8707: resource may repeat, once per API.
+        var resources = parameterList.Where(item => item.Key == "resource").SelectMany(item => item.Value).OfType<string>().ToList();
         string? Value(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value : null;
         var request = new AuthorizeRequest
         {
@@ -66,7 +70,8 @@ public class OAuthController : ControllerBase
             ResponseMode = Value("response_mode"),
             UiLocales = Value("ui_locales"),
             Request = Value("request"),
-            RequestUri = Value("request_uri")
+            RequestUri = Value("request_uri"),
+            Resources = resources
         };
 
         // The hosted-login cookie is SameSite=Lax, so it reaches this top-level navigation and an
@@ -284,6 +289,10 @@ public class OAuthController : ControllerBase
         if (!credentials.IsValid)
             return OAuthError("invalid_client", credentials.Error!, StatusCodes.Status401Unauthorized);
 
+        // One token has one API audience; several resource parameters cannot be honoured at once.
+        if (form["resource"].Count > 1 || form["audience"].Count > 1)
+            return OAuthError("invalid_target", "Request one resource per token.", StatusCodes.Status400BadRequest);
+
         var request = new OAuthTokenRequest
         {
             GrantType = form["grant_type"],
@@ -293,7 +302,12 @@ public class OAuthController : ControllerBase
             ClientSecret = credentials.ClientSecret,
             CodeVerifier = form["code_verifier"],
             Scope = form["scope"],
-            RefreshToken = form["refresh_token"]
+            RefreshToken = form["refresh_token"],
+            Resource = form["resource"].FirstOrDefault(),
+            SubjectToken = form["subject_token"],
+            SubjectTokenType = form["subject_token_type"],
+            RequestedTokenType = form["requested_token_type"],
+            Audience = form["audience"].FirstOrDefault()
         };
 
         OperationResult<OAuthTokenResponse> result = request.GrantType switch
@@ -301,6 +315,7 @@ public class OAuthController : ControllerBase
             "authorization_code" => await _oAuthService.ExchangeCodeAsync(request, ct),
             "client_credentials" => await _oAuthService.ClientCredentialsAsync(request, ct),
             "refresh_token" => await _oAuthService.RefreshOAuthTokenAsync(request, ct),
+            DomainConstants.OAuthGrantTypes.TokenExchange => await _oAuthService.TokenExchangeAsync(request, ct),
             _ => OperationResult<OAuthTokenResponse>.Failure(
                 "UNSUPPORTED_GRANT_TYPE",
                 $"Grant type '{request.GrantType}' is not supported.")
@@ -314,6 +329,35 @@ public class OAuthController : ControllerBase
                     ? StatusCodes.Status401Unauthorized
                     : StatusCodes.Status400BadRequest);
 
+        return Ok(result.Data!);
+    }
+
+    /// <summary>RFC 7662 token introspection for confidential clients and the APIs a token is for.</summary>
+    [HttpPost("introspect")]
+    [EnableRateLimiting(RateLimitingExtensions.OAuthToken)]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> Introspect(CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var form = await Request.ReadFormAsync(ct);
+        var credentials = ReadClientCredentials(form);
+        if (!credentials.IsValid)
+            return OAuthError("invalid_client", credentials.Error!, StatusCodes.Status401Unauthorized);
+
+        var result = await _oAuthService.IntrospectAsync(new OAuthIntrospectionRequest
+        {
+            Token = form["token"],
+            TokenTypeHint = form["token_type_hint"],
+            ClientId = credentials.ClientId,
+            ClientSecret = credentials.ClientSecret
+        }, ct);
+        if (!result.IsSuccess)
+            return OAuthError(
+                result.ErrorCode.ToLowerInvariant(),
+                result.Message,
+                result.ErrorCode is "INVALID_CLIENT" or "INVALID_CLIENT_CREDENTIALS" or "UNAUTHORIZED_CLIENT"
+                    ? StatusCodes.Status401Unauthorized
+                    : StatusCodes.Status400BadRequest);
         return Ok(result.Data!);
     }
 

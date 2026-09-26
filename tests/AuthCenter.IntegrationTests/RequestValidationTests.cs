@@ -28,7 +28,8 @@ public sealed class RequestValidationTests : IClassFixture<AuthCenterWebApplicat
         { "http redirect", Client(redirectUris: ["http://evil.example/callback"]) },
         { "http login url", Client(loginUrl: "http://evil.example/login") },
         { "password grant", Client(grants: ["authorization_code", "password"]) },
-        { "unknown scope", Client(scopes: ["openid", "anything"]) },
+        // Well-formed but unregistered API scopes are rejected by the catalog (ApiResourceTests).
+        { "malformed scope", Client(scopes: ["openid", "Not A Scope"]) },
         { "one-year token", Client(lifetime: 31_536_000) },
         { "no pkce", Client(requirePkce: false) },
         { "public machine client", Client(type: OAuthClientType.Public, grants: ["client_credentials"], scopes: ["email"], redirectUris: []) }

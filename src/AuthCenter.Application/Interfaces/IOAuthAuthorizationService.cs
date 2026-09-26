@@ -22,6 +22,12 @@ public interface IOAuthAuthorizationService
     Task<OperationResult<OAuthTokenResponse>> ExchangeCodeAsync(OAuthTokenRequest request, CancellationToken ct = default);
     Task<OperationResult<OAuthTokenResponse>> ClientCredentialsAsync(OAuthTokenRequest request, CancellationToken ct = default);
     Task<OperationResult<OAuthTokenResponse>> RefreshOAuthTokenAsync(OAuthTokenRequest request, CancellationToken ct = default);
+
+    /// <summary>RFC 8693: an API exchanges the user's token it received for a token to another API.</summary>
+    Task<OperationResult<OAuthTokenResponse>> TokenExchangeAsync(OAuthTokenRequest request, CancellationToken ct = default);
+
+    /// <summary>RFC 7662 token introspection for an authenticated confidential client.</summary>
+    Task<OperationResult<OAuthIntrospectionResponse>> IntrospectAsync(OAuthIntrospectionRequest request, CancellationToken ct = default);
     Task<OperationResult> RevokeTokenAsync(OAuthRevocationRequest request, CancellationToken ct = default);
     Task<OperationResult<OAuthUserInfoResponse>> GetUserInfoAsync(Guid userId, string clientId, IList<string> scopes, CancellationToken ct = default);
     Task<IReadOnlyList<OAuthConsentGrantDto>> GetConsentGrantsAsync(Guid userId, CancellationToken ct = default);

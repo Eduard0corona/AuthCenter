@@ -83,23 +83,37 @@ sólo en memoria. En cada POST anterior debe enviarlo en `X-AuthCenter-CSRF`. La
 prefijo `__Host-`, `Secure`, `HttpOnly` y `SameSite=Lax`; contiene únicamente un identificador
 aleatorio. Access, refresh e ID tokens permanecen en el ticket protegido del servidor.
 
-Para llamar una API desde el BFF sin entregar el token al browser:
+Para llamar una API desde el BFF sin entregar el token al browser, registra la API en el catálogo
+de AuthCenter (`/api/api-resources`: identificador `https://orders.example.com/api`, scope
+`orders.read`), permite ese scope al cliente del BFF y configura el recurso:
 
 ```csharp
+builder.Services.AddAuthCenterBff(new AuthCenterBffOptions
+{
+    Authority = authority,
+    ClientId = "sample-web",
+    ClientSecret = secret,
+    Resource = "https://orders.example.com/api",
+    Scopes = ["openid", "profile", "email", "offline_access", "orders.read"]
+});
 builder.Services.AddHttpClient("orders", client =>
     client.BaseAddress = new Uri(builder.Configuration["Services:Orders"]!))
     .AddHttpMessageHandler<AuthCenterBffAccessTokenHandler>();
 ```
 
-El handler renueva el token próximo a expirar y agrega `Authorization: Bearer` sólo a la llamada
-server-to-server.
+El access token tiene entonces como audiencia la API (RFC 8707) y lleva los roles y permisos de
+la aplicación dueña de la API. El handler renueva el token próximo a expirar y agrega
+`Authorization: Bearer` sólo a la llamada server-to-server.
 
 ## API de recursos
+
+La audiencia es el identificador de la API en el catálogo de AuthCenter; los permisos se definen
+en la aplicación dueña de la API:
 
 ```csharp
 var authority = new Uri(builder.Configuration["AuthCenter:Authority"]!);
 builder.Services.AddAuthentication()
-    .AddAuthCenterJwtBearer(authority, "orders-api");
+    .AddAuthCenterJwtBearer(authority, "https://orders.example.com/api");
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Orders.Read", policy => policy
@@ -117,6 +131,24 @@ audiencia y algoritmo) no puede usarse como bearer. Los roles llegan en el claim
 con `[Authorize(Roles = "...")]`, `RequireRole` e `IsInRole`; los tokens anteriores con el claim URI
 de .NET se normalizan automáticamente. Sólo mientras un AuthCenter anterior a este contrato siga
 emitiendo tokens, pasa `requireAccessTokenType: false`.
+
+### Llamar a otra API en nombre del usuario, máquina a máquina e introspección
+
+Con un cliente confidencial propio de la API (misma aplicación, grant
+`urn:ietf:params:oauth:grant-type:token-exchange` y los scopes de la API destino):
+
+```csharp
+var client = new AuthCenterClient(httpClient, new AuthCenterClientOptions
+{
+    Authority = authority, ClientId = "orders-api", ClientSecret = secret
+});
+// RFC 8693: token para Shipping con el mismo usuario y claim act = orders-api.
+var shipping = await client.ExchangeTokenAsync(userAccessToken, "https://shipping.example.com/api");
+// Token de máquina para una API concreta.
+var machine = await client.ClientCredentialsForResourceAsync("https://shipping.example.com/api", ["shipping.read"]);
+// RFC 7662: el token deja de estar activo si el usuario cierra sesión o pierde el acceso.
+var state = await client.IntrospectAsync(userAccessToken);
+```
 
 ## Requisitos de producción
 

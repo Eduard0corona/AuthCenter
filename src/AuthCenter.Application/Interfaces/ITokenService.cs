@@ -36,7 +36,9 @@ public interface ITokenService
         IList<string> roles,
         IList<string> permissions,
         int lifetimeSeconds,
-        TokenAuthentication? authentication = null);
+        TokenAuthentication? authentication = null,
+        IReadOnlyList<string>? audiences = null,
+        string? actorJson = null);
 
     string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes, TokenAuthentication? authentication = null);
 
@@ -54,6 +56,12 @@ public interface ITokenService
 
     /// <summary>An OpenID Connect back-channel logout token (typ logout+jwt) for one client.</summary>
     string GenerateLogoutToken(string clientId, Guid userId, Guid? sessionId);
+
+    /// <summary>
+    /// Validates an access token this server issued (signature, issuer, typ at+jwt and lifetime),
+    /// or returns null. The audience is left to the caller, which knows who is asking.
+    /// </summary>
+    ValidatedAccessToken? ValidateAccessToken(string token);
     string GetJwks();
 
     int AccessTokenExpiryMinutes { get; }

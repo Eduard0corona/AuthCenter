@@ -19,4 +19,7 @@ public class AuthorizeRequest
     public string? UiLocales { get; init; }
     public string? Request { get; init; }
     public string? RequestUri { get; init; }
+
+    /// <summary>RFC 8707 resource indicators (the parameter may repeat).</summary>
+    public IReadOnlyList<string> Resources { get; init; } = [];
 }

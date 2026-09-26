@@ -8,6 +8,9 @@ public class OAuthAuthorizationCode
     public Guid UserId { get; set; }
     public string RedirectUri { get; set; } = string.Empty;
     public string ScopesJson { get; set; } = "[]";
+
+    /// <summary>API resource identifiers the authorization covers (RFC 8707).</summary>
+    public string ResourcesJson { get; set; } = "[]";
     public string? CodeChallenge { get; set; }
     public string? CodeChallengeMethod { get; set; }
     public string? Nonce { get; set; }

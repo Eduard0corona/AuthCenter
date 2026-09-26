@@ -7,6 +7,9 @@ public class OAuthAuthorizationSession
     public string ClientId { get; init; } = string.Empty;
     public string RedirectUri { get; init; } = string.Empty;
     public IList<string> Scopes { get; init; } = [];
+
+    /// <summary>API resource identifiers the requested API scopes belong to (RFC 8707).</summary>
+    public IList<string> Resources { get; init; } = [];
     public string? State { get; init; }
     public string? CodeChallenge { get; init; }
     public string? CodeChallengeMethod { get; init; }

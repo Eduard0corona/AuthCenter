@@ -6,6 +6,7 @@ using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
@@ -41,6 +42,8 @@ public class OAuthClientService : IOAuthClientService
         var exists = await _db.OAuthClients.AnyAsync(c => c.ClientId == request.ClientId, ct);
         if (exists)
             return OperationResult<OAuthClientCreatedResponse>.Failure("CLIENT_ID_TAKEN", "A client with this ClientId already exists.");
+        if (await UnknownApiScopesAsync(request.AllowedScopes, ct) is { } unknown)
+            return OperationResult<OAuthClientCreatedResponse>.Failure("UNKNOWN_SCOPE", unknown);
 
         string? plainSecret = null;
         string? hashedSecret = null;
@@ -140,6 +143,10 @@ public class OAuthClientService : IOAuthClientService
             return OperationResult<OAuthClientResponse>.Failure("NOT_FOUND", "OAuth client not found.");
         if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains("client_credentials"))
             return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use client_credentials.");
+        if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains(DomainConstants.OAuthGrantTypes.TokenExchange))
+            return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use token exchange.");
+        if (await UnknownApiScopesAsync(request.AllowedScopes, ct) is { } unknown)
+            return OperationResult<OAuthClientResponse>.Failure("UNKNOWN_SCOPE", unknown);
 
         var statusChanged = client.IsActive != request.IsActive;
         client.DisplayName = request.DisplayName;
@@ -241,5 +248,16 @@ public class OAuthClientService : IOAuthClientService
             EntityId = client.ClientId,
             CreatedAt = _dateTimeProvider.UtcNow
         });
+    }
+
+    /// <summary>API scopes must exist in the catalog; OpenID Connect scopes are built in.</summary>
+    private async Task<string?> UnknownApiScopesAsync(IEnumerable<string> scopes, CancellationToken ct)
+    {
+        var apiScopes = scopes.Where(scope => !DomainConstants.OAuthScopes.All.Contains(scope)).Distinct(StringComparer.Ordinal).ToList();
+        if (apiScopes.Count == 0)
+            return null;
+        var known = await _db.ApiScopes.AsNoTracking().Where(scope => apiScopes.Contains(scope.Name)).Select(scope => scope.Name).ToListAsync(ct);
+        var unknown = apiScopes.Except(known, StringComparer.Ordinal).ToList();
+        return unknown.Count == 0 ? null : $"Unknown API scopes: {string.Join(", ", unknown)}. Register them in the API catalog first.";
     }
 }

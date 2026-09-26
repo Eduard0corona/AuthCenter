@@ -27,6 +27,8 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<DistributedRateLimitBucket> DistributedRateLimitBuckets => Set<DistributedRateLimitBucket>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<SingleSignOnSessionClient> SingleSignOnSessionClients => Set<SingleSignOnSessionClient>();
+    public DbSet<ApiResource> ApiResources => Set<ApiResource>();
+    public DbSet<ApiScope> ApiScopes => Set<ApiScope>();
     public DbSet<DirectoryGroup> DirectoryGroups => Set<DirectoryGroup>();
     public DbSet<UserGroupMembership> UserGroupMemberships => Set<UserGroupMembership>();
     public DbSet<GroupApplicationAssignment> GroupApplicationAssignments => Set<GroupApplicationAssignment>();

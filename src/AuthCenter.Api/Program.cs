@@ -192,9 +192,12 @@ try
                 OnTokenValidated = context =>
                 {
                     var clientId = context.Principal?.FindFirst("client_id")?.Value;
+                    // A token for the client itself, or a token for an API that also names UserInfo
+                    // (issued with openid), may call the OAuth endpoints of this server.
                     var audienceMatches = context.Principal?
                         .FindAll(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Aud)
-                        .Any(claim => string.Equals(claim.Value, clientId, StringComparison.Ordinal)) == true;
+                        .Any(claim => string.Equals(claim.Value, clientId, StringComparison.Ordinal) ||
+                                      string.Equals(claim.Value, AuthCenter.Domain.Constants.DomainConstants.OAuthAudiences.UserInfo, StringComparison.Ordinal)) == true;
 
                     if (string.IsNullOrWhiteSpace(clientId) || !audienceMatches)
                         context.Fail("The OAuth token audience does not match its client_id.");

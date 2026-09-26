@@ -22,6 +22,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasIndex(r => new { r.UserId, r.RevokedAt });
         builder.Property(r => r.OAuthClientId).HasMaxLength(100);
         builder.Property(r => r.GrantedScopes).HasMaxLength(1000);
+        builder.Property(r => r.GrantedResources).HasMaxLength(2000);
         builder.HasIndex(r => new { r.OAuthClientId, r.TokenFamilyId, r.RevokedAt });
         builder.Property(r => r.AuthenticationMethods).HasMaxLength(100);
         builder.HasIndex(r => new { r.SessionId, r.RevokedAt });

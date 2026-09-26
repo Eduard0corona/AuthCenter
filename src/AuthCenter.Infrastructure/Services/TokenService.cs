@@ -79,7 +79,9 @@ public class TokenService : ITokenService
         IList<string> roles,
         IList<string> permissions,
         int lifetimeSeconds,
-        TokenAuthentication? authentication = null)
+        TokenAuthentication? authentication = null,
+        IReadOnlyList<string>? audiences = null,
+        string? actorJson = null)
     {
         var creds = GetRsaSigningCredentials();
         var now = _dateTimeProvider.UtcNow;
@@ -114,10 +116,17 @@ public class TokenService : ITokenService
             {
                 claims.Add(new Claim("auth_time", ToUnixTime(authentication.AuthenticatedAt), ClaimValueTypes.Integer64));
                 claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
+                // The session lets introspection report the token inactive once the user signs out.
+                if (authentication.SessionId.HasValue)
+                    claims.Add(new Claim(JwtRegisteredClaimNames.Sid, authentication.SessionId.Value.ToString()));
             }
         }
 
-        return WriteAccessToken(creds, clientId, claims, now.AddSeconds(lifetimeSeconds));
+        // RFC 8693 section 4.1: the party acting on behalf of the subject.
+        if (actorJson is not null)
+            claims.Add(new Claim("act", actorJson, JsonClaimValueTypes.Json));
+
+        return WriteAccessToken(creds, audiences is { Count: > 0 } ? audiences : [clientId], claims, now.AddSeconds(lifetimeSeconds));
     }
 
     public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes, TokenAuthentication? authentication = null)
@@ -172,10 +181,15 @@ public class TokenService : ITokenService
 
     // Access tokens carry typ "at+jwt" (RFC 9068) so a resource server can refuse an ID token that
     // shares the same issuer, audience and algorithm.
-    private string WriteAccessToken(SigningCredentials credentials, string audience, IEnumerable<Claim> claims, DateTime expires)
+    private string WriteAccessToken(SigningCredentials credentials, string audience, IEnumerable<Claim> claims, DateTime expires) =>
+        WriteAccessToken(credentials, [audience], claims, expires);
+
+    private string WriteAccessToken(SigningCredentials credentials, IReadOnlyList<string> audiences, IEnumerable<Claim> claims, DateTime expires)
     {
         var header = new JwtHeader(credentials, null, DomainConstants.Claims.AccessTokenType);
-        var payload = new JwtPayload(_jwtSettings.Issuer, audience, claims, notBefore: null, expires: expires);
+        var payload = new JwtPayload(_jwtSettings.Issuer, audiences.Count == 1 ? audiences[0] : null, claims, notBefore: null, expires: expires);
+        if (audiences.Count > 1)
+            payload[JwtRegisteredClaimNames.Aud] = audiences.ToArray();
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
@@ -228,6 +242,38 @@ public class TokenService : ITokenService
                 subject,
                 audiences[0],
                 Guid.TryParse(principal.FindFirst(JwtRegisteredClaimNames.Sid)?.Value, out var sessionId) ? sessionId : null);
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    public ValidatedAccessToken? ValidateAccessToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 16_384 || !_keyRing.IsConfigured)
+            return null;
+        try
+        {
+            var principal = new JwtSecurityTokenHandler { MapInboundClaims = false }.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _jwtSettings.Issuer,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                RequireExpirationTime = true,
+                ClockSkew = TimeSpan.Zero,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeys = _keyRing.ValidationKeys,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                ValidTypes = [DomainConstants.Claims.AccessTokenType]
+            }, out var validated);
+            var jwt = (JwtSecurityToken)validated;
+            return new ValidatedAccessToken(
+                principal,
+                jwt.Audiences.ToList(),
+                jwt.ValidTo,
+                jwt.IssuedAt == DateTime.MinValue ? null : jwt.IssuedAt);
         }
         catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
         {

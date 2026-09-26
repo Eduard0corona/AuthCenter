@@ -6,7 +6,6 @@ namespace AuthCenter.Application.Validators;
 
 public class UpdateOAuthClientRequestValidator : AbstractValidator<UpdateOAuthClientRequest>
 {
-    private static readonly string[] ValidGrantTypes = ["authorization_code", "client_credentials", "refresh_token"];
 
     public UpdateOAuthClientRequestValidator()
     {
@@ -53,8 +52,8 @@ public class UpdateOAuthClientRequestValidator : AbstractValidator<UpdateOAuthCl
 
         RuleFor(x => x.AllowedScopes)
             .NotEmpty().WithMessage("At least one scope must be allowed.")
-            .Must(scopes => scopes.All(s => DomainConstants.OAuthScopes.All.Contains(s)))
-            .WithMessage($"Allowed scopes must be a subset of: {string.Join(", ", DomainConstants.OAuthScopes.All)}");
+            .Must(scopes => scopes.All(s => DomainConstants.OAuthScopes.All.Contains(s) || ApiResourceValidationRules.IsApiScopeName(s)))
+            .WithMessage($"Allowed scopes must be OpenID Connect scopes ({string.Join(", ", DomainConstants.OAuthScopes.All)}) or API scopes registered in the API catalog.");
 
         RuleFor(x => x.AllowedScopes)
             .Must(OAuthClientValidationRules.HasUniqueValues)
@@ -62,8 +61,8 @@ public class UpdateOAuthClientRequestValidator : AbstractValidator<UpdateOAuthCl
 
         RuleFor(x => x.GrantTypes)
             .NotEmpty().WithMessage("At least one grant type is required.")
-            .Must(g => g.All(t => ValidGrantTypes.Contains(t)))
-            .WithMessage("Grant types must be one of: authorization_code, client_credentials, refresh_token.");
+            .Must(g => g.All(t => DomainConstants.OAuthGrantTypes.All.Contains(t)))
+            .WithMessage($"Grant types must be one of: {string.Join(", ", DomainConstants.OAuthGrantTypes.All)}.");
 
         RuleFor(x => x.GrantTypes)
             .Must(OAuthClientValidationRules.HasUniqueValues)

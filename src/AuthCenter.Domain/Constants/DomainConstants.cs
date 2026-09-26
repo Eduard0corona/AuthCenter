@@ -111,4 +111,30 @@ public static class DomainConstants
 
         public static readonly IReadOnlyList<string> All = [OpenId, Profile, Email, OfflineAccess];
     }
+
+    public static class OAuthGrantTypes
+    {
+        public const string AuthorizationCode = "authorization_code";
+        public const string ClientCredentials = "client_credentials";
+        public const string RefreshToken = "refresh_token";
+
+        /// <summary>RFC 8693 token exchange, for an API calling another API on behalf of the user.</summary>
+        public const string TokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange";
+
+        public static readonly IReadOnlyList<string> All = [AuthorizationCode, ClientCredentials, RefreshToken, TokenExchange];
+    }
+
+    public static class OAuthTokenTypes
+    {
+        public const string AccessToken = "urn:ietf:params:oauth:token-type:access_token";
+    }
+
+    public static class OAuthAudiences
+    {
+        /// <summary>
+        /// Added to an access token for an API when openid was granted, so the same token can still
+        /// call the UserInfo endpoint (as the OpenID Connect handler of a client does after sign-in).
+        /// </summary>
+        public const string UserInfo = "urn:authcenter:userinfo";
+    }
 }

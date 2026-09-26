@@ -39,7 +39,8 @@ internal sealed class AuthCenterAccessTokenValidator(
     {
         var parameters = oidc.TokenValidationParameters.Clone();
         parameters.ValidIssuer = configuration.Issuer;
-        parameters.ValidAudience = bffOptions.ClientId;
+        // With a resource the access token is for that API, otherwise for the client itself.
+        parameters.ValidAudience = bffOptions.Resource ?? bffOptions.ClientId;
         parameters.IssuerSigningKeys = configuration.SigningKeys;
         parameters.ValidateIssuer = true;
         parameters.ValidateAudience = true;

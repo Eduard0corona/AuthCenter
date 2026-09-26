@@ -11,7 +11,7 @@ import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
 import { StatusBadge } from "../../components/StatusBadge";
-import { oauthClientDefaults, oauthClientPayload, oauthClientSchema, oauthGrants, oauthScopes, type OAuthClientFormValues } from "./oauth-client";
+import { oauthClientDefaults, oauthClientPayload, oauthClientSchema, oauthGrants, oauthScopes, tokenExchangeGrant, type OAuthClientFormValues } from "./oauth-client";
 import { SecretRevealDialog } from "./SecretRevealDialog";
 
 type SensitiveAction = "rotate" | "deactivate" | "activate" | null;
@@ -120,8 +120,9 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
         </section>
         <section className="settings-panel" aria-labelledby="oauth-flow">
           <div className="settings-panel__heading"><div><h2 id="oauth-flow">Flujos y scopes</h2><p>Concede únicamente lo necesario. Authorization code siempre exige PKCE.</p></div></div>
-          <fieldset className="check-group"><legend>Grant types</legend><div className="checkbox-grid">{oauthGrants.map((grant) => <Checkbox key={grant} label={grant} registration={form.register("grantTypes")} value={grant} />)}</div>{form.formState.errors.grantTypes ? <p className="field-error">{form.formState.errors.grantTypes.message}</p> : null}</fieldset>
+          <fieldset className="check-group"><legend>Grant types</legend><div className="checkbox-grid">{oauthGrants.map((grant) => <Checkbox key={grant} label={grant === tokenExchangeGrant ? "token exchange (RFC 8693)" : grant} registration={form.register("grantTypes")} value={grant} />)}</div>{form.formState.errors.grantTypes ? <p className="field-error">{form.formState.errors.grantTypes.message}</p> : null}</fieldset>
           <fieldset className="check-group"><legend>Allowed scopes</legend><div className="checkbox-grid">{oauthScopes.map((scope) => <Checkbox key={scope} label={scope} registration={form.register("allowedScopes")} value={scope} />)}</div>{form.formState.errors.allowedScopes ? <p className="field-error">{form.formState.errors.allowedScopes.message}</p> : null}</fieldset>
+          <Field label="Scopes de APIs" error={form.formState.errors.apiScopes?.message} help="Uno por línea, tal como están registrados en el catálogo de APIs (por ejemplo orders.read). El token tendrá como audiencia la API de esos scopes."><textarea {...form.register("apiScopes")} rows={3} placeholder="orders.read" /></Field>
           <Field label="Redirect URIs exactos" error={form.formState.errors.redirectUris?.message} help="Uno por línea. No se aceptan comodines, fragmentos ni credenciales."><textarea {...form.register("redirectUris")} rows={4} disabled={!hasAuthorizationCode && !form.getValues("redirectUris")} placeholder="https://app.example.com/oauth/callback" /></Field>
           <div className="form-grid">
             <Field label="Login URL" error={form.formState.errors.loginUrl?.message}><input {...form.register("loginUrl")} type="url" placeholder="https://app.example.com/login" /></Field>

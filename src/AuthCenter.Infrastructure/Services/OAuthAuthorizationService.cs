@@ -119,6 +119,10 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             return OperationResult<AuthorizationEndpointResult>.Success(Error("invalid_scope", "offline_access requires the refresh_token grant."));
         }
 
+        var resolution = await ResolveResourcesAsync(requestedScopes, request.Resources, ct);
+        if (resolution.Error is { } resourceError)
+            return OperationResult<AuthorizationEndpointResult>.Success(Error(resourceError.Code, resourceError.Description));
+
         if (string.IsNullOrWhiteSpace(request.State))
             return OperationResult<AuthorizationEndpointResult>.Success(new AuthorizationEndpointResult
             {
@@ -179,6 +183,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             ClientId = client.ClientId,
             RedirectUri = request.RedirectUri,
             Scopes = requestedScopes,
+            Resources = resolution.Resources.Select(resource => resource.Identifier).ToList(),
             State = request.State,
             CodeChallenge = request.CodeChallenge,
             CodeChallengeMethod = request.CodeChallengeMethod,
@@ -543,6 +548,20 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             return ErrorResponse(session.RedirectUri, session.State, session.ResponseMode, "access_denied", "The user does not have access to this application.");
         }
 
+        // The APIs may belong to other applications: the user needs access to each of them too.
+        var resolution = await ResolveResourcesAsync(session.Scopes, session.Resources, ct);
+        if (resolution.Error is { } resourceError)
+            return ErrorResponse(session.RedirectUri, session.State, session.ResponseMode, resourceError.Code, resourceError.Description);
+        foreach (var applicationId in resolution.Resources.Select(resource => resource.ApplicationSystemId).Distinct().Where(id => id != client.ApplicationSystemId))
+        {
+            if (!await _userAccessService.HasActiveAccessAsync(existing.UserId, applicationId, ct))
+            {
+                AddAudit("OAUTH_ACCESS_DENIED", existing.UserId, client, metadata: new { reason = "NoApiApplicationAccess", applicationId });
+                await _db.SaveChangesAsync(ct);
+                return ErrorResponse(session.RedirectUri, session.State, session.ResponseMode, "access_denied", "The user does not have access to a requested API.");
+            }
+        }
+
         var rawCode = GenerateCode();
         var now = _dateTimeProvider.UtcNow;
         if (recordConsent)
@@ -555,6 +574,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             UserId = existing.UserId,
             RedirectUri = session.RedirectUri,
             ScopesJson = JsonSerializer.Serialize(session.Scopes),
+            ResourcesJson = JsonSerializer.Serialize(resolution.Resources.Select(resource => resource.Identifier)),
             CodeChallenge = session.CodeChallenge,
             CodeChallengeMethod = session.CodeChallengeMethod,
             Nonce = session.Nonce,
@@ -607,6 +627,108 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             // A concurrent authorization for the same session and client recorded it first.
             _db.Entry(participation).State = EntityState.Detached;
         }
+    }
+
+    private sealed record ResourceGrant(Guid Id, string Identifier, Guid ApplicationSystemId, string ApplicationCode, IReadOnlyList<string> Scopes);
+
+    private sealed record ProtocolError(string Code, string Description);
+
+    private sealed record ResourceResolution(IReadOnlyList<ResourceGrant> Resources, ProtocolError? Error);
+
+    /// <summary>
+    /// Maps the requested API scopes to their APIs (RFC 8707). Every API scope must exist on an
+    /// active API; resource indicators, when sent, must name exactly the APIs of those scopes.
+    /// </summary>
+    private async Task<ResourceResolution> ResolveResourcesAsync(IEnumerable<string> scopes, IEnumerable<string> requestedResources, CancellationToken ct)
+    {
+        var apiScopeNames = scopes.Where(scope => !DomainConstants.OAuthScopes.All.Contains(scope, StringComparer.Ordinal)).Distinct(StringComparer.Ordinal).ToList();
+        var resources = requestedResources.Where(resource => !string.IsNullOrWhiteSpace(resource)).Distinct(StringComparer.Ordinal).ToList();
+        if (resources.Any(resource => !Uri.TryCreate(resource, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.Fragment)))
+            return new ResourceResolution([], new ProtocolError("invalid_target", "Resource indicators must be absolute URIs without a fragment."));
+        if (apiScopeNames.Count == 0)
+        {
+            return resources.Count == 0
+                ? new ResourceResolution([], null)
+                : new ResourceResolution([], new ProtocolError("invalid_target", "A resource was requested without any of its scopes."));
+        }
+
+        var apiScopes = await _db.ApiScopes.AsNoTracking()
+            .Where(scope => apiScopeNames.Contains(scope.Name) && scope.ApiResource.IsActive && scope.ApiResource.ApplicationSystem.IsActive)
+            .Select(scope => new { scope.Name, scope.ApiResource.Id, scope.ApiResource.Identifier, scope.ApiResource.ApplicationSystemId, ApplicationCode = scope.ApiResource.ApplicationSystem.Code })
+            .ToListAsync(ct);
+        if (apiScopes.Count != apiScopeNames.Count)
+            return new ResourceResolution([], new ProtocolError("invalid_scope", "One or more requested API scopes are not available."));
+
+        var grants = apiScopes
+            .GroupBy(scope => scope.Id)
+            .Select(group => new ResourceGrant(group.Key, group.First().Identifier, group.First().ApplicationSystemId, group.First().ApplicationCode, group.Select(scope => scope.Name).ToList()))
+            .ToList();
+        if (resources.Count > 0 &&
+            (resources.Any(resource => grants.All(grant => grant.Identifier != resource)) ||
+             grants.Any(grant => !resources.Contains(grant.Identifier, StringComparer.Ordinal))))
+        {
+            return new ResourceResolution([], new ProtocolError("invalid_target", "Each resource must be an API whose scopes were requested, and each requested API scope must belong to a requested resource."));
+        }
+
+        return new ResourceResolution(grants, null);
+    }
+
+    /// <summary>
+    /// Chooses the API a token is issued for. One token has one API audience (RFC 8707 section
+    /// 2.2): with several granted APIs the client names one with the resource parameter.
+    /// </summary>
+    private static (ResourceGrant? Resource, ProtocolError? Error) SelectResource(IReadOnlyList<ResourceGrant> granted, string? requested)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            var match = granted.FirstOrDefault(grant => grant.Identifier == requested);
+            return match is null
+                ? (null, new ProtocolError("invalid_target", "The resource was not part of this grant."))
+                : (match, null);
+        }
+
+        return granted.Count switch
+        {
+            0 => (null, null),
+            1 => (granted[0], null),
+            _ => (null, new ProtocolError("invalid_target", "This grant covers several APIs; name one with the resource parameter."))
+        };
+    }
+
+    /// <summary>The scopes that apply to a token: OpenID Connect scopes plus the chosen API's scopes.</summary>
+    private static List<string> ScopesFor(IEnumerable<string> granted, ResourceGrant? resource) =>
+        granted.Where(scope => DomainConstants.OAuthScopes.All.Contains(scope, StringComparer.Ordinal) ||
+                (resource is not null && resource.Scopes.Contains(scope, StringComparer.Ordinal)))
+            .ToList();
+
+    /// <summary>
+    /// The token's audiences: the chosen API (plus UserInfo when openid was granted) or, without an
+    /// API, the client itself.
+    /// </summary>
+    private static List<string> AudiencesFor(string clientId, ResourceGrant? resource, IReadOnlyCollection<string> scopes)
+    {
+        if (resource is null)
+            return [clientId];
+        return scopes.Contains(DomainConstants.OAuthScopes.OpenId)
+            ? [resource.Identifier, DomainConstants.OAuthAudiences.UserInfo]
+            : [resource.Identifier];
+    }
+
+    private sealed record TokenClaims(string ApplicationCode, IList<string> Roles, IList<string> Permissions);
+
+    /// <summary>
+    /// Roles and permissions come from the application that owns the token's API (or the client's
+    /// application without one); the user must still have access to that application.
+    /// </summary>
+    private async Task<TokenClaims?> TokenClaimsForAsync(Guid userId, OAuthClient client, ResourceGrant? resource, CancellationToken ct)
+    {
+        var applicationId = resource?.ApplicationSystemId ?? client.ApplicationSystemId;
+        if (applicationId != client.ApplicationSystemId && !await _userAccessService.HasActiveAccessAsync(userId, applicationId, ct))
+            return null;
+        return new TokenClaims(
+            resource?.ApplicationCode ?? client.ApplicationSystem.Code,
+            await _roleService.GetRoleNamesForUserAsync(userId, applicationId, ct),
+            await _roleService.GetPermissionCodesForUserAsync(userId, applicationId, ct));
     }
 
     private async Task<OAuthAuthorizationSession?> ReadInteractionAsync(string interactionId, CancellationToken ct) =>
@@ -733,13 +855,23 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (!await _userAccessService.HasActiveAccessAsync(user.Id, client.ApplicationSystemId, ct))
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "User no longer has access to this application.");
 
-        authCode.IsUsed = true;
         var scopes = DeserializeValues(authCode.ScopesJson);
-        var roles = await _roleService.GetRoleNamesForUserAsync(user.Id, client.ApplicationSystemId, ct);
-        var permissions = await _roleService.GetPermissionCodesForUserAsync(user.Id, client.ApplicationSystemId, ct);
+        var granted = await ResolveResourcesAsync(scopes, DeserializeValues(authCode.ResourcesJson), ct);
+        if (granted.Error is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "An API of this authorization is no longer available.");
+        var (resource, targetError) = SelectResource(granted.Resources, request.Resource);
+        if (targetError is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_TARGET", targetError.Description);
+        var claims = await TokenClaimsForAsync(user.Id, client, resource, ct);
+        if (claims is null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "User no longer has access to the requested API.");
+
+        authCode.IsUsed = true;
+        var tokenScopes = ScopesFor(scopes, resource);
         var authentication = ToTokenAuthentication(authCode.AuthenticatedAt, authCode.AuthenticationMethods, authCode.AssuranceLevel, authCode.SessionId);
         var accessToken = _tokenService.GenerateOAuthAccessToken(
-            user, client.ClientId, client.ApplicationSystem.Code, scopes, roles, permissions, client.AccessTokenLifetimeSeconds, authentication);
+            user, client.ClientId, claims.ApplicationCode, tokenScopes, claims.Roles, claims.Permissions, client.AccessTokenLifetimeSeconds, authentication,
+            AudiencesFor(client.ClientId, resource, tokenScopes));
         var idToken = scopes.Contains(DomainConstants.OAuthScopes.OpenId)
             ? _tokenService.GenerateIdToken(user, client.ClientId, authCode.Nonce, scopes, authentication)
             : null;
@@ -758,6 +890,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
                 TokenHash = generated.Hash,
                 OAuthClientId = client.ClientId,
                 GrantedScopes = string.Join(" ", scopes),
+                GrantedResources = granted.Resources.Count == 0 ? null : string.Join(" ", granted.Resources.Select(item => item.Identifier)),
                 TokenFamilyId = Guid.NewGuid(),
                 AbsoluteExpiresAt = absoluteExpiration,
                 ExpiresAt = absoluteExpiration,
@@ -785,7 +918,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             ExpiresIn = client.AccessTokenLifetimeSeconds,
             IdToken = idToken,
             RefreshToken = refreshToken,
-            Scope = string.Join(" ", scopes)
+            Scope = string.Join(" ", tokenScopes)
         });
     }
 
@@ -813,9 +946,20 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (requestedScopes.Count == 0 || requestedScopes.Any(scope => !allowedScopes.Contains(scope, StringComparer.Ordinal)))
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_SCOPE", "One or more requested scopes are not allowed for client_credentials.");
 
+        var granted = await ResolveResourcesAsync(requestedScopes, [], ct);
+        if (granted.Error is { } resourceError)
+            return OperationResult<OAuthTokenResponse>.Failure(resourceError.Code.ToUpperInvariant(), resourceError.Description);
+        var (resource, targetError) = SelectResource(granted.Resources, request.Resource);
+        if (targetError is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_TARGET", targetError.Description);
+        requestedScopes = ScopesFor(requestedScopes, resource);
+        if (requestedScopes.Count == 0)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_SCOPE", "None of the requested scopes applies to the resource.");
+
         var accessToken = _tokenService.GenerateOAuthAccessToken(
-            null, client.ClientId, client.ApplicationSystem.Code, requestedScopes, [], [], client.AccessTokenLifetimeSeconds);
-        AddAudit("OAUTH_CLIENT_CREDENTIALS_ISSUED", null, client, metadata: new { scopes = requestedScopes });
+            null, client.ClientId, resource?.ApplicationCode ?? client.ApplicationSystem.Code, requestedScopes, [], [], client.AccessTokenLifetimeSeconds,
+            audiences: AudiencesFor(client.ClientId, resource, requestedScopes));
+        AddAudit("OAUTH_CLIENT_CREDENTIALS_ISSUED", null, client, metadata: new { scopes = requestedScopes, resource = resource?.Identifier });
         await _db.SaveChangesAsync(ct);
 
         return OperationResult<OAuthTokenResponse>.Success(new OAuthTokenResponse
@@ -895,13 +1039,23 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "The application's access policy no longer allows this grant.");
         }
 
-        storedToken.RevokedAt = now;
         var scopes = ParseScopes(storedToken.GrantedScopes);
-        var roles = await _roleService.GetRoleNamesForUserAsync(storedToken.UserId, client.ApplicationSystemId, ct);
-        var permissions = await _roleService.GetPermissionCodesForUserAsync(storedToken.UserId, client.ApplicationSystemId, ct);
+        var granted = await ResolveResourcesAsync(scopes, ParseScopes(storedToken.GrantedResources), ct);
+        if (granted.Error is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "An API of this grant is no longer available.");
+        var (resource, targetError) = SelectResource(granted.Resources, request.Resource);
+        if (targetError is not null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_TARGET", targetError.Description);
+        var claims = await TokenClaimsForAsync(storedToken.UserId, client, resource, ct);
+        if (claims is null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "User no longer has access to the requested API.");
+
+        storedToken.RevokedAt = now;
+        var tokenScopes = ScopesFor(scopes, resource);
         var accessToken = _tokenService.GenerateOAuthAccessToken(
-            storedToken.User, client.ClientId, client.ApplicationSystem.Code, scopes, roles, permissions, client.AccessTokenLifetimeSeconds,
-            ToTokenAuthentication(storedToken.AuthenticatedAt, storedToken.AuthenticationMethods, storedToken.AssuranceLevel, storedToken.SessionId));
+            storedToken.User, client.ClientId, claims.ApplicationCode, tokenScopes, claims.Roles, claims.Permissions, client.AccessTokenLifetimeSeconds,
+            ToTokenAuthentication(storedToken.AuthenticatedAt, storedToken.AuthenticationMethods, storedToken.AssuranceLevel, storedToken.SessionId),
+            AudiencesFor(client.ClientId, resource, tokenScopes));
 
         var generated = GenerateRefreshToken();
         storedToken.ReplacedByTokenHash = generated.Hash;
@@ -913,6 +1067,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             TokenHash = generated.Hash,
             OAuthClientId = client.ClientId,
             GrantedScopes = storedToken.GrantedScopes,
+            GrantedResources = storedToken.GrantedResources,
             TokenFamilyId = storedToken.TokenFamilyId ?? Guid.NewGuid(),
             AbsoluteExpiresAt = absoluteExpiration,
             ExpiresAt = absoluteExpiration,
@@ -942,8 +1097,203 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             AccessToken = accessToken,
             ExpiresIn = client.AccessTokenLifetimeSeconds,
             RefreshToken = generated.Raw,
-            Scope = string.Join(" ", scopes)
+            Scope = string.Join(" ", tokenScopes)
         });
+    }
+
+    public async Task<OperationResult<OAuthTokenResponse>> TokenExchangeAsync(OAuthTokenRequest request, CancellationToken ct = default)
+    {
+        var caller = await AuthenticateConfidentialClientAsync(request.ClientId, request.ClientSecret, DomainConstants.OAuthGrantTypes.TokenExchange, ct);
+        if (caller.Error is { } callerError)
+            return OperationResult<OAuthTokenResponse>.Failure(callerError.Code, callerError.Description);
+        var client = caller.Client!;
+
+        if (!string.Equals(request.SubjectTokenType, DomainConstants.OAuthTokenTypes.AccessToken, StringComparison.Ordinal))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_REQUEST", "subject_token_type must be urn:ietf:params:oauth:token-type:access_token.");
+        if (!string.IsNullOrEmpty(request.RequestedTokenType) &&
+            !string.Equals(request.RequestedTokenType, DomainConstants.OAuthTokenTypes.AccessToken, StringComparison.Ordinal))
+        {
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_REQUEST", "Only access tokens can be requested.");
+        }
+
+        var subject = _tokenService.ValidateAccessToken(request.SubjectToken ?? string.Empty);
+        if (subject is null || !Guid.TryParse(subject.Subject, out var userId))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "subject_token is not an active user access token issued by AuthCenter.");
+
+        // A client may only exchange tokens it received: issued to itself or to one of the APIs of its
+        // own application. Anything else would let one client act with another client's tokens.
+        var callerApis = await _db.ApiResources.AsNoTracking()
+            .Where(resource => resource.ApplicationSystemId == client.ApplicationSystemId && resource.IsActive)
+            .Select(resource => resource.Identifier)
+            .ToListAsync(ct);
+        if (!subject.Audiences.Any(audience => audience == client.ClientId || callerApis.Contains(audience, StringComparer.Ordinal)))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "subject_token was not issued to this client or its APIs.");
+
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive || user.DeletedAt is not null || !await IsSessionActiveAsync(subject.SessionId, userId, ct))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "The user or session behind subject_token is no longer active.");
+
+        var target = !string.IsNullOrWhiteSpace(request.Resource) ? request.Resource : request.Audience;
+        if (string.IsNullOrWhiteSpace(target))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_TARGET", "resource (or audience) names the API the new token is for.");
+        var allowed = DeserializeValues(client.AllowedScopesJson);
+        var targetScopes = await _db.ApiScopes.AsNoTracking()
+            .Where(scope => scope.ApiResource.Identifier == target)
+            .Select(scope => scope.Name)
+            .ToListAsync(ct);
+        var requested = string.IsNullOrWhiteSpace(request.Scope)
+            ? targetScopes.Where(scope => allowed.Contains(scope, StringComparer.Ordinal)).ToList()
+            : ParseScopes(request.Scope);
+        if (requested.Count == 0 || requested.Any(scope => !allowed.Contains(scope, StringComparer.Ordinal) || !targetScopes.Contains(scope, StringComparer.Ordinal)))
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_SCOPE", "The requested scopes are not allowed for this client on the target API.");
+
+        var granted = await ResolveResourcesAsync(requested, [target], ct);
+        if (granted.Error is { } resourceError)
+            return OperationResult<OAuthTokenResponse>.Failure(resourceError.Code.ToUpperInvariant(), resourceError.Description);
+        var resource = granted.Resources.Single();
+        var claims = await TokenClaimsForAsync(userId, client, resource, ct);
+        if (claims is null)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "The user has no access to the target API.");
+
+        // RFC 8693 section 4.1: the caller is the actor; a delegation chain already in the subject
+        // token is kept nested under it.
+        var actor = new Dictionary<string, object> { ["sub"] = client.ClientId };
+        if (subject.Principal.FindFirst("act")?.Value is { Length: > 0 } previousActor)
+        {
+            try { actor["act"] = JsonSerializer.Deserialize<JsonElement>(previousActor); }
+            catch (JsonException) { return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "subject_token has a malformed act claim."); }
+        }
+
+        // The new token never outlives the token it was exchanged for.
+        var now = _dateTimeProvider.UtcNow;
+        var lifetime = (int)Math.Min(client.AccessTokenLifetimeSeconds, Math.Max(0, (subject.ExpiresAt - now).TotalSeconds));
+        if (lifetime < 1)
+            return OperationResult<OAuthTokenResponse>.Failure("INVALID_GRANT", "subject_token is about to expire.");
+        var authentication = SubjectAuthentication(subject);
+        var accessToken = _tokenService.GenerateOAuthAccessToken(
+            user, client.ClientId, claims.ApplicationCode, requested, claims.Roles, claims.Permissions, lifetime, authentication,
+            [resource.Identifier], JsonSerializer.Serialize(actor));
+        AddAudit("OAUTH_TOKEN_EXCHANGED", userId, client, metadata: new { subjectClient = subject.ClientId, resource = resource.Identifier, scopes = requested });
+        await _db.SaveChangesAsync(ct);
+
+        return OperationResult<OAuthTokenResponse>.Success(new OAuthTokenResponse
+        {
+            AccessToken = accessToken,
+            ExpiresIn = lifetime,
+            Scope = string.Join(" ", requested),
+            IssuedTokenType = DomainConstants.OAuthTokenTypes.AccessToken
+        });
+    }
+
+    public async Task<OperationResult<OAuthIntrospectionResponse>> IntrospectAsync(OAuthIntrospectionRequest request, CancellationToken ct = default)
+    {
+        var caller = await AuthenticateConfidentialClientAsync(request.ClientId, request.ClientSecret, grantType: null, ct);
+        if (caller.Error is { } callerError)
+            return OperationResult<OAuthIntrospectionResponse>.Failure(callerError.Code, callerError.Description);
+        var client = caller.Client!;
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return OperationResult<OAuthIntrospectionResponse>.Failure("INVALID_REQUEST", "token is required.");
+
+        if (!string.Equals(request.TokenTypeHint, "refresh_token", StringComparison.Ordinal) &&
+            _tokenService.ValidateAccessToken(request.Token) is { } accessToken)
+        {
+            // Only the client the token was issued to, or an API it was issued for, may inspect it.
+            var callerApis = await _db.ApiResources.AsNoTracking()
+                .Where(resource => resource.ApplicationSystemId == client.ApplicationSystemId && resource.IsActive)
+                .Select(resource => resource.Identifier)
+                .ToListAsync(ct);
+            var entitled = accessToken.ClientId == client.ClientId ||
+                accessToken.Audiences.Any(audience => audience == client.ClientId || callerApis.Contains(audience, StringComparer.Ordinal));
+            if (!entitled || !await IsSubjectActiveAsync(accessToken, ct))
+                return OperationResult<OAuthIntrospectionResponse>.Success(OAuthIntrospectionResponse.Inactive);
+
+            return OperationResult<OAuthIntrospectionResponse>.Success(new OAuthIntrospectionResponse
+            {
+                Active = true,
+                Scope = accessToken.Scope,
+                ClientId = accessToken.ClientId,
+                TokenType = "Bearer",
+                ExpiresAt = new DateTimeOffset(accessToken.ExpiresAt).ToUnixTimeSeconds(),
+                IssuedAt = accessToken.IssuedAt is { } issuedAt ? new DateTimeOffset(issuedAt).ToUnixTimeSeconds() : null,
+                Subject = accessToken.Subject,
+                Audience = accessToken.Audiences,
+                Issuer = _jwtSettings.Issuer,
+                TokenId = accessToken.TokenId
+            });
+        }
+
+        // Refresh tokens are opaque: only the client that holds the grant can inspect it.
+        var hash = _tokenService.HashToken(request.Token);
+        var now = _dateTimeProvider.UtcNow;
+        var refresh = await _db.RefreshTokens.AsNoTracking()
+            .Where(token => token.TokenHash == hash && token.OAuthClientId == client.ClientId)
+            .Select(token => new { token.UserId, token.GrantedScopes, token.CreatedAt, token.ExpiresAt, token.RevokedAt, UserActive = token.User.IsActive })
+            .FirstOrDefaultAsync(ct);
+        if (refresh is null || refresh.RevokedAt is not null || refresh.ExpiresAt <= now || !refresh.UserActive)
+            return OperationResult<OAuthIntrospectionResponse>.Success(OAuthIntrospectionResponse.Inactive);
+        return OperationResult<OAuthIntrospectionResponse>.Success(new OAuthIntrospectionResponse
+        {
+            Active = true,
+            Scope = refresh.GrantedScopes,
+            ClientId = client.ClientId,
+            TokenType = "refresh_token",
+            ExpiresAt = new DateTimeOffset(DateTime.SpecifyKind(refresh.ExpiresAt, DateTimeKind.Utc)).ToUnixTimeSeconds(),
+            IssuedAt = new DateTimeOffset(DateTime.SpecifyKind(refresh.CreatedAt, DateTimeKind.Utc)).ToUnixTimeSeconds(),
+            Subject = refresh.UserId.ToString(),
+            Issuer = _jwtSettings.Issuer
+        });
+    }
+
+    private sealed record ClientAuthentication(OAuthClient? Client, ProtocolError? Error);
+
+    private async Task<ClientAuthentication> AuthenticateConfidentialClientAsync(string? clientId, string? secret, string? grantType, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+            return new ClientAuthentication(null, new ProtocolError("INVALID_CLIENT", "client_id is required."));
+        var client = await FindActiveClientAsync(clientId, ct);
+        if (client is null)
+            return new ClientAuthentication(null, new ProtocolError("INVALID_CLIENT", "Unknown, inactive, or unlinked OAuth client."));
+        if (client.ClientType != OAuthClientType.Confidential)
+            return new ClientAuthentication(null, new ProtocolError("UNAUTHORIZED_CLIENT", "Only confidential clients can use this endpoint."));
+        if (grantType is not null && !DeserializeValues(client.GrantTypesJson).Contains(grantType, StringComparer.Ordinal))
+            return new ClientAuthentication(null, new ProtocolError("UNAUTHORIZED_CLIENT", $"This client is not authorized for {grantType}."));
+        if (!SecretMatches(secret, client.HashedClientSecret))
+            return new ClientAuthentication(null, new ProtocolError("INVALID_CLIENT_CREDENTIALS", "Invalid client_id or client_secret."));
+        return new ClientAuthentication(client, null);
+    }
+
+    /// <summary>A user token stays active only while its user and single sign-on session do.</summary>
+    private async Task<bool> IsSubjectActiveAsync(ValidatedAccessToken token, CancellationToken ct)
+    {
+        if (token.Subject is null)
+            return true;
+        if (!Guid.TryParse(token.Subject, out var userId))
+            return false;
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        return user is not null && user.IsActive && user.DeletedAt is null && await IsSessionActiveAsync(token.SessionId, userId, ct);
+    }
+
+    private async Task<bool> IsSessionActiveAsync(string? sessionId, Guid userId, CancellationToken ct)
+    {
+        if (sessionId is null)
+            return true;
+        if (!Guid.TryParse(sessionId, out var id))
+            return false;
+        var now = _dateTimeProvider.UtcNow;
+        return await _db.RefreshTokens.AsNoTracking().AnyAsync(
+            token => token.Id == id && token.UserId == userId && token.RevokedAt == null && token.ExpiresAt > now, ct);
+    }
+
+    private static TokenAuthentication? SubjectAuthentication(ValidatedAccessToken subject)
+    {
+        if (!long.TryParse(subject.Principal.FindFirst("auth_time")?.Value, out var authTime))
+            return null;
+        var assurance = AuthenticationContext.AssuranceFor(subject.Principal.FindFirst("acr")?.Value ?? string.Empty) ?? AuthenticationAssuranceLevel.Password;
+        return new TokenAuthentication(
+            DateTimeOffset.FromUnixTimeSeconds(authTime).UtcDateTime,
+            [],
+            assurance,
+            Guid.TryParse(subject.SessionId, out var sessionId) ? sessionId : null);
     }
 
     public async Task<OperationResult> RevokeTokenAsync(OAuthRevocationRequest request, CancellationToken ct = default)
