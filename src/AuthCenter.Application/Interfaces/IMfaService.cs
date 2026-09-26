@@ -15,6 +15,9 @@ public interface IMfaService
     Task<MfaStatusDto> GetStatusAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult> AdminResetMfaAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult> SetupEmailOtpAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>Emails a code that confirms managing an enabled email factor (for example disabling it).</summary>
+    Task<OperationResult> SendEmailOtpVerificationAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult> EnableEmailOtpAsync(Guid userId, EnableEmailMfaRequest request, CancellationToken ct = default);
     Task<bool> SendMfaEmailOtpAsync(Guid userId, string pendingTokenJti, CancellationToken ct = default);
 }

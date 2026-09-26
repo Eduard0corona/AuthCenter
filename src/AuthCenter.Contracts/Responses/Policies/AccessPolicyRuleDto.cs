@@ -2,6 +2,9 @@ namespace AuthCenter.Contracts.Responses.Policies;
 
 public class AccessPolicyRuleDto
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public Guid ApplicationSystemId { get; init; }
     public Guid PolicyVersionId { get; init; }

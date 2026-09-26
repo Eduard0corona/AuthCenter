@@ -1,7 +1,10 @@
 # TODO
 
 Operational and deployment work. Code-level performance, security and scalability findings live in
-[TODO-improvements.md](TODO-improvements.md).
+[TODO-improvements.md](TODO-improvements.md). The open items below need the owner's accounts or
+approval; each has a step-by-step procedure in
+[docs/operations/OWNER-ACTIONS.md](docs/operations/OWNER-ACTIONS.md) (the `OPS-*` codes are those of
+`REMEDIACION-INTEGRACION-FEDERACION.md`).
 
 ## Deployment
 
@@ -11,17 +14,23 @@ Operational and deployment work. Code-level performance, security and scalabilit
       through a resolved versionless reference. Azure SQL authentication is passwordless through
       the App Service managed identity and a least-privilege contained database principal.
 - [x] Consolidate CI and deployment so that only a successful validation run on `main` publishes
-      the artifact, deploys it with OIDC, and verifies `/health/live`.
+      the artifact, deploys it with OIDC, and verifies `/health/live`, `/health/ready` and branding.
+- [x] Restore GitHub Actions execution (OPS-01): the pull request of the remediation passed the
+      whole `CI/CD` workflow on 2026-09-26.
+- [ ] Protect `main` (OPS-02).
 - [x] Configure the remaining required production settings: new RSA/HMAC/MFA secrets, encrypted
       Data Protection with a generated PKCS#12 certificate, exact host/issuer/origins, and SQL-backed
       distributed rate limiting. All sensitive values are versionless Key Vault references.
-- [x] Apply all 12 EF Core migrations to the new Azure SQL database out of band with the Microsoft
-      Entra administrator; the application identity retains no DDL permissions.
+- [x] Apply the 12 EF Core migrations that existed then to the new Azure SQL database out of band
+      with the Microsoft Entra administrator; the application identity retains no DDL permissions.
+- [ ] Apply the migrations added since (35 in the repository on 2026-09-26) with the idempotent
+      script of the `database-migrations` CI artifact before deploying (OPS-03). `/health/ready`
+      now fails its `database-schema` check while any is missing.
 - [ ] Seed the deployed database once with `Database:SeedOnStartup=true` plus intentionally chosen
-      production `Seed:*` values, then remove those values and switch seeding back off.
+      production `Seed:*` values, then remove those values and switch seeding back off (OPS-04).
 - [x] Narrow `AllowedHosts` to the current Azure hostname.
 - [ ] Add the real frontend hostname to `Cors:AllowedOrigins` and `ActionLinks` when it exists. The
-      current configuration intentionally permits only the AuthCenter origin.
+      current configuration intentionally permits only the AuthCenter origin (OPS-07).
 
 ## Security
 
@@ -33,19 +42,26 @@ Operational and deployment work. Code-level performance, security and scalabilit
       GitHub Secret Scanning is unavailable for the current private-repository plan.
 - [ ] Purge the retired RSA key from historical commits. This requires a coordinated history
       rewrite and force-push; rotation and non-use are the security boundary until that operation
-      is explicitly authorized.
+      is explicitly authorized (OPS-06).
 - [ ] Perform the first production key rotation after the runtime secrets are configured, following
       the procedure in the README. `Jwt:AdditionalValidationKeysPem` keeps retired public keys
-      valid and published while the new active private key signs.
+      valid and published while the new active private key signs (OPS-05).
+- [x] Weekly Dependabot updates for NuGet, npm, Actions and Docker, grouped by ecosystem.
 
 ## Operational setup
 
-- [x] Docker Compose for the API and SQL Server. Verified end to end on a clean volume: all seven
-      migrations apply, the seed creates `AUTHCENTER`, both roles and the admin user, and the auth
-      smoke test (`login` -> `me` -> `users` -> `refresh-token`, including refresh reuse rejection)
-      passes against the running stack.
+- [x] Docker Compose for the API and SQL Server. Verified end to end on a clean volume when the
+      schema had seven migrations: they applied, the seed created `AUTHCENTER`, both roles and the
+      admin user, and the auth smoke test (`login` -> `me` -> `users` -> `refresh-token`, including
+      refresh reuse rejection) passed against the running stack.
+- [x] Capacity test of the administrative reads with a 100,000-user directory
+      (`DirectoryScaleRelationalTests`, weekly `Directory scale` workflow, results in
+      [docs/operations/CAPACITY.md](docs/operations/CAPACITY.md#directorio-grande)).
 
 ## Test coverage
+
+CI enforces minimums: 80% of lines and 60% of branches for .NET (unit and integration merged), and
+per-metric minimums for the console's logic modules (`src/AuthCenter.Admin/vite.config.ts`).
 
 Every controller now has integration coverage: login and refresh rotation, permissions,
 registration, invitations, TOTP MFA with trusted devices, email OTP, magic links, forced password

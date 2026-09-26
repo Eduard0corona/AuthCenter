@@ -1,14 +1,10 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using System.Text.Json;
-using System.Collections.Concurrent;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Federation;
-using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Federation;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
@@ -16,56 +12,84 @@ using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
 
 namespace AuthCenter.Infrastructure.Services;
 
+/// <summary>
+/// Enterprise federation: provider and routing administration, home realm discovery, the upstream
+/// OIDC and SAML protocols and the mapping of upstream identities to AuthCenter users.
+/// </summary>
 public sealed partial class FederationService : IFederationService
 {
-    private const string OidcStatePurpose = "federation_oidc";
+    /// <summary>Path of the server-side OIDC callback the hosted login uses.</summary>
+    public const string HostedOidcCallbackPath = "/api/federation/oidc/callback";
+    private const int MaximumGroupMappings = 200;
+
     private readonly AuthCenterDbContext _db;
     private readonly UserManager<ApplicationUser> _users;
     private readonly IUserAccessService _access;
-    private readonly IAuthenticationSessionIssuer _sessions;
+    private readonly IAuthService _auth;
+    private readonly IOAuthAuthorizationService _oauth;
+    private readonly IRefreshTokenService _refreshTokens;
     private readonly ITransientStateStore _state;
     private readonly IAuditService _audit;
     private readonly IDateTimeProvider _clock;
     private readonly IHttpClientFactory _httpClients;
+    private readonly FederationMetadataCache _metadata;
     private readonly IDataProtector _secrets;
     private readonly SamlSettings _samlSettings;
-    private static readonly ConcurrentDictionary<string, ConfigurationManager<OpenIdConnectConfiguration>> OidcConfigurations = new(StringComparer.Ordinal);
+    private readonly OidcSettings _oidcSettings;
+    private readonly IEmailService _email;
 
     public FederationService(
         AuthCenterDbContext db,
         UserManager<ApplicationUser> users,
         IUserAccessService access,
-        IAuthenticationSessionIssuer sessions,
+        IAuthService auth,
+        IOAuthAuthorizationService oauth,
+        IRefreshTokenService refreshTokens,
         ITransientStateStore state,
         IAuditService audit,
         IDateTimeProvider clock,
         IHttpClientFactory httpClients,
+        FederationMetadataCache metadata,
         IDataProtectionProvider dataProtection,
-        IOptions<SamlSettings> samlSettings)
+        IOptions<SamlSettings> samlSettings,
+        IOptions<OidcSettings> oidcSettings,
+        IEmailService email)
     {
         _db = db;
         _users = users;
         _access = access;
-        _sessions = sessions;
+        _auth = auth;
+        _oauth = oauth;
+        _refreshTokens = refreshTokens;
         _state = state;
         _audit = audit;
         _clock = clock;
         _httpClients = httpClients;
+        _metadata = metadata;
         _secrets = dataProtection.CreateProtector("AuthCenter.FederationProviderSecrets.v1");
         _samlSettings = samlSettings.Value;
+        _oidcSettings = oidcSettings.Value;
+        _email = email;
     }
 
+    /// <summary>The absolute hosted OIDC callback, when <c>Oidc:PublicOrigin</c> is configured.</summary>
+    private string? HostedOidcCallbackUrl =>
+        _oidcSettings.NormalizedPublicOrigin is { } origin ? origin + HostedOidcCallbackPath : null;
+
+    public FederationServiceProviderResponse GetServiceProviderInfo() => new()
+    {
+        OidcCallbackUrl = HostedOidcCallbackUrl,
+        SamlEntityId = string.IsNullOrWhiteSpace(_samlSettings.EntityId) ? null : _samlSettings.EntityId,
+        SamlAssertionConsumerServiceUrl = string.IsNullOrWhiteSpace(_samlSettings.AssertionConsumerServiceUrl) ? null : _samlSettings.AssertionConsumerServiceUrl
+    };
+
     public async Task<IReadOnlyList<FederationProviderDto>> GetProvidersAsync(Guid? applicationSystemId, CancellationToken ct = default) =>
-        (await _db.FederationProviders.AsNoTracking()
+        (await ProviderQuery().AsNoTracking()
             .Where(item => !applicationSystemId.HasValue || item.ApplicationSystemId == applicationSystemId)
             .OrderBy(item => item.Name).ToListAsync(ct)).Select(Map).ToList();
 
@@ -93,8 +117,9 @@ public sealed partial class FederationService : IFederationService
         var provider = await _db.FederationProviders.Include(x => x.ApplicationSystem).SingleOrDefaultAsync(item => item.Id == request.FederationProviderId, ct);
         if (provider is null)
             return OperationResult.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
-        if (await _db.FederationRoutingRules.AnyAsync(item => item.FederationProviderId == request.FederationProviderId && item.Priority == request.Priority, ct))
-            return OperationResult.Failure("ROUTING_PRIORITY_EXISTS", "The provider already has a rule with this priority.");
+        var validation = await ValidateRoutingRuleAsync(request.FederationProviderId, request.Priority, request.EmailDomain, request.DirectoryGroupId, request.ProfileAttributeDefinitionId, request.ExpectedProfileValueJson, null, ct);
+        if (validation is not null)
+            return OperationResult.Failure(validation.Value.Code == "FEDERATION_ROUTING_PRIORITY_EXISTS" ? "ROUTING_PRIORITY_EXISTS" : validation.Value.Code, validation.Value.Message);
 
         var rule = new FederationRoutingRule
         {
@@ -157,139 +182,222 @@ public sealed partial class FederationService : IFederationService
 
     public async Task<OperationResult<FederationRouteResponse>> RouteAsync(FederationRouteRequest request, CancellationToken ct = default)
     {
-        var normalizedEmail = request.Email.Trim().ToUpperInvariant();
-        var domain = NormalizeDomain(request.Email.Split('@').LastOrDefault());
-        var user = await _db.Users.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(item => item.NormalizedEmail == normalizedEmail && item.DeletedAt == null, ct);
-        var candidates = await _db.FederationRoutingRules.AsNoTracking()
-            .Include(item => item.FederationProvider).ThenInclude(item => item.ApplicationSystem)
-            .Where(item => item.IsActive && item.FederationProvider.IsActive && item.FederationProvider.ApplicationSystem.IsActive &&
-                item.FederationProvider.ApplicationSystem.Code == request.ApplicationCode)
-            .OrderBy(item => item.Priority).ToListAsync(ct);
+        var applicationId = await _db.ApplicationSystems.AsNoTracking()
+            .Where(item => item.Code == request.ApplicationCode && item.IsActive)
+            .Select(item => (Guid?)item.Id).FirstOrDefaultAsync(ct);
+        var domain = FederationDomains.OfEmail(request.Email);
+        if (applicationId is null || domain is null)
+            return OperationResult<FederationRouteResponse>.Failure("FEDERATION_ROUTE_NOT_FOUND", "No active federation route matched this application and identity.");
 
-        foreach (var rule in candidates)
-        {
-            if (rule.EmailDomain is not null && !string.Equals(rule.EmailDomain, domain, StringComparison.OrdinalIgnoreCase)) continue;
-            if (rule.DirectoryGroupId.HasValue && (user is null || !await _db.UserGroupMemberships.AnyAsync(item => item.UserId == user.Id && item.GroupId == rule.DirectoryGroupId, ct))) continue;
-            if (rule.ProfileAttributeDefinitionId.HasValue && (user is null || !await _db.UserProfileAttributeValues.AnyAsync(item => item.UserId == user.Id && item.AttributeDefinitionId == rule.ProfileAttributeDefinitionId && item.ValueJson == rule.ExpectedProfileValueJson, ct))) continue;
-            return OperationResult<FederationRouteResponse>.Success(new FederationRouteResponse
+        var normalizedEmail = request.Email.Trim().ToUpperInvariant();
+        var userId = await _db.Users.IgnoreQueryFilters().AsNoTracking()
+            .Where(item => item.NormalizedEmail == normalizedEmail && item.DeletedAt == null)
+            .Select(item => (Guid?)item.Id).FirstOrDefaultAsync(ct);
+        var rule = await MatchRuleAsync(applicationId.Value, domain, userId, evaluateDirectoryConditions: true, ct);
+        return rule is null
+            ? OperationResult<FederationRouteResponse>.Failure("FEDERATION_ROUTE_NOT_FOUND", "No active federation route matched this application and identity.")
+            : OperationResult<FederationRouteResponse>.Success(new FederationRouteResponse
             {
                 ProviderId = rule.FederationProviderId,
                 ProviderName = rule.FederationProvider.Name,
-                Protocol = rule.FederationProvider.Protocol.ToString()
+                Protocol = rule.FederationProvider.Protocol.ToString(),
+                MatchedRuleId = rule.Id,
+                MatchedRulePriority = rule.Priority
             });
+    }
+
+    /// <summary>
+    /// First active rule, in priority order, whose conditions hold. Group and profile conditions
+    /// read directory data, so callers only evaluate them for an already identified user.
+    /// </summary>
+    private async Task<FederationRoutingRule?> MatchRuleAsync(Guid applicationId, string domain, Guid? userId, bool evaluateDirectoryConditions, CancellationToken ct)
+    {
+        var candidates = await _db.FederationRoutingRules.AsNoTracking()
+            .Include(item => item.FederationProvider)
+            .Where(item => item.IsActive && item.FederationProvider.IsActive && item.FederationProvider.ApplicationSystemId == applicationId)
+            .OrderBy(item => item.Priority).ThenBy(item => item.FederationProviderId)
+            .ToListAsync(ct);
+
+        foreach (var rule in candidates)
+        {
+            var hasDirectoryCondition = rule.DirectoryGroupId.HasValue || rule.ProfileAttributeDefinitionId.HasValue;
+            if (hasDirectoryCondition && (!evaluateDirectoryConditions || userId is null)) continue;
+            if (rule.EmailDomain is not null && !string.Equals(rule.EmailDomain, domain, StringComparison.OrdinalIgnoreCase)) continue;
+            if (rule.DirectoryGroupId.HasValue && !await _db.UserGroupMemberships.AnyAsync(item => item.UserId == userId && item.GroupId == rule.DirectoryGroupId && item.Group.IsActive, ct)) continue;
+            if (rule.ProfileAttributeDefinitionId.HasValue && !await _db.UserProfileAttributeValues.AnyAsync(item => item.UserId == userId && item.AttributeDefinitionId == rule.ProfileAttributeDefinitionId && item.ValueJson == rule.ExpectedProfileValueJson, ct)) continue;
+            return rule;
         }
-        return OperationResult<FederationRouteResponse>.Failure("FEDERATION_ROUTE_NOT_FOUND", "No active federation route matched this application and identity.");
+        return null;
     }
 
-    public async Task<OperationResult<OidcFederationChallengeResponse>> BeginOidcAsync(BeginOidcFederationRequest request, CancellationToken ct = default)
+    /// <summary>
+    /// Maps a validated upstream identity to its AuthCenter user: an existing link by subject, or
+    /// (with a verified email) account linking or just-in-time provisioning. Mapped groups are
+    /// synchronised before access is checked, because a group can grant the application.
+    /// </summary>
+    private async Task<OperationResult<ApplicationUser>> ResolveFederatedUserAsync(FederationProvider provider, UpstreamIdentity identity, CancellationToken ct)
     {
-        var provider = await _db.FederationProviders.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.ProviderId && item.IsActive && item.Protocol == FederationProtocol.Oidc, ct);
-        if (provider is null) return OperationResult<OidcFederationChallengeResponse>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Active OIDC provider not found.");
-        var configuration = await GetOidcConfigurationAsync(provider, ct);
-        if (configuration is null || string.IsNullOrWhiteSpace(configuration.AuthorizationEndpoint))
-            return OperationResult<OidcFederationChallengeResponse>.Failure("OIDC_DISCOVERY_FAILED", "OIDC discovery document is unavailable or incomplete.");
-
-        var interactionId = Guid.NewGuid().ToString("N");
-        var state = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-        var nonce = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-        var verifier = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(48));
-        var challenge = WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-        await _state.SetAsync(OidcStatePurpose, interactionId, JsonSerializer.Serialize(new OidcInteraction(provider.Id, state, nonce, verifier)), _clock.UtcNow.AddMinutes(5), ct);
-
-        var query = new Dictionary<string, string?>
-        {
-            ["client_id"] = provider.ClientId,
-            ["redirect_uri"] = provider.OidcCallbackUrl,
-            ["response_type"] = "code",
-            ["scope"] = "openid profile email",
-            ["state"] = state,
-            ["nonce"] = nonce,
-            ["code_challenge"] = challenge,
-            ["code_challenge_method"] = "S256",
-            ["login_hint"] = string.IsNullOrWhiteSpace(request.LoginHint) ? null : request.LoginHint.Trim()
-        };
-        return OperationResult<OidcFederationChallengeResponse>.Success(new OidcFederationChallengeResponse
-        {
-            InteractionId = interactionId,
-            AuthorizationUrl = QueryHelpers.AddQueryString(configuration.AuthorizationEndpoint, query),
-            ExpiresIn = 300
-        });
-    }
-
-    public async Task<OperationResult<AuthResponse>> CompleteOidcAsync(CompleteOidcFederationRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
-    {
-        var raw = await _state.TakeAsync(OidcStatePurpose, request.InteractionId, ct);
-        var interaction = string.IsNullOrWhiteSpace(raw) ? null : JsonSerializer.Deserialize<OidcInteraction>(raw);
-        if (interaction is null || !FixedEquals(interaction.State, request.State) || string.IsNullOrWhiteSpace(request.Code))
-            return OperationResult<AuthResponse>.Failure("INVALID_OIDC_STATE", "OIDC interaction is invalid, expired, or already used.");
-        var provider = await _db.FederationProviders.Include(item => item.ApplicationSystem).FirstOrDefaultAsync(item => item.Id == interaction.ProviderId && item.IsActive, ct);
-        if (provider is null) return OperationResult<AuthResponse>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
-        var configuration = await GetOidcConfigurationAsync(provider, ct);
-        if (configuration is null || string.IsNullOrWhiteSpace(configuration.TokenEndpoint)) return OperationResult<AuthResponse>.Failure("OIDC_DISCOVERY_FAILED", "OIDC token endpoint is unavailable.");
-
-        var tokenResponse = await RedeemCodeAsync(provider, configuration.TokenEndpoint, request.Code, interaction.Verifier, ct);
-        if (tokenResponse is null || string.IsNullOrWhiteSpace(tokenResponse.IdToken)) return OperationResult<AuthResponse>.Failure("OIDC_CODE_REJECTED", "The upstream provider rejected the authorization code.");
-        var principal = ValidateIdToken(tokenResponse.IdToken, provider, configuration, interaction.Nonce);
-        if (principal is null)
-        {
-            configuration = await GetOidcConfigurationAsync(provider, ct, refresh: true);
-            principal = configuration is null ? null : ValidateIdToken(tokenResponse.IdToken, provider, configuration, interaction.Nonce);
-        }
-        if (principal is null) return OperationResult<AuthResponse>.Failure("INVALID_OIDC_TOKEN", "The upstream ID token failed signature, issuer, audience, lifetime, or nonce validation.");
-
-        var subject = principal.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
-        var email = principal.FindFirstValue(JwtRegisteredClaimNames.Email) ?? principal.FindFirstValue(ClaimTypes.Email);
-        var emailVerified = string.Equals(principal.FindFirstValue("email_verified"), "true", StringComparison.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(email) || !emailVerified)
-            return OperationResult<AuthResponse>.Failure("OIDC_CLAIMS_INCOMPLETE", "A stable subject and verified email are required.");
-
-        var userResult = await ResolveFederatedUserAsync(provider, subject, email, principal.FindFirstValue("name") ?? email, ct);
-        if (!userResult.IsSuccess) return OperationResult<AuthResponse>.Failure(userResult.ErrorCode!, userResult.Message!);
-        var user = userResult.Data!;
-        await _audit.LogAsync("FEDERATION_LOGIN_SUCCESS", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), ipAddress, userAgent, new { protocol = "OIDC" }, ct);
-        return await _sessions.IssueAsync(user, provider.ApplicationSystemId, provider.ApplicationSystem.Code, ipAddress, userAgent, ct: ct);
-    }
-
-    private async Task<OperationResult<ApplicationUser>> ResolveFederatedUserAsync(FederationProvider provider, string subject, string email, string name, CancellationToken ct)
-    {
-        var providerKey = $"Federation:{provider.Id:N}";
-        var link = await _db.ExternalIdentityProviders.Include(item => item.User)
-            .FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == subject && item.IsActive, ct);
+        var providerKey = ProviderKey(provider);
+        var existing = await _db.ExternalIdentityProviders.Include(item => item.User)
+            .FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == identity.Subject, ct);
+        var link = existing is { IsActive: true } ? existing : null;
         ApplicationUser? user = link?.User;
         if (user is null)
         {
-            user = await _users.FindByEmailAsync(email);
+            // Linking to an existing account and creating one both trust the email address.
+            if (!identity.EmailVerified)
+                return OperationResult<ApplicationUser>.Failure("FEDERATION_EMAIL_NOT_VERIFIED", "The identity provider did not verify this email address.");
+            user = await _users.FindByEmailAsync(identity.Email);
             if (user is not null && provider.AccountLinkingMode != AccountLinkingMode.VerifiedEmail)
                 return OperationResult<ApplicationUser>.Failure("ACCOUNT_LINKING_REQUIRED", "An existing account requires an explicit linking policy.");
             if (user is null)
             {
                 if (!provider.JitProvisioningEnabled) return OperationResult<ApplicationUser>.Failure("JIT_PROVISIONING_DISABLED", "No linked account exists and JIT provisioning is disabled.");
-                user = new ApplicationUser { Id = Guid.NewGuid(), Email = email, UserName = email, FullName = name, EmailConfirmed = true, IsExternalUser = true, HasLocalPassword = false, IsActive = true, CreatedAt = _clock.UtcNow };
+                user = new ApplicationUser { Id = Guid.NewGuid(), Email = identity.Email, UserName = identity.Email, FullName = identity.Name, EmailConfirmed = true, IsExternalUser = true, HasLocalPassword = false, IsActive = true, CreatedAt = _clock.UtcNow };
                 var created = await _users.CreateAsync(user);
                 if (!created.Succeeded) return OperationResult<ApplicationUser>.Failure("JIT_PROVISIONING_FAILED", string.Join("; ", created.Errors.Select(item => item.Description)));
                 await _audit.LogAsync("FEDERATION_USER_JIT_PROVISIONED", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), ct: ct);
             }
-            _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = user.Id, Provider = providerKey, ProviderUserId = subject, Email = email, DisplayName = name, LinkedAt = _clock.UtcNow, LastUsedAt = _clock.UtcNow, IsActive = true });
+            // An identity the user unlinked earlier keeps its row (the pair is unique): link it again.
+            if (existing is not null)
+            {
+                existing.UserId = user.Id; existing.Email = identity.Email; existing.DisplayName = identity.Name;
+                existing.LinkedAt = _clock.UtcNow; existing.LastUsedAt = _clock.UtcNow; existing.IsActive = true;
+            }
+            else
+            {
+                _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = user.Id, Provider = providerKey, ProviderUserId = identity.Subject, Email = identity.Email, DisplayName = identity.Name, LinkedAt = _clock.UtcNow, LastUsedAt = _clock.UtcNow, IsActive = true });
+            }
         }
         else link!.LastUsedAt = _clock.UtcNow;
 
         if (!user.IsActive || user.DeletedAt is not null) return OperationResult<ApplicationUser>.Failure("USER_INACTIVE", "Linked user is inactive.");
-        if (!await _access.HasActiveAccessAsync(user.Id, provider.ApplicationSystemId, ct)) await _access.GrantAccessAsync(user.Id, provider.ApplicationSystemId, true, ct);
+        await _db.SaveChangesAsync(ct);
+        await SyncGroupsAsync(provider, user.Id, identity.Groups, ct);
+
+        if (!await _access.HasActiveAccessAsync(user.Id, provider.ApplicationSystemId, ct))
+        {
+            // Just-in-time access is only for identities that never had an assignment. A revoked or
+            // pending-approval record is an administrative decision that federation must not undo.
+            var hasAccessRecord = await _db.UserApplicationAccesses.AnyAsync(
+                item => item.UserId == user.Id && item.ApplicationSystemId == provider.ApplicationSystemId, ct);
+            if (hasAccessRecord)
+            {
+                await _audit.LogAsync("FEDERATION_ACCESS_DENIED", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), metadata: new { reason = "AccessRevokedOrPending" }, ct: ct);
+                return OperationResult<ApplicationUser>.Failure("ACCESS_DENIED", "Access to this application was revoked or is pending approval.");
+            }
+            await _access.GrantAccessAsync(user.Id, provider.ApplicationSystemId, true, ct);
+        }
         await _db.SaveChangesAsync(ct);
         return OperationResult<ApplicationUser>.Success(user);
+    }
+
+    /// <summary>
+    /// Links an upstream identity to an existing account at that account's request (portal). The
+    /// identity must not belong to another account; a previously unlinked row is reused. The
+    /// account's owner is told by email, since a new way to sign in was added.
+    /// </summary>
+    private async Task<OperationResult<FederationProviderSummary>> LinkIdentityAsync(Guid providerId, Guid userId, string subject, string email, string name, FederationCaller caller, CancellationToken ct)
+    {
+        var provider = await _db.FederationProviders.AsNoTracking().Include(item => item.ApplicationSystem).FirstOrDefaultAsync(item => item.Id == providerId && item.IsActive, ct);
+        if (provider is null)
+            return OperationResult<FederationProviderSummary>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "The identity provider is no longer available.");
+        var user = await _users.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
+            return OperationResult<FederationProviderSummary>.Failure("USER_INACTIVE", "User account is inactive.");
+        var providerKey = ProviderKey(provider);
+        var existing = await _db.ExternalIdentityProviders.FirstOrDefaultAsync(item => item.Provider == providerKey && item.ProviderUserId == subject, ct);
+        if (existing is { IsActive: true } && existing.UserId != userId)
+        {
+            await _audit.LogAsync("FEDERATION_LINK_REJECTED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), caller.IpAddress, caller.UserAgent, new { reason = "IdentityInUse" }, ct);
+            return OperationResult<FederationProviderSummary>.Failure("FEDERATION_IDENTITY_IN_USE", "This identity is already linked to another account.");
+        }
+        if (existing is null)
+        {
+            _db.ExternalIdentityProviders.Add(new ExternalIdentityProvider { Id = Guid.NewGuid(), UserId = userId, Provider = providerKey, ProviderUserId = subject, Email = email, DisplayName = name, LinkedAt = _clock.UtcNow, IsActive = true });
+        }
+        else
+        {
+            existing.UserId = userId; existing.Email = email; existing.DisplayName = name;
+            existing.LinkedAt = _clock.UtcNow; existing.IsActive = true;
+        }
+        await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("FEDERATION_IDENTITY_LINKED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), caller.IpAddress, caller.UserAgent, ct: ct);
+        await _email.SendSecurityNoticeAsync(user.Email!, user.FullName, "Identity provider linked",
+            $"You can now sign in with {provider.Name}. If this was not you, unlink it from your account portal and change your password.", ct);
+        return OperationResult<FederationProviderSummary>.Success(new FederationProviderSummary { Id = provider.Id, Name = provider.Name, Protocol = provider.Protocol.ToString() });
+    }
+
+    private static string ProviderKey(FederationProvider provider) => $"Federation:{provider.Id:N}";
+
+    /// <summary>
+    /// The provider is authoritative for its mapped groups: memberships follow the upstream values
+    /// on every sign-in. Like an administrative membership change, a change closes the user's
+    /// existing sessions so no token keeps roles or access the user no longer has.
+    /// </summary>
+    private async Task SyncGroupsAsync(FederationProvider provider, Guid userId, IReadOnlyCollection<string>? upstreamGroups, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(provider.GroupsClaim) || upstreamGroups is null)
+            return;
+        var mappings = await _db.FederationGroupMappings.AsNoTracking()
+            .Where(item => item.FederationProviderId == provider.Id && item.DirectoryGroup.IsActive)
+            .Select(item => new { item.UpstreamValue, item.DirectoryGroupId })
+            .ToListAsync(ct);
+        if (mappings.Count == 0)
+            return;
+
+        var values = new HashSet<string>(upstreamGroups, StringComparer.OrdinalIgnoreCase);
+        var desired = mappings.Where(item => values.Contains(item.UpstreamValue)).Select(item => item.DirectoryGroupId).ToHashSet();
+        var managed = mappings.Select(item => item.DirectoryGroupId).Distinct().ToList();
+        var current = await _db.UserGroupMemberships.Where(item => item.UserId == userId && managed.Contains(item.GroupId)).ToListAsync(ct);
+        var added = desired.Where(groupId => current.All(item => item.GroupId != groupId)).ToList();
+        var removed = current.Where(item => !desired.Contains(item.GroupId)).ToList();
+        if (added.Count == 0 && removed.Count == 0)
+            return;
+
+        await _refreshTokens.RevokeAllForUserAsync(userId, ct);
+        foreach (var groupId in added)
+            _db.UserGroupMemberships.Add(new UserGroupMembership { GroupId = groupId, UserId = userId, CreatedAt = _clock.UtcNow });
+        _db.UserGroupMemberships.RemoveRange(removed);
+        await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("FEDERATION_GROUPS_SYNCED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(),
+            metadata: new { added, removed = removed.Select(item => item.GroupId).ToList() }, ct: ct);
     }
 
     private async Task<OperationResult<FederationProviderDto>> SaveProviderAsync(Guid? id, UpsertFederationProviderRequest request, CancellationToken ct)
     {
         if (!Enum.TryParse<FederationProtocol>(request.Protocol, true, out var protocol) || !Enum.IsDefined(protocol) ||
             !Enum.TryParse<AccountLinkingMode>(request.AccountLinkingMode, true, out var linking) || !Enum.IsDefined(linking) ||
-            string.IsNullOrWhiteSpace(request.Name) || !Uri.TryCreate(request.Issuer, UriKind.Absolute, out var issuer) || issuer.Scheme != Uri.UriSchemeHttps)
-            return OperationResult<FederationProviderDto>.Failure("INVALID_FEDERATION_PROVIDER", "Name, HTTPS issuer, protocol, and linking mode are required.");
+            string.IsNullOrWhiteSpace(request.Name))
+            return OperationResult<FederationProviderDto>.Failure("INVALID_FEDERATION_PROVIDER", "Name, issuer, protocol, and linking mode are required.");
+        var oidc = protocol == FederationProtocol.Oidc;
+        var issuer = NormalizeIssuer(request.Issuer, oidc);
+        if (issuer is null)
+            return OperationResult<FederationProviderDto>.Failure("INVALID_FEDERATION_PROVIDER", oidc
+                ? "An OIDC issuer must be an absolute HTTPS URL without query or fragment."
+                : "A SAML issuer (entity ID) must be an absolute URI.");
         if (!await _db.ApplicationSystems.AnyAsync(item => item.Id == request.ApplicationSystemId && item.IsActive, ct))
             return OperationResult<FederationProviderDto>.Failure("APP_NOT_FOUND", "Active application not found.");
-        if (protocol == FederationProtocol.Oidc && (string.IsNullOrWhiteSpace(request.ClientId) || !IsHttps(request.OidcCallbackUrl)))
+        // Without an explicit value the OIDC callback is AuthCenter's own hosted callback.
+        var callback = !oidc ? null : string.IsNullOrWhiteSpace(request.OidcCallbackUrl) ? HostedOidcCallbackUrl : request.OidcCallbackUrl.Trim();
+        if (oidc && (string.IsNullOrWhiteSpace(request.ClientId) || !IsHttps(callback)))
             return OperationResult<FederationProviderDto>.Failure("INVALID_OIDC_PROVIDER", "OIDC client ID and exact HTTPS callback URL are required.");
-        var provider = id.HasValue ? await _db.FederationProviders.FindAsync([id.Value], ct) : null;
+        if (oidc && !string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) && !IsHttps(request.DiscoveryEndpoint.Trim()))
+            return OperationResult<FederationProviderDto>.Failure("INVALID_OIDC_PROVIDER", "The OIDC discovery endpoint must be an HTTPS URL.");
+
+        var groupsClaim = string.IsNullOrWhiteSpace(request.GroupsClaim) ? null : request.GroupsClaim.Trim();
+        var mappings = (request.GroupMappings ?? []).Select(item => (Value: item.UpstreamValue?.Trim() ?? string.Empty, GroupId: item.DirectoryGroupId)).ToList();
+        if (groupsClaim is { Length: > 256 } || mappings.Count > MaximumGroupMappings ||
+            mappings.Any(item => item.Value.Length is 0 or > 256 || item.GroupId == Guid.Empty) ||
+            mappings.Select(item => (item.Value.ToUpperInvariant(), item.GroupId)).Distinct().Count() != mappings.Count)
+            return OperationResult<FederationProviderDto>.Failure("INVALID_GROUP_MAPPING", $"Each group mapping needs an upstream value (at most 256 characters) and a group, without repetitions; at most {MaximumGroupMappings} mappings.");
+        if (mappings.Count > 0 && groupsClaim is null)
+            return OperationResult<FederationProviderDto>.Failure("INVALID_GROUP_MAPPING", "Set the groups claim before mapping its values to groups.");
+        var mappedGroups = mappings.Select(item => item.GroupId).Distinct().ToList();
+        if (mappedGroups.Count > 0 && await _db.DirectoryGroups.CountAsync(item => mappedGroups.Contains(item.Id) && item.IsActive, ct) != mappedGroups.Count)
+            return OperationResult<FederationProviderDto>.Failure("GROUP_NOT_FOUND", "Every mapped group must be an active directory group.");
+
+        var provider = id.HasValue ? await _db.FederationProviders.Include(item => item.GroupMappings).SingleOrDefaultAsync(item => item.Id == id.Value, ct) : null;
         if (id.HasValue && provider is null) return OperationResult<FederationProviderDto>.Failure("FEDERATION_PROVIDER_NOT_FOUND", "Federation provider not found.");
         if (id.HasValue && provider!.Version != request.Version) return OperationResult<FederationProviderDto>.Failure("CONCURRENCY_CONFLICT", "The federation provider changed after it was loaded.");
         // Like the client secret, a blank certificate on update keeps the stored one; the DTO only exposes its thumbprint.
@@ -297,75 +405,44 @@ public sealed partial class FederationService : IFederationService
         if (protocol == FederationProtocol.Saml2 && (!IsHttps(request.SamlSingleSignOnUrl) || !TryCertificate(certificatePem, out _)))
             return OperationResult<FederationProviderDto>.Failure("INVALID_SAML_PROVIDER", "SAML HTTPS SSO URL and a valid signing certificate are required.");
         provider ??= new FederationProvider { Id = Guid.NewGuid(), CreatedAt = _clock.UtcNow };
-        provider.ApplicationSystemId = request.ApplicationSystemId; provider.Name = request.Name.Trim(); provider.Protocol = protocol; provider.Issuer = issuer.AbsoluteUri.TrimEnd('/');
+        provider.ApplicationSystemId = request.ApplicationSystemId; provider.Name = request.Name.Trim(); provider.Protocol = protocol; provider.Issuer = issuer;
         // A provider never carries settings of the protocol it does not use, even if the request or a previous version had them.
-        var oidc = protocol == FederationProtocol.Oidc;
-        provider.DiscoveryEndpoint = oidc && !string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) ? request.DiscoveryEndpoint.Trim() : null; provider.ClientId = oidc ? request.ClientId?.Trim() : null; provider.OidcCallbackUrl = oidc ? request.OidcCallbackUrl?.Trim() : null;
+        provider.DiscoveryEndpoint = oidc && !string.IsNullOrWhiteSpace(request.DiscoveryEndpoint) ? request.DiscoveryEndpoint.Trim() : null; provider.ClientId = oidc ? request.ClientId?.Trim() : null; provider.OidcCallbackUrl = callback;
         if (!oidc) provider.ProtectedClientSecret = null; else if (!string.IsNullOrWhiteSpace(request.ClientSecret)) provider.ProtectedClientSecret = _secrets.Protect(request.ClientSecret);
         provider.SamlSingleSignOnUrl = oidc ? null : request.SamlSingleSignOnUrl?.Trim(); provider.SamlSigningCertificatePem = certificatePem?.Trim();
         provider.JitProvisioningEnabled = request.JitProvisioningEnabled; provider.AccountLinkingMode = linking; provider.IsActive = request.IsActive; provider.UpdatedAt = id.HasValue ? _clock.UtcNow : null;
+        provider.RequireVerifiedEmail = !oidc || request.RequireVerifiedEmail;
+        provider.TrustUpstreamMfa = request.TrustUpstreamMfa;
+        provider.GroupsClaim = groupsClaim;
+        foreach (var stale in provider.GroupMappings.Where(existing => !mappings.Any(item => item.GroupId == existing.DirectoryGroupId && string.Equals(item.Value, existing.UpstreamValue, StringComparison.OrdinalIgnoreCase))).ToList())
+            _db.FederationGroupMappings.Remove(stale);
+        foreach (var (value, groupId) in mappings.Where(item => !provider.GroupMappings.Any(existing => existing.DirectoryGroupId == item.GroupId && string.Equals(item.Value, existing.UpstreamValue, StringComparison.OrdinalIgnoreCase))))
+            _db.FederationGroupMappings.Add(new FederationGroupMapping { Id = Guid.NewGuid(), FederationProviderId = provider.Id, UpstreamValue = value, DirectoryGroupId = groupId });
         if (id.HasValue) provider.Version++;
         if (!id.HasValue) _db.FederationProviders.Add(provider);
         try { await _db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { return OperationResult<FederationProviderDto>.Failure("FEDERATION_PROVIDER_EXISTS", "A provider with this name already exists for the application."); }
         var applicationCode = await _db.ApplicationSystems.Where(x => x.Id == provider.ApplicationSystemId).Select(x => x.Code).SingleAsync(ct);
-        await _audit.LogAsync(id.HasValue ? "FEDERATION_PROVIDER_UPDATED" : "FEDERATION_PROVIDER_CREATED", applicationCode: applicationCode, entityName: nameof(FederationProvider), entityId: provider.Id.ToString(), metadata: new { result = "Success", protocol = provider.Protocol.ToString(), provider.IsActive, provider.Version, hasClientSecret = provider.ProtectedClientSecret is not null }, ct: ct);
-        return OperationResult<FederationProviderDto>.Success(Map(provider));
+        await _audit.LogAsync(id.HasValue ? "FEDERATION_PROVIDER_UPDATED" : "FEDERATION_PROVIDER_CREATED", applicationCode: applicationCode, entityName: nameof(FederationProvider), entityId: provider.Id.ToString(), metadata: new { result = "Success", protocol = provider.Protocol.ToString(), provider.IsActive, provider.Version, hasClientSecret = provider.ProtectedClientSecret is not null, provider.TrustUpstreamMfa, provider.RequireVerifiedEmail, groupMappings = mappings.Count }, ct: ct);
+        return OperationResult<FederationProviderDto>.Success(Map(await ProviderQuery().AsNoTracking().SingleAsync(item => item.Id == provider.Id, ct)));
     }
 
+    private IQueryable<FederationProvider> ProviderQuery() =>
+        _db.FederationProviders.Include(item => item.GroupMappings).ThenInclude(item => item.DirectoryGroup);
+
     private IQueryable<FederationRoutingRule> RoutingRuleQuery() => _db.FederationRoutingRules.Include(x => x.FederationProvider).ThenInclude(x => x.ApplicationSystem);
+
     private async Task<(string Code, string Message)?> ValidateRoutingRuleAsync(Guid providerId, int priority, string? domain, Guid? groupId, Guid? definitionId, string? valueJson, Guid? excludedId, CancellationToken ct)
     {
         if (priority < 0 || !await _db.FederationProviders.AnyAsync(x => x.Id == providerId, ct)) return ("INVALID_FEDERATION_ROUTING_RULE", "An existing provider and non-negative priority are required.");
-        if (!string.IsNullOrWhiteSpace(domain) && (!domain.Contains('.') || domain.Contains('@'))) return ("INVALID_EMAIL_DOMAIN", "Email domain must be a domain name without @.");
+        if (!string.IsNullOrWhiteSpace(domain) && (domain.Contains('@', StringComparison.Ordinal) || FederationDomains.Normalize(domain) is null)) return ("INVALID_EMAIL_DOMAIN", "Email domain must be a domain name without @.");
         if (groupId.HasValue && !await _db.DirectoryGroups.AnyAsync(x => x.Id == groupId && x.IsActive, ct)) return ("GROUP_NOT_FOUND", "Active group not found.");
         if (definitionId.HasValue && (string.IsNullOrWhiteSpace(valueJson) || !await _db.UserProfileAttributeDefinitions.AnyAsync(x => x.Id == definitionId && x.IsActive, ct))) return ("INVALID_PROFILE_CONDITION", "Active profile definition and expected value are required together.");
         if (await _db.FederationRoutingRules.AnyAsync(x => x.FederationProviderId == providerId && x.Priority == priority && x.Id != excludedId, ct)) return ("FEDERATION_ROUTING_PRIORITY_EXISTS", "Priority must be unique for the provider.");
         return null;
     }
+
     private static FederationRoutingRuleDto Map(FederationRoutingRule x) => new() { Id = x.Id, FederationProviderId = x.FederationProviderId, ProviderName = x.FederationProvider.Name, ApplicationSystemId = x.FederationProvider.ApplicationSystemId, Priority = x.Priority, EmailDomain = x.EmailDomain, DirectoryGroupId = x.DirectoryGroupId, ProfileAttributeDefinitionId = x.ProfileAttributeDefinitionId, ExpectedProfileValueJson = x.ExpectedProfileValueJson, IsActive = x.IsActive, Version = x.Version };
-
-    private async Task<OpenIdConnectConfiguration?> GetOidcConfigurationAsync(FederationProvider provider, CancellationToken ct, bool refresh = false)
-    {
-        var address = provider.DiscoveryEndpoint ?? $"{provider.Issuer.TrimEnd('/')}/.well-known/openid-configuration";
-        var manager = OidcConfigurations.GetOrAdd($"{provider.Id:N}|{address}", _ => new ConfigurationManager<OpenIdConnectConfiguration>(address, new OpenIdConnectConfigurationRetriever(), new HttpDocumentRetriever { RequireHttps = true }));
-        if (refresh) manager.RequestRefresh();
-        try { return await manager.GetConfigurationAsync(ct); } catch (Exception exception) when (exception is IOException or InvalidOperationException) { return null; }
-    }
-
-    private async Task<OidcTokenResponse?> RedeemCodeAsync(FederationProvider provider, string endpoint, string code, string verifier, CancellationToken ct)
-    {
-        var values = new Dictionary<string, string> { ["grant_type"] = "authorization_code", ["client_id"] = provider.ClientId!, ["code"] = code, ["redirect_uri"] = provider.OidcCallbackUrl!, ["code_verifier"] = verifier };
-        if (!string.IsNullOrWhiteSpace(provider.ProtectedClientSecret)) values["client_secret"] = _secrets.Unprotect(provider.ProtectedClientSecret);
-        using var response = await _httpClients.CreateClient("Federation").PostAsync(endpoint, new FormUrlEncodedContent(values), ct);
-        if (!response.IsSuccessStatusCode) return null;
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        return new OidcTokenResponse(document.RootElement.TryGetProperty("id_token", out var token) ? token.GetString() : null);
-    }
-
-    private static ClaimsPrincipal? ValidateIdToken(string token, FederationProvider provider, OpenIdConnectConfiguration configuration, string nonce)
-    {
-        try
-        {
-            var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = provider.Issuer,
-                ValidateAudience = true,
-                ValidAudience = provider.ClientId,
-                ValidateLifetime = true,
-                RequireExpirationTime = true,
-                RequireSignedTokens = true,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKeys = configuration.SigningKeys,
-                ClockSkew = TimeSpan.FromMinutes(2),
-                NameClaimType = "name"
-            }, out var validated);
-            if (validated is not JwtSecurityToken jwt || !FixedEquals(jwt.Claims.FirstOrDefault(item => item.Type == "nonce")?.Value, nonce)) return null;
-            return principal;
-        }
-        catch (SecurityTokenException) { return null; }
-    }
 
     private static FederationProviderDto Map(FederationProvider item) => new()
     {
@@ -382,13 +459,44 @@ public sealed partial class FederationService : IFederationService
         SamlSigningCertificateThumbprint = TryCertificate(item.SamlSigningCertificatePem, out var certificate) ? certificate!.Thumbprint : null,
         JitProvisioningEnabled = item.JitProvisioningEnabled,
         AccountLinkingMode = item.AccountLinkingMode.ToString(),
+        RequireVerifiedEmail = item.RequireVerifiedEmail,
+        TrustUpstreamMfa = item.TrustUpstreamMfa,
+        GroupsClaim = item.GroupsClaim,
+        GroupMappings = item.GroupMappings
+            .OrderBy(mapping => mapping.UpstreamValue, StringComparer.OrdinalIgnoreCase)
+            .Select(mapping => new FederationGroupMappingDto
+            {
+                UpstreamValue = mapping.UpstreamValue,
+                DirectoryGroupId = mapping.DirectoryGroupId,
+                DirectoryGroupName = mapping.DirectoryGroup?.Name
+            }).ToList(),
         IsActive = item.IsActive,
         Version = item.Version
     };
+
+    /// <summary>
+    /// OIDC issuers are HTTPS URLs; SAML entity IDs may be any absolute URI (https, http or urn).
+    /// The value is kept as written, because upstream issuers are compared as exact strings.
+    /// </summary>
+    private static string? NormalizeIssuer(string? value, bool oidc)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Length > 500 || !Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+            return null;
+        if (!oidc)
+            return trimmed;
+        return uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment) ? trimmed : null;
+    }
+
     private static bool IsHttps(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.Fragment);
-    private static string? NormalizeDomain(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().TrimStart('@').ToLowerInvariant();
+    private static string? NormalizeDomain(string? value) => FederationDomains.Normalize(value);
     private static bool FixedEquals(string? left, string? right) => left is not null && right is not null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(left), Encoding.UTF8.GetBytes(right));
+    private static string? HashBinding(string? binding) => string.IsNullOrWhiteSpace(binding) ? null : Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(binding)));
     private static bool TryCertificate(string? pem, out X509Certificate2? certificate) { certificate = null; try { if (string.IsNullOrWhiteSpace(pem)) return false; certificate = X509Certificate2.CreateFromPem(pem); return true; } catch (CryptographicException) { return false; } }
-    private sealed record OidcInteraction(Guid ProviderId, string State, string Nonce, string Verifier);
-    private sealed record OidcTokenResponse(string? IdToken);
+
+    /// <summary>An upstream identity after protocol validation.</summary>
+    /// <param name="EmailVerified">The email may be used to link or create an account.</param>
+    /// <param name="MultiFactor">The upstream reported a multi-factor authentication.</param>
+    /// <param name="Groups">Values of the provider's groups claim; <c>null</c> when not configured or not usable.</param>
+    private sealed record UpstreamIdentity(string Subject, string Email, string Name, bool EmailVerified, bool MultiFactor, IReadOnlyCollection<string>? Groups);
 }

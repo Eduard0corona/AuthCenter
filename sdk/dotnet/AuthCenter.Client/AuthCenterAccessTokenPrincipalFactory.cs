@@ -35,11 +35,34 @@ internal static class AuthCenterAccessTokenPrincipalFactory
 
         foreach (var claim in validatedAccessTokenPrincipal.Claims)
         {
-            var claimType = claim.Type == AuthCenterBffDefaults.RoleClaim ? ClaimTypes.Role : claim.Type;
-            if (ManagedClaimTypes.Contains(claimType, StringComparer.Ordinal))
-                identity.AddClaim(new Claim(claimType, claim.Value, claim.ValueType, claim.Issuer));
+            // Roles are stored under the identity's own role claim type so IsInRole and
+            // [Authorize(Roles = ...)] work, whether AuthCenter sent "role" or the legacy .NET URI.
+            if (AuthCenterRoleClaims.IsRoleClaim(claim.Type))
+                identity.AddClaim(new Claim(identity.RoleClaimType, claim.Value, claim.ValueType, claim.Issuer));
+            else if (ManagedClaimTypes.Contains(claim.Type, StringComparer.Ordinal))
+                identity.AddClaim(new Claim(claim.Type, claim.Value, claim.ValueType, claim.Issuer));
         }
 
         return principal;
+    }
+}
+
+internal static class AuthCenterRoleClaims
+{
+    public static bool IsRoleClaim(string claimType) =>
+        string.Equals(claimType, AuthCenterBffDefaults.RoleClaim, StringComparison.Ordinal) ||
+        string.Equals(claimType, ClaimTypes.Role, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Adds a short <c>role</c> claim for every legacy URI role claim, for tokens issued before
+    /// AuthCenter emitted the interoperable claim name.
+    /// </summary>
+    public static void NormalizeLegacyRoles(ClaimsIdentity identity)
+    {
+        foreach (var legacy in identity.FindAll(ClaimTypes.Role).ToList())
+        {
+            if (!identity.HasClaim(identity.RoleClaimType, legacy.Value))
+                identity.AddClaim(new Claim(identity.RoleClaimType, legacy.Value, legacy.ValueType, legacy.Issuer));
+        }
     }
 }

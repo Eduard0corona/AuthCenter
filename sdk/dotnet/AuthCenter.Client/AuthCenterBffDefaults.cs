@@ -8,4 +8,7 @@ public static class AuthCenterBffDefaults
     public const string PermissionClaim = "permissions";
     public const string ApplicationsClaim = "applications";
     public const string RoleClaim = "role";
+    public const string AccessTokenType = "at+jwt";
+    public const string LogoutTokenType = "logout+jwt";
+    public const string BackchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout";
 }

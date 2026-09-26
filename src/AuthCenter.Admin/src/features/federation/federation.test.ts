@@ -12,6 +12,22 @@ describe("federation provider form", () => {
     expect(federationProviderPayload(values, 3)).toMatchObject({ protocol: "Oidc", clientId: "authcenter", clientSecret: null, samlSingleSignOnUrl: null, samlSigningCertificatePem: null, version: 3 });
     expect(federationProviderSchema.safeParse({ ...values, oidcCallbackUrl: "http://insecure.test/cb" }).success).toBe(false);
     expect(federationProviderSchema.safeParse({ ...values, issuer: "not a url" }).success).toBe(false);
+    expect(federationProviderSchema.safeParse({ ...values, issuer: "http://login.example.test" }).success).toBe(false);
+    // A blank callback lets the server use AuthCenter's hosted callback.
+    expect(federationProviderPayload({ ...values, oidcCallbackUrl: "" })).toMatchObject({ oidcCallbackUrl: null, requireVerifiedEmail: true, trustUpstreamMfa: false, groupsClaim: null, groupMappings: [] });
+  });
+
+  it("accepts non-HTTPS SAML entity IDs and validates group mappings", () => {
+    const saml = { ...federationProviderDefaults(), applicationSystemId: applicationId, name: "AD FS", protocol: "Saml2" as const, samlSingleSignOnUrl: "https://idp.test/sso", samlSigningCertificatePem: pem };
+    expect(federationProviderSchema.safeParse({ ...saml, issuer: "http://adfs.example.test/adfs/services/trust" }).success).toBe(true);
+    expect(federationProviderSchema.safeParse({ ...saml, issuer: "urn:example:idp" }).success).toBe(true);
+    expect(federationProviderSchema.safeParse({ ...saml, issuer: "adfs" }).success).toBe(false);
+
+    const mapping = { upstreamValue: "Engineering", directoryGroupId: "55555555-5555-4555-8555-555555555555" };
+    expect(federationProviderSchema.safeParse({ ...saml, issuer: "urn:example:idp", groupMappings: [mapping] }).success).toBe(false);
+    expect(federationProviderSchema.safeParse({ ...saml, issuer: "urn:example:idp", groupsClaim: "groups", groupMappings: [mapping, { ...mapping, upstreamValue: "engineering" }] }).success).toBe(false);
+    expect(federationProviderPayload({ ...saml, issuer: "urn:example:idp", groupsClaim: "groups", trustUpstreamMfa: true, groupMappings: [mapping] }))
+      .toMatchObject({ requireVerifiedEmail: true, trustUpstreamMfa: true, groupsClaim: "groups", groupMappings: [mapping] });
   });
 
   it("requires a PEM certificate for new SAML providers but not when one is already stored", () => {

@@ -17,8 +17,9 @@ namespace AuthCenter.Infrastructure.Services;
 public sealed class ProvisioningTokenService : IProvisioningTokenService
 {
     public static readonly IReadOnlySet<string> AllowedScopes = new HashSet<string>(StringComparer.Ordinal) { "scim.users.read", "scim.users.write", "scim.groups.read", "scim.groups.write" };
-    private readonly AuthCenterDbContext _db; private readonly IDateTimeProvider _clock; private readonly IAuditService _audit;
-    public ProvisioningTokenService(AuthCenterDbContext db, IDateTimeProvider clock, IAuditService audit) { _db = db; _clock = clock; _audit = audit; }
+    private const int RecentFailureKinds = 10;
+    private readonly AuthCenterDbContext _db; private readonly IDbContextFactory<AuthCenterDbContext> _dbFactory; private readonly IDateTimeProvider _clock; private readonly IAuditService _audit;
+    public ProvisioningTokenService(AuthCenterDbContext db, IDbContextFactory<AuthCenterDbContext> dbFactory, IDateTimeProvider clock, IAuditService audit) { _db = db; _dbFactory = dbFactory; _clock = clock; _audit = audit; }
 
     public async Task<PagedResult<ProvisioningTokenMetadataDto>> GetAsync(ProvisioningTokenQuery query, CancellationToken ct = default)
     {
@@ -71,17 +72,104 @@ public sealed class ProvisioningTokenService : IProvisioningTokenService
         token.RevokedAt = _clock.UtcNow; await _db.SaveChangesAsync(ct); await _audit.LogAsync("PROVISIONING_TOKEN_REVOKED", applicationCode: token.ApplicationSystem.Code, entityName: nameof(ProvisioningToken), entityId: tokenId.ToString(), metadata: new { result = "Success" }, ct: ct); return OperationResult.Success();
     }
 
-    public async Task<ProvisioningPrincipal?> ValidateAsync(string? rawToken, string requiredScope, CancellationToken ct = default)
+    public async Task<ProvisioningTokenCheck> AuthenticateAsync(string? rawToken, string requiredScope, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(rawToken) || !rawToken.StartsWith("acp_", StringComparison.Ordinal) || !AllowedScopes.Contains(requiredScope)) return null;
+        if (string.IsNullOrWhiteSpace(rawToken))
+            return new(null, null, ProvisioningTokenCheck.Missing);
+        if (!rawToken.StartsWith("acp_", StringComparison.Ordinal) || !AllowedScopes.Contains(requiredScope))
+            return new(null, null, ProvisioningTokenCheck.Unknown);
         var hash = Hash(rawToken); var now = _clock.UtcNow;
-        var token = await _db.ProvisioningTokens.SingleOrDefaultAsync(item => item.TokenHash == hash && item.RevokedAt == null && item.ExpiresAt > now && item.ApplicationSystem.IsActive, ct);
-        if (token is null) return null;
+        var token = await _db.ProvisioningTokens.Include(item => item.ApplicationSystem).SingleOrDefaultAsync(item => item.TokenHash == hash, ct);
+        if (token is null)
+            return new(null, null, ProvisioningTokenCheck.Unknown);
+        // The token is known from here on: a refusal is recorded for its diagnostics.
+        if (token.RevokedAt.HasValue)
+            return new(null, token.Id, ProvisioningTokenCheck.Revoked);
+        if (token.ExpiresAt <= now)
+            return new(null, token.Id, ProvisioningTokenCheck.Expired);
+        if (!token.ApplicationSystem.IsActive)
+            return new(null, token.Id, ProvisioningTokenCheck.ApplicationInactive);
         var scopes = (JsonSerializer.Deserialize<string[]>(token.ScopesJson) ?? []).ToHashSet(StringComparer.Ordinal);
-        if (!scopes.Contains(requiredScope)) return null;
+        if (!scopes.Contains(requiredScope))
+            return new(null, token.Id, ProvisioningTokenCheck.InsufficientScope);
         token.LastUsedAt = now; await _db.SaveChangesAsync(ct);
-        return new ProvisioningPrincipal(token.Id, token.ApplicationSystemId, scopes);
+        return new(new ProvisioningPrincipal(token.Id, token.ApplicationSystemId, scopes), token.Id, null);
     }
+
+    public async Task RecordRequestAsync(ScimRequestRecord request, CancellationToken ct = default)
+    {
+        // Its own context: the request's context may hold changes of a SCIM operation that failed.
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        db.ScimRequestLogs.Add(new ScimRequestLog
+        {
+            Id = Guid.NewGuid(), ProvisioningTokenId = request.TokenId, Method = Bound(request.Method, 10)!, Path = Bound(request.Path, 300)!,
+            StatusCode = request.StatusCode, ScimType = Bound(request.ScimType, 40), Detail = Bound(request.Detail, 500),
+            DurationMs = request.DurationMs, TraceId = Bound(request.TraceId, 64), CreatedAt = _clock.UtcNow
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<ScimDiagnosticsDto?> GetDiagnosticsAsync(Guid tokenId, CancellationToken ct = default)
+    {
+        var token = await _db.ProvisioningTokens.AsNoTracking().Where(item => item.Id == tokenId).Select(item => new { item.LastUsedAt }).SingleOrDefaultAsync(ct);
+        if (token is null) return null;
+        var now = _clock.UtcNow; var dayAgo = now.AddDays(-1); var weekAgo = now.AddDays(-7);
+        var requests = _db.ScimRequestLogs.AsNoTracking().Where(item => item.ProvisioningTokenId == tokenId);
+        var week = requests.Where(item => item.CreatedAt >= weekAgo);
+        var failures = await week.Where(item => item.StatusCode >= 400)
+            .GroupBy(item => new { item.StatusCode, item.ScimType })
+            .Select(group => new { group.Key.StatusCode, group.Key.ScimType, Count = group.Count(), LastAt = group.Max(item => item.CreatedAt) })
+            .OrderByDescending(group => group.Count).ThenByDescending(group => group.LastAt).Take(RecentFailureKinds)
+            .ToListAsync(ct);
+        var summaries = new List<ScimFailureSummaryDto>();
+        foreach (var failure in failures)
+        {
+            var lastDetail = await week.Where(item => item.StatusCode == failure.StatusCode && item.ScimType == failure.ScimType)
+                .OrderByDescending(item => item.CreatedAt).Select(item => item.Detail).FirstOrDefaultAsync(ct);
+            summaries.Add(new ScimFailureSummaryDto { StatusCode = failure.StatusCode, ScimType = failure.ScimType, Count = failure.Count, LastAt = failure.LastAt, LastDetail = lastDetail });
+        }
+        return new ScimDiagnosticsDto
+        {
+            TokenId = tokenId,
+            LastUsedAt = token.LastUsedAt,
+            LastSucceededAt = await requests.Where(item => item.StatusCode < 400).MaxAsync(item => (DateTime?)item.CreatedAt, ct),
+            LastFailedAt = await requests.Where(item => item.StatusCode >= 400).MaxAsync(item => (DateTime?)item.CreatedAt, ct),
+            Last24Hours = new ScimRequestCountsDto
+            {
+                Total = await requests.CountAsync(item => item.CreatedAt >= dayAgo, ct),
+                Failed = await requests.CountAsync(item => item.CreatedAt >= dayAgo && item.StatusCode >= 400, ct)
+            },
+            Last7Days = new ScimRequestCountsDto
+            {
+                Total = await week.CountAsync(ct),
+                Failed = await week.CountAsync(item => item.StatusCode >= 400, ct)
+            },
+            Failures = summaries
+        };
+    }
+
+    public async Task<PagedResult<ScimRequestLogDto>?> GetRequestsAsync(Guid tokenId, ScimRequestLogQuery query, CancellationToken ct = default)
+    {
+        if (!await _db.ProvisioningTokens.AnyAsync(item => item.Id == tokenId, ct)) return null;
+        var requests = _db.ScimRequestLogs.AsNoTracking().Where(item => item.ProvisioningTokenId == tokenId);
+        requests = query.Outcome?.Trim().ToLowerInvariant() switch
+        {
+            "failed" => requests.Where(item => item.StatusCode >= 400),
+            "succeeded" => requests.Where(item => item.StatusCode < 400),
+            _ => requests
+        };
+        var total = await requests.CountAsync(ct);
+        var items = await requests.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id).Skip(query.Skip).Take(query.PageSize)
+            .Select(item => new ScimRequestLogDto
+            {
+                Id = item.Id, CreatedAt = item.CreatedAt, Method = item.Method, Path = item.Path, StatusCode = item.StatusCode,
+                ScimType = item.ScimType, Detail = item.Detail, DurationMs = item.DurationMs, TraceId = item.TraceId
+            })
+            .ToListAsync(ct);
+        return PagedResult<ScimRequestLogDto>.Create(items, total, query.Page, query.PageSize);
+    }
+
+    private static string? Bound(string? value, int length) => value is null || value.Length <= length ? value : value[..length];
 
     private async Task<ProvisioningTokenResponse> CreateStoredAsync(Guid applicationId, string name, IReadOnlyList<string> scopes, DateTime expiresAt, CancellationToken ct)
     {

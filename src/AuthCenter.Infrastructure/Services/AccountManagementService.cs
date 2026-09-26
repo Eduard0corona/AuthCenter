@@ -6,6 +6,7 @@ using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthCenter.Infrastructure.Services;
@@ -19,6 +20,7 @@ public class AccountManagementService : IAccountManagementService
     private readonly IActionLinkService _actionLinkService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IAuditService _auditService;
+    private readonly ISingleSignOnSessionService _sessions;
 
     public AccountManagementService(
         AuthCenterDbContext db,
@@ -27,7 +29,8 @@ public class AccountManagementService : IAccountManagementService
         IEmailService emailService,
         IActionLinkService actionLinkService,
         IDateTimeProvider dateTimeProvider,
-        IAuditService auditService)
+        IAuditService auditService,
+        ISingleSignOnSessionService sessions)
     {
         _db = db;
         _userManager = userManager;
@@ -36,6 +39,7 @@ public class AccountManagementService : IAccountManagementService
         _actionLinkService = actionLinkService;
         _dateTimeProvider = dateTimeProvider;
         _auditService = auditService;
+        _sessions = sessions;
     }
 
     public async Task<OperationResult> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken ct = default)
@@ -56,6 +60,8 @@ public class AccountManagementService : IAccountManagementService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("CHANGE_PASSWORD", userId: userId, ct: ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Password changed",
+            "The password of your account was changed. If this was not you, reset it now and review your sessions.", ct);
         return OperationResult.Success();
     }
 
@@ -82,7 +88,18 @@ public class AccountManagementService : IAccountManagementService
         if (token.RevokedAt is not null)
             return OperationResult.Failure("SESSION_ALREADY_REVOKED", "Session is already revoked.");
 
-        await _refreshTokenService.RevokeAsync(token, null, ct);
+        // A hosted-login session also ends the application grants it authorized and notifies the
+        // clients signed in through it; an application grant is revoked on its own.
+        if (token.OAuthClientId is null)
+        {
+            var ended = await _sessions.EndSessionAsync(userId, tokenId, "user_revoked", ct);
+            if (!ended.IsSuccess)
+                return ended;
+        }
+        else
+        {
+            await _refreshTokenService.RevokeAsync(token, null, ct);
+        }
         await _auditService.LogAsync("REVOKE_SESSION", userId: userId, entityId: tokenId.ToString(), ct: ct);
         return OperationResult.Success();
     }
@@ -100,17 +117,79 @@ public class AccountManagementService : IAccountManagementService
             .Where(p => p.UserId == userId && p.IsActive)
             .AsNoTracking()
             .ToListAsync(ct);
+        // Enterprise links are stored as "Federation:{provider id}"; show the provider's name.
+        var enterpriseIds = providers.Select(p => EnterpriseProviderId(p.Provider)).OfType<Guid>().ToList();
+        var enterpriseNames = enterpriseIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : await _db.FederationProviders.AsNoTracking().Where(p => enterpriseIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Name, ct);
 
-        return providers.Select(p => new ExternalProviderDto
+        return providers.Select(p =>
         {
-            Id = p.Id,
-            Provider = p.Provider,
-            Email = p.Email,
-            DisplayName = p.DisplayName,
-            PictureUrl = p.PictureUrl,
-            LinkedAt = p.LinkedAt,
-            LastUsedAt = p.LastUsedAt
+            var enterpriseId = EnterpriseProviderId(p.Provider);
+            return new ExternalProviderDto
+            {
+                Id = p.Id,
+                Provider = p.Provider,
+                ProviderName = enterpriseId is { } id ? enterpriseNames.GetValueOrDefault(id, "Enterprise provider") : p.Provider,
+                Enterprise = enterpriseId is not null,
+                Email = p.Email,
+                DisplayName = p.DisplayName,
+                PictureUrl = p.PictureUrl,
+                LinkedAt = p.LinkedAt,
+                LastUsedAt = p.LastUsedAt
+            };
         }).ToList();
+    }
+
+    private static Guid? EnterpriseProviderId(string provider) =>
+        provider.StartsWith("Federation:", StringComparison.Ordinal) && Guid.TryParseExact(provider["Federation:".Length..], "N", out var id) ? id : null;
+
+    public async Task<IReadOnlyList<UserApplicationDto>> GetApplicationsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var direct = await _db.UserApplicationAccesses.AsNoTracking()
+            .Where(access => access.UserId == userId && access.IsActive && access.ApplicationSystem.IsActive)
+            .Select(access => new { access.ApplicationSystemId, access.CreatedAt })
+            .ToListAsync(ct);
+        var viaGroups = await _db.UserGroupMemberships.AsNoTracking()
+            .Where(membership => membership.UserId == userId && membership.Group.IsActive)
+            .SelectMany(membership => membership.Group.ApplicationAssignments
+                .Where(assignment => assignment.ApplicationSystem.IsActive)
+                .Select(assignment => new { assignment.ApplicationSystemId, Group = membership.Group.Name }))
+            .ToListAsync(ct);
+        var ids = direct.Select(item => item.ApplicationSystemId).Concat(viaGroups.Select(item => item.ApplicationSystemId)).Distinct().ToList();
+        if (ids.Count == 0)
+            return [];
+        var applications = await _db.ApplicationSystems.AsNoTracking()
+            .Where(application => ids.Contains(application.Id))
+            .Select(application => new
+            {
+                application.Id, application.Code, application.Name, application.Description,
+                DisplayName = application.BrandingSettings != null ? application.BrandingSettings.DisplayName : null,
+                LogoUrl = application.BrandingSettings != null ? application.BrandingSettings.LogoUrl : null,
+                SupportUrl = application.BrandingSettings != null ? application.BrandingSettings.SupportUrl : null
+            })
+            .ToListAsync(ct);
+        var launchable = await _db.SamlServiceProviders.AsNoTracking()
+            .Where(provider => ids.Contains(provider.ApplicationSystemId) && provider.IsActive && provider.AllowIdpInitiated)
+            .OrderBy(provider => provider.Name)
+            .Select(provider => new { provider.ApplicationSystemId, provider.Id })
+            .ToListAsync(ct);
+        return applications
+            .Select(application => new UserApplicationDto
+            {
+                Code = application.Code,
+                Name = string.IsNullOrWhiteSpace(application.DisplayName) ? application.Name : application.DisplayName,
+                Description = application.Description,
+                LogoUrl = application.LogoUrl,
+                SupportUrl = application.SupportUrl,
+                GrantedAt = direct.Where(item => item.ApplicationSystemId == application.Id).Select(item => (DateTime?)item.CreatedAt).Min(),
+                Groups = viaGroups.Where(item => item.ApplicationSystemId == application.Id).Select(item => item.Group).Distinct().Order().ToList(),
+                LaunchUrl = launchable.FirstOrDefault(provider => provider.ApplicationSystemId == application.Id) is { } provider
+                    ? $"/saml/idp/sso/initiate/{provider.Id}"
+                    : null
+            })
+            .OrderBy(application => application.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
     public async Task<OperationResult> UnlinkExternalProviderAsync(Guid userId, Guid providerId, CancellationToken ct = default)
@@ -154,8 +233,12 @@ public class AccountManagementService : IAccountManagementService
             return OperationResult.Failure("EMAIL_TAKEN", "This email is already in use.");
 
         var token = await _userManager.GenerateChangeEmailTokenAsync(user, newEmail);
-        var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailChange);
+        // The confirmation needs the account as well as the new address and token, and the
+        // link may be opened in a browser that is not signed in.
+        var actionUrl = QueryHelpers.AddQueryString(_actionLinkService.GetActionUrl(ActionLinkPurpose.EmailChange), "userId", user.Id.ToString());
         await _emailService.SendEmailChangeConfirmationAsync(newEmail, user.FullName, token, actionUrl, ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Email change requested",
+            "A change of your account's email address was requested. It only applies once confirmed from the new address; if this was not you, change your password.", ct);
 
         await _auditService.LogAsync("REQUEST_EMAIL_CHANGE", userId: userId, ct: ct);
         return OperationResult.Success();
@@ -167,9 +250,10 @@ public class AccountManagementService : IAccountManagementService
         if (user is null)
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
 
+        var previousEmail = user.Email;
         var result = await _userManager.ChangeEmailAsync(user, request.NewEmail, request.Token);
         if (!result.Succeeded)
-            return OperationResult.Failure("EMAIL_CHANGE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
+            return OperationResult.Failure("EMAIL_CHANGE_FAILED", "The confirmation link is invalid or expired.");
 
         // Keep UserName in sync with Email
         user.UserName = request.NewEmail;
@@ -177,6 +261,9 @@ public class AccountManagementService : IAccountManagementService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("CONFIRM_EMAIL_CHANGE", userId: user.Id, ct: ct);
+        if (!string.IsNullOrWhiteSpace(previousEmail))
+            await _emailService.SendSecurityNoticeAsync(previousEmail, user.FullName, "Email address changed",
+                "Your account now uses a different email address. If this was not you, contact support right away.", ct);
         return OperationResult.Success();
     }
 

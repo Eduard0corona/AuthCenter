@@ -1,10 +1,10 @@
 using AuthCenter.Client;
 using Microsoft.AspNetCore.Authorization;
 
+// Register the API in AuthCenter first (POST /api/api-resources): identifier = AuthCenter:Audience,
+// scope orders.read, owned by the application that defines the ORDERS_READ permission.
 var builder = WebApplication.CreateBuilder(args);
-var authority = new Uri(builder.Configuration["AuthCenter:Authority"] ?? throw new InvalidOperationException("Set AuthCenter:Authority."));
-var audience = builder.Configuration["AuthCenter:Audience"] ?? throw new InvalidOperationException("Set AuthCenter:Audience.");
-builder.Services.AddAuthentication().AddAuthCenterJwtBearer(authority, audience);
+builder.Services.AddAuthentication().AddAuthCenterJwtBearer(builder.Configuration.GetRequiredSection("AuthCenter"));
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Orders.Read", policy => policy

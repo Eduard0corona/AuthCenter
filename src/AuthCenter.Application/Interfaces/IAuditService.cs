@@ -18,5 +18,6 @@ public interface IAuditService
         CancellationToken ct = default);
 
     Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default);
-    Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default);
+    /// <summary>The newest <paramref name="maxRows"/> events matching the filters (paging is ignored), audited as an export.</summary>
+    Task<AuditLogExport> ExportAsync(AuditLogQuery query, int maxRows, CancellationToken ct = default);
 }

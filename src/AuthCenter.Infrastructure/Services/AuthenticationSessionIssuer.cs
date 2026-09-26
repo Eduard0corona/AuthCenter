@@ -1,5 +1,6 @@
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
 
@@ -28,13 +29,15 @@ public sealed class AuthenticationSessionIssuer : IAuthenticationSessionIssuer
         string? ipAddress,
         string? userAgent,
         string? deviceToken = null,
+        AuthenticationContext? authentication = null,
         CancellationToken ct = default)
     {
         var applications = new List<string> { applicationCode };
         var roles = await _roles.GetRoleNamesForUserAsync(user.Id, applicationSystemId, ct);
         var permissions = await _roles.GetPermissionCodesForUserAsync(user.Id, applicationSystemId, ct);
         var (rawRefresh, refreshHash) = _tokens.GenerateRefreshToken();
-        var refreshToken = await _refreshTokens.CreateAsync(user.Id, applicationCode, refreshHash, ipAddress, userAgent, ct);
+        var refreshToken = await _refreshTokens.CreateAsync(
+            user.Id, applicationCode, refreshHash, ipAddress, userAgent, authentication ?? AuthenticationContext.Password, ct);
         var accessToken = _tokens.GenerateAccessToken(user, roles, permissions, applications, refreshToken.Id);
 
         return OperationResult<AuthResponse>.Success(new AuthResponse

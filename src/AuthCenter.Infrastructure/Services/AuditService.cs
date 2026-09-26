@@ -59,39 +59,11 @@ public class AuditService : IAuditService
                 CreatedAt = _dateTimeProvider.UtcNow
             };
 
-            // Use a dedicated context so SaveChangesAsync only flushes the audit entry,
-            // not any pending changes in the caller's unit-of-work
+            // Use a dedicated context so SaveChangesAsync only flushes the audit entry, not any
+            // pending changes in the caller's unit of work. Saving it also queues the deliveries of
+            // the event hooks subscribed to this action (AuthCenterDbContext.SaveChangesAsync).
             await using var auditDb = await _dbFactory.CreateDbContextAsync(ct);
             auditDb.AuditLogs.Add(log);
-            var hooks = await auditDb.EventHooks
-                .Where(hook => hook.IsActive && hook.IsVerified &&
-                    (!hook.ApplicationSystemId.HasValue || hook.ApplicationSystem!.Code == applicationCode))
-                .ToListAsync(ct);
-            foreach (var hook in hooks)
-            {
-                var eventTypes = JsonSerializer.Deserialize<string[]>(hook.EventTypesJson) ?? [];
-                if (!eventTypes.Contains(action, StringComparer.Ordinal) && !eventTypes.Contains("*", StringComparer.Ordinal))
-                    continue;
-                auditDb.EventHookDeliveries.Add(new EventHookDelivery
-                {
-                    Id = Guid.NewGuid(),
-                    EventHookId = hook.Id,
-                    EventId = log.Id,
-                    EventType = action,
-                    PayloadJson = JsonSerializer.Serialize(new
-                    {
-                        id = log.Id,
-                        type = action,
-                        occurredAt = log.CreatedAt,
-                        subjectId = userId,
-                        applicationCode,
-                        entity = entityName,
-                        entityId,
-                        traceId = log.TraceId
-                    }),
-                    NextAttemptAt = log.CreatedAt
-                });
-            }
             await auditDb.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -104,8 +76,33 @@ public class AuditService : IAuditService
     public async Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var logs = db.AuditLogs.AsNoTracking();
+        var logs = Filter(db.AuditLogs.AsNoTracking(), query).OrderByDescending(a => a.CreatedAt);
 
+        var totalCount = await logs.CountAsync(ct);
+        var items = await Project(db, logs.Skip(query.Skip).Take(query.PageSize)).ToListAsync(ct);
+
+        return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
+    }
+
+    public async Task<AuditLogExport> ExportAsync(AuditLogQuery query, int maxRows, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var logs = Filter(db.AuditLogs.AsNoTracking(), query).OrderByDescending(a => a.CreatedAt);
+        var totalCount = await logs.CountAsync(ct);
+        var items = await Project(db, logs.Take(maxRows)).ToListAsync(ct);
+
+        await LogAsync("SYSTEM_LOG_EXPORTED", entityName: nameof(AuditLog), metadata: new
+        {
+            result = "Success",
+            rows = items.Count,
+            truncated = totalCount > items.Count,
+            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc, query.EntityName, query.EntityId }
+        }, ct: ct);
+        return new AuditLogExport(items, totalCount);
+    }
+
+    private static IQueryable<AuditLog> Filter(IQueryable<AuditLog> logs, AuditLogQuery query)
+    {
         if (query.UserId.HasValue)
             logs = logs.Where(a => a.UserId == query.UserId.Value);
 
@@ -124,41 +121,35 @@ public class AuditService : IAuditService
         if (query.ToUtc.HasValue)
             logs = logs.Where(a => a.CreatedAt <= query.ToUtc.Value);
 
-        logs = logs.OrderByDescending(a => a.CreatedAt);
+        if (!string.IsNullOrWhiteSpace(query.EntityName))
+            logs = logs.Where(a => a.EntityName == query.EntityName.Trim());
 
-        var totalCount = await logs.CountAsync(ct);
-        var items = await logs
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(a => new AuditLogDto
-            {
-                Id = a.Id,
-                UserId = a.UserId,
-                ApplicationCode = a.ApplicationCode,
-                Action = a.Action,
-                EntityName = a.EntityName,
-                EntityId = a.EntityId,
-                IpAddress = a.IpAddress,
-                UserAgent = a.UserAgent,
-                MetadataJson = a.MetadataJson,
-                TraceId = a.TraceId,
-                CreatedAt = a.CreatedAt
-            })
-            .ToListAsync(ct);
+        if (!string.IsNullOrWhiteSpace(query.EntityId))
+            logs = logs.Where(a => a.EntityId == query.EntityId.Trim());
 
-        return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
+        return logs;
     }
 
-    public async Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default)
-    {
-        var page = await GetAsync(query, ct);
-        await LogAsync("SYSTEM_LOG_EXPORTED", entityName: nameof(AuditLog), metadata: new
+    // The actor's email and name when the account still exists.
+    private static IQueryable<AuditLogDto> Project(AuthCenterDbContext db, IQueryable<AuditLog> page) =>
+        from a in page
+        join user in db.Users on a.UserId equals user.Id into actors
+        from actor in actors.DefaultIfEmpty()
+        orderby a.CreatedAt descending
+        select new AuditLogDto
         {
-            result = "Success",
-            query.Page,
-            query.PageSize,
-            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc }
-        }, ct: ct);
-        return page.Items;
-    }
+            Id = a.Id,
+            UserId = a.UserId,
+            UserEmail = actor != null ? actor.Email : null,
+            UserName = actor != null ? actor.FullName : null,
+            ApplicationCode = a.ApplicationCode,
+            Action = a.Action,
+            EntityName = a.EntityName,
+            EntityId = a.EntityId,
+            IpAddress = a.IpAddress,
+            UserAgent = a.UserAgent,
+            MetadataJson = a.MetadataJson,
+            TraceId = a.TraceId,
+            CreatedAt = a.CreatedAt
+        };
 }

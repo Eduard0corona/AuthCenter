@@ -3,14 +3,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
-import type { ApplicationBranding, ApplicationSummary, PagedResult, RoleSummary } from "../../api/types";
+import { fetchAllAsPage } from "../../api/catalog";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
+import type { ApplicationBranding, ApplicationSummary, RoleSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { HistoryLink } from "../../components/HistoryLink";
+import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
+import { ApplicationGovernancePanel } from "../governance/ApplicationGovernancePanel";
 import { applicationDefaults, applicationPayload, applicationSchema, type ApplicationFormValues } from "./application";
 import type { BrandingFormValues } from "./branding";
 
@@ -35,7 +40,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   const availableRoles = useQuery({
     queryKey: ["roles", "application-default", applicationId],
     enabled: !create && canReadRoles && Boolean(applicationId),
-    queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?page=1&pageSize=100&applicationSystemId=${encodeURIComponent(applicationId ?? "")}`, { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>(`/api/roles?applicationSystemId=${encodeURIComponent(applicationId ?? "")}`, signal)
   });
 
   useEffect(() => {
@@ -95,7 +100,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   });
 
   if (!create && application.isPending) return <PageState title="Cargando aplicación" busy />;
-  if (!create && application.isError) return <PageState title="No pudimos cargar la aplicación" detail={message(application.error)} tone="error" action={<Link className="button" to="/applications">Volver</Link>} />;
+  if (!create && application.isError) return <PageState title="No pudimos cargar la aplicación" detail={errorMessage(application.error)} tone="error" action={<Link className="button" to="/applications">Volver</Link>} />;
 
   const current = application.data;
   const currentDefaultRoleId = current?.registrationSettings?.defaultRoleId ?? null;
@@ -108,10 +113,10 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         eyebrow={create ? "Alta" : current?.code ?? "Aplicaciones"}
         title={title}
         description={create ? "Registra una aplicación y define sus métodos de acceso iniciales." : canWrite ? "Configura registro, autenticación y postura de seguridad desde una ruta enlazable." : "Consulta la configuración efectiva. Tu acceso actual es de sólo lectura."}
-        actions={<Link className="button button--secondary" to="/applications">Volver al listado</Link>}
+        actions={<>{create ? null : <HistoryLink entityName="ApplicationSystem" entityId={current?.id} />}<Link className="button button--secondary" to="/applications">Volver al listado</Link></>}
       />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-      {save.error ? <p className="alert alert--error" role="alert">{message(save.error)}</p> : null}
+      <SaveError error={save.error} onReload={() => { save.reset(); void application.refetch().then((fresh) => { if (fresh.data) form.reset(applicationDefaults(fresh.data)); }); }} />
       <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
         <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="application-identity">
@@ -156,14 +161,16 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         </div> : <p className="muted">Solicita el permiso AUTHCENTER_APPLICATIONS_WRITE para modificar esta configuración.</p>}
       </form>
 
+      {current && permissions.has("AUTHCENTER_GOVERNANCE_READ") ? <ApplicationGovernancePanel applicationId={current.id} /> : null}
+
       {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="application-actions">
         <div className="settings-panel__heading"><div><h2 id="application-actions">Operación</h2><p>El branding mantiene el contrato completo; la aplicación del sistema no puede desactivarse.</p></div></div>
         <div className="button-group"><button className="button button--secondary" type="button" onClick={() => { updateBranding.reset(); setBrandingOpen(true); }}>Editar branding</button><button className="button button--danger-quiet" type="button" disabled={current.code === "AUTHCENTER" || changeStatus.isPending} onClick={() => setConfirmStatus(true)}>{current.isActive ? "Desactivar" : "Activar"}</button></div>
         {current.code === "AUTHCENTER" ? <p className="muted">AUTHCENTER debe permanecer activa para conservar el acceso administrativo.</p> : null}
-        {changeStatus.error ? <p className="alert alert--error" role="alert">{message(changeStatus.error)}</p> : null}
+        {changeStatus.error ? <p className="alert alert--error" role="alert">{errorMessage(changeStatus.error)}</p> : null}
       </section> : null}
-      {brandingOpen && current ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={current} busy={updateBranding.isPending} error={updateBranding.error ? message(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setBrandingOpen(false); }} onSave={async (values) => { await updateBranding.mutateAsync(values); }} /></Suspense> : null}
-      <ConfirmDialog open={confirmStatus} title={`${current?.isActive ? "Desactivar" : "Activar"} ${current?.name ?? "aplicación"}`} detail={current?.isActive ? "Los inicios de sesión nuevos quedarán bloqueados y las sesiones activas serán revocadas." : "La aplicación volverá a aceptar accesos según su política."} confirmLabel={current?.isActive ? "Desactivar aplicación" : "Activar aplicación"} dangerous={Boolean(current?.isActive)} busy={changeStatus.isPending} onCancel={() => setConfirmStatus(false)} onConfirm={() => changeStatus.mutate()} />
+      {brandingOpen && current ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={current} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setBrandingOpen(false); }} onSave={async (values) => { await updateBranding.mutateAsync(values); }} /></Suspense> : null}
+      <ConfirmDialog open={confirmStatus} title={`${current?.isActive ? "Desactivar" : "Activar"} ${current?.name ?? "aplicación"}`} detail={current?.isActive ? "Los inicios de sesión nuevos quedarán bloqueados y las sesiones activas serán revocadas." : "La aplicación volverá a aceptar accesos según su política."} confirmLabel={current?.isActive ? "Desactivar aplicación" : "Activar aplicación"} dangerous={Boolean(current?.isActive)} busy={changeStatus.isPending} error={changeStatus.error} onCancel={() => setConfirmStatus(false)} onConfirm={() => changeStatus.mutate()} />
     </>
   );
 }
@@ -176,4 +183,3 @@ function Checkbox({ label, registration }: { label: string; registration: UseFor
   return <label className="checkbox-field"><input type="checkbox" {...registration} /><span>{label}</span></label>;
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

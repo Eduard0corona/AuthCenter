@@ -7,6 +7,9 @@ public sealed class EventHookDelivery
     public Guid EventId { get; set; }
     public string EventType { get; set; } = string.Empty;
     public string PayloadJson { get; set; } = string.Empty;
+
+    /// <summary>When the event occurred and the delivery was queued.</summary>
+    public DateTime CreatedAt { get; set; }
     public int AttemptCount { get; set; }
     public DateTime NextAttemptAt { get; set; }
     public DateTime? LockedUntil { get; set; }

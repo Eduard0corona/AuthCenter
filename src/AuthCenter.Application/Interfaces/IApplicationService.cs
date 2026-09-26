@@ -1,3 +1,4 @@
+using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Application.Common;
 using AuthCenter.Contracts.Requests.Applications;
 using AuthCenter.Contracts.Requests.Common;
@@ -14,6 +15,9 @@ public interface IApplicationService
     Task<ApplicationSystem?> GetByCodeAsync(string code, CancellationToken ct = default);
     Task<ApplicationSystem?> GetByCodeWithSettingsAsync(string code, CancellationToken ct = default);
     Task<ApplicationBrandingDto?> GetBrandingAsync(string code, CancellationToken ct = default);
+
+    /// <summary>Sign-in methods the hosted login offers for an active application, or null.</summary>
+    Task<LoginOptionsResponse?> GetLoginOptionsAsync(string code, CancellationToken ct = default);
     Task<OperationResult<ApplicationBrandingDto>> UpdateBrandingAsync(Guid applicationId, UpdateApplicationBrandingRequest request, CancellationToken ct = default);
     Task<OperationResult<ApplicationDto>> CreateAsync(CreateApplicationRequest request, CancellationToken ct = default);
     Task<OperationResult<ApplicationDto>> UpdateAsync(Guid id, UpdateApplicationRequest request, CancellationToken ct = default);

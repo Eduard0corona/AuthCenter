@@ -6,27 +6,35 @@ using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AuthCenter.Infrastructure.Services;
 
 public class OAuthClientService : IOAuthClientService
 {
+    /// <summary>Cache entry of every registered browser origin, read by the CORS policy provider.</summary>
+    public const string CorsOriginsCacheKey = "cors:oauth-client-origins";
+
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ICurrentUserService _currentUser;
+    private readonly IMemoryCache _cache;
 
     public OAuthClientService(
         AuthCenterDbContext db,
         IDateTimeProvider dateTimeProvider,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IMemoryCache cache)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
         _currentUser = currentUser;
+        _cache = cache;
     }
 
     public async Task<OperationResult<OAuthClientCreatedResponse>> CreateAsync(CreateOAuthClientRequest request, CancellationToken ct = default)
@@ -41,6 +49,8 @@ public class OAuthClientService : IOAuthClientService
         var exists = await _db.OAuthClients.AnyAsync(c => c.ClientId == request.ClientId, ct);
         if (exists)
             return OperationResult<OAuthClientCreatedResponse>.Failure("CLIENT_ID_TAKEN", "A client with this ClientId already exists.");
+        if (await UnknownApiScopesAsync(request.AllowedScopes, ct) is { } unknown)
+            return OperationResult<OAuthClientCreatedResponse>.Failure("UNKNOWN_SCOPE", unknown);
 
         string? plainSecret = null;
         string? hashedSecret = null;
@@ -66,6 +76,10 @@ public class OAuthClientService : IOAuthClientService
             GrantTypesJson = JsonSerializer.Serialize(request.GrantTypes),
             ClientType = (OAuthClientType)request.ClientType,
             LoginUrl = request.LoginUrl,
+            PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris),
+            AllowedCorsOriginsJson = JsonSerializer.Serialize(NormalizeOrigins(request.AllowedCorsOrigins)),
+            BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri,
+            BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired,
             AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds,
             RequirePkce = request.RequirePkce,
             AutoConsent = request.AutoConsent,
@@ -76,6 +90,7 @@ public class OAuthClientService : IOAuthClientService
         _db.OAuthClients.Add(client);
         AddAudit("OAUTH_CLIENT_CREATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
 
         return OperationResult<OAuthClientCreatedResponse>.Success(new OAuthClientCreatedResponse
         {
@@ -137,6 +152,12 @@ public class OAuthClientService : IOAuthClientService
             return OperationResult<OAuthClientResponse>.Failure("NOT_FOUND", "OAuth client not found.");
         if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains("client_credentials"))
             return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use client_credentials.");
+        if (client.ClientType == OAuthClientType.Public && request.GrantTypes.Contains(DomainConstants.OAuthGrantTypes.TokenExchange))
+            return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use token exchange.");
+        if (await UnknownApiScopesAsync(request.AllowedScopes, ct) is { } unknown)
+            return OperationResult<OAuthClientResponse>.Failure("UNKNOWN_SCOPE", unknown);
+        if (!client.TryAdvance(request.Version))
+            return OperationResult<OAuthClientResponse>.Failure(VersionedUpdates.ConflictCode, "The OAuth client changed after it was loaded.");
 
         var statusChanged = client.IsActive != request.IsActive;
         client.DisplayName = request.DisplayName;
@@ -144,6 +165,10 @@ public class OAuthClientService : IOAuthClientService
         client.AllowedScopesJson = JsonSerializer.Serialize(request.AllowedScopes);
         client.GrantTypesJson = JsonSerializer.Serialize(request.GrantTypes);
         client.LoginUrl = request.LoginUrl;
+        client.PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris);
+        client.AllowedCorsOriginsJson = JsonSerializer.Serialize(NormalizeOrigins(request.AllowedCorsOrigins));
+        client.BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri;
+        client.BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired;
         client.AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds;
         client.RequirePkce = request.RequirePkce;
         client.AutoConsent = request.AutoConsent;
@@ -154,6 +179,7 @@ public class OAuthClientService : IOAuthClientService
             ? request.IsActive ? "OAUTH_CLIENT_ACTIVATED" : "OAUTH_CLIENT_DEACTIVATED"
             : "OAUTH_CLIENT_UPDATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
         return OperationResult<OAuthClientResponse>.Success(MapToResponse(client));
     }
 
@@ -169,6 +195,7 @@ public class OAuthClientService : IOAuthClientService
         client.UpdatedAt = _dateTimeProvider.UtcNow;
         AddAudit("OAUTH_CLIENT_DEACTIVATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
         return OperationResult.Success();
     }
 
@@ -195,6 +222,7 @@ public class OAuthClientService : IOAuthClientService
 
     internal static OAuthClientResponse MapToResponse(OAuthClient client) => new()
     {
+        Version = client.Version,
         Id = client.Id,
         ApplicationSystemId = client.ApplicationSystemId,
         ApplicationCode = client.ApplicationSystem.Code,
@@ -206,6 +234,10 @@ public class OAuthClientService : IOAuthClientService
         AllowedScopes = JsonSerializer.Deserialize<List<string>>(client.AllowedScopesJson) ?? [],
         GrantTypes = JsonSerializer.Deserialize<List<string>>(client.GrantTypesJson) ?? [],
         LoginUrl = client.LoginUrl,
+        PostLogoutRedirectUris = JsonSerializer.Deserialize<List<string>>(client.PostLogoutRedirectUrisJson) ?? [],
+        AllowedCorsOrigins = JsonSerializer.Deserialize<List<string>>(client.AllowedCorsOriginsJson) ?? [],
+        BackchannelLogoutUri = client.BackchannelLogoutUri,
+        BackchannelLogoutSessionRequired = client.BackchannelLogoutSessionRequired,
         AccessTokenLifetimeSeconds = client.AccessTokenLifetimeSeconds,
         RequirePkce = client.RequirePkce,
         AutoConsent = client.AutoConsent,
@@ -233,4 +265,19 @@ public class OAuthClientService : IOAuthClientService
             CreatedAt = _dateTimeProvider.UtcNow
         });
     }
+
+    /// <summary>API scopes must exist in the catalog; OpenID Connect scopes are built in.</summary>
+    private async Task<string?> UnknownApiScopesAsync(IEnumerable<string> scopes, CancellationToken ct)
+    {
+        var apiScopes = scopes.Where(scope => !DomainConstants.OAuthScopes.All.Contains(scope)).Distinct(StringComparer.Ordinal).ToList();
+        if (apiScopes.Count == 0)
+            return null;
+        var known = await _db.ApiScopes.AsNoTracking().Where(scope => apiScopes.Contains(scope.Name)).Select(scope => scope.Name).ToListAsync(ct);
+        var unknown = apiScopes.Except(known, StringComparer.Ordinal).ToList();
+        return unknown.Count == 0 ? null : $"Unknown API scopes: {string.Join(", ", unknown)}. Register them in the API catalog first.";
+    }
+
+    // Browsers send the Origin header as scheme://host[:port], lower-case and without a slash.
+    private static List<string> NormalizeOrigins(IEnumerable<string> origins) =>
+        origins.Select(origin => new Uri(origin).GetLeftPart(UriPartial.Authority).ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToList();
 }

@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Groups;
@@ -49,6 +50,7 @@ public class GroupsController : ControllerBase
             : Ok(ApiResponse<object>.Ok(members));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.GroupsWrite)]
     public async Task<IActionResult> Create([FromBody] CreateDirectoryGroupRequest request, CancellationToken ct)
@@ -56,7 +58,7 @@ public class GroupsController : ControllerBase
         var result = await _groups.CreateAsync(request, ct);
         return result.IsSuccess
             ? CreatedAtAction(nameof(GetById), new { groupId = result.Data!.Id }, ApiResponse<object>.Ok(result.Data))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     [HttpPut("{groupId:guid}")]
@@ -69,7 +71,7 @@ public class GroupsController : ControllerBase
         var result = await _groups.UpdateAsync(groupId, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     [HttpPatch("{groupId:guid}/activate")]
@@ -122,11 +124,11 @@ public class GroupsController : ControllerBase
         var result = await _groups.SetAccessAsync(groupId, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
     private IActionResult ToActionResult(OperationResult result) =>
         result.IsSuccess
             ? Ok(ApiResponse.Ok())
-            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
 }

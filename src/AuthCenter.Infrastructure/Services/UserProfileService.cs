@@ -29,12 +29,14 @@ public sealed class UserProfileService : IUserProfileService
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _clock;
     private readonly ICurrentUserService _currentUser;
+    private readonly DynamicGroupMembershipService _dynamicGroups;
 
-    public UserProfileService(AuthCenterDbContext db, IDateTimeProvider clock, ICurrentUserService currentUser)
+    public UserProfileService(AuthCenterDbContext db, IDateTimeProvider clock, ICurrentUserService currentUser, DynamicGroupMembershipService dynamicGroups)
     {
         _db = db;
         _clock = clock;
         _currentUser = currentUser;
+        _dynamicGroups = dynamicGroups;
     }
 
     public async Task<IReadOnlyList<ProfileAttributeDefinitionDto>> GetSchemaAsync(
@@ -145,6 +147,8 @@ public sealed class UserProfileService : IUserProfileService
                     "PROFILE_EXISTING_VALUES_INVALID",
                     "The schema change would invalidate existing profile values. Update those profiles before changing the definition.");
         }
+        if (!definition.TryAdvance(request.Version))
+            return Failure(VersionedUpdates.ConflictCode, "The attribute definition changed after it was loaded.");
 
         definition.DisplayName = request.DisplayName.Trim();
         definition.Description = NormalizeOptional(request.Description);
@@ -298,6 +302,9 @@ public sealed class UserProfileService : IUserProfileService
             CreatedAt = now
         });
         await _db.SaveChangesAsync(ct);
+        // Rule-managed groups follow the new values right away, not only after the next SCIM update.
+        if (await _dynamicGroups.SynchronizeUserAsync(userId, ct) > 0)
+            await _db.SaveChangesAsync(ct);
         return OperationResult<UserProfileDto>.Success(await BuildProfileAsync(userId, ct));
     }
 
@@ -415,7 +422,7 @@ public sealed class UserProfileService : IUserProfileService
         return DefinitionValidation.Success(defaultJson, probe.AllowedValuesJson);
     }
 
-    private static ValueValidation NormalizeValue(
+    internal static ValueValidation NormalizeValue(
         UserProfileAttributeDefinition definition,
         JsonElement value,
         bool checkAllowedValues = true)
@@ -425,8 +432,9 @@ public sealed class UserProfileService : IUserProfileService
             object canonical = definition.DataType switch
             {
                 ProfileAttributeDataType.String when value.ValueKind == JsonValueKind.String => value.GetString()!,
-                ProfileAttributeDataType.Integer when value.TryGetInt64(out var integer) => integer,
-                ProfileAttributeDataType.Decimal when value.TryGetDecimal(out var number) => number,
+                // TryGet* throw on other kinds of value (a number in quotes is not a number).
+                ProfileAttributeDataType.Integer when value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var integer) => integer,
+                ProfileAttributeDataType.Decimal when value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number) => number,
                 ProfileAttributeDataType.Boolean when value.ValueKind is JsonValueKind.True or JsonValueKind.False => value.GetBoolean(),
                 ProfileAttributeDataType.Date when value.ValueKind == JsonValueKind.String &&
                     DateOnly.TryParseExact(value.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -501,6 +509,7 @@ public sealed class UserProfileService : IUserProfileService
 
     private static ProfileAttributeDefinitionDto MapDefinition(UserProfileAttributeDefinition definition) => new()
     {
+        Version = definition.Version,
         Id = definition.Id,
         Key = definition.Key,
         DisplayName = definition.DisplayName,
@@ -552,7 +561,7 @@ public sealed class UserProfileService : IUserProfileService
         public static DefinitionValidation Failure(string code, string message) => new(false, code, message, null, null);
     }
 
-    private sealed record ValueValidation(bool IsSuccess, string ErrorCode, string Message, string? ValueJson)
+    internal sealed record ValueValidation(bool IsSuccess, string ErrorCode, string Message, string? ValueJson)
     {
         public static ValueValidation Success(string json) => new(true, string.Empty, string.Empty, json);
         public static ValueValidation Failure(string code, string message) => new(false, code, message, null);

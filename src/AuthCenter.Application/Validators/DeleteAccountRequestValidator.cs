@@ -8,6 +8,8 @@ public class DeleteAccountRequestValidator : AbstractValidator<DeleteAccountRequ
     public DeleteAccountRequestValidator()
     {
         RuleFor(x => x.ConfirmDeletion)
-            .Equal(true).WithMessage("Account deletion must be explicitly confirmed.");
+            .Equal(true)
+            .WithErrorCode("DELETION_NOT_CONFIRMED")
+            .WithMessage("Account deletion must be explicitly confirmed.");
     }
 }

@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Domain.Constants;
@@ -45,19 +46,21 @@ public class TokenService : ITokenService
     {
         var creds = GetRsaSigningCredentials();
 
+        var now = _dateTimeProvider.UtcNow;
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email!),
             new(JwtRegisteredClaimNames.Name, user.FullName),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            IssuedAt(now)
         };
 
         if (sessionId.HasValue)
             claims.Add(new Claim(JwtRegisteredClaimNames.Sid, sessionId.Value.ToString()));
 
         foreach (var role in roles)
-            claims.Add(new Claim(ClaimTypes.Role, role));
+            claims.Add(new Claim(DomainConstants.Claims.Role, role));
 
         foreach (var permission in permissions)
             claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
@@ -65,14 +68,7 @@ public class TokenService : ITokenService
         foreach (var app in applications)
             claims.Add(new Claim(DomainConstants.Claims.Applications, app));
 
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: _jwtSettings.Audience,
-            claims: claims,
-            expires: _dateTimeProvider.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
-            signingCredentials: creds);
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return WriteAccessToken(creds, _jwtSettings.Audience, claims, now.AddMinutes(_jwtSettings.AccessTokenMinutes));
     }
 
     public string GenerateOAuthAccessToken(
@@ -82,13 +78,18 @@ public class TokenService : ITokenService
         IList<string> scopes,
         IList<string> roles,
         IList<string> permissions,
-        int lifetimeSeconds)
+        int lifetimeSeconds,
+        TokenAuthentication? authentication = null,
+        IReadOnlyList<string>? audiences = null,
+        string? actorJson = null)
     {
         var creds = GetRsaSigningCredentials();
+        var now = _dateTimeProvider.UtcNow;
 
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            IssuedAt(now),
             new("client_id", clientId),
             new("scope", string.Join(" ", scopes)),
             new(DomainConstants.Claims.Applications, applicationCode)
@@ -105,23 +106,30 @@ public class TokenService : ITokenService
                 claims.Add(new Claim(JwtRegisteredClaimNames.Name, user.FullName));
 
             foreach (var role in roles)
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                claims.Add(new Claim(DomainConstants.Claims.Role, role));
 
             foreach (var permission in permissions)
                 claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
+
+            // RFC 9068 section 2.2.1: resource servers can require a recent or stronger authentication.
+            if (authentication is not null)
+            {
+                claims.Add(new Claim("auth_time", ToUnixTime(authentication.AuthenticatedAt), ClaimValueTypes.Integer64));
+                claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
+                // The session lets introspection report the token inactive once the user signs out.
+                if (authentication.SessionId.HasValue)
+                    claims.Add(new Claim(JwtRegisteredClaimNames.Sid, authentication.SessionId.Value.ToString()));
+            }
         }
 
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: clientId,
-            claims: claims,
-            expires: _dateTimeProvider.UtcNow.AddSeconds(lifetimeSeconds),
-            signingCredentials: creds);
+        // RFC 8693 section 4.1: the party acting on behalf of the subject.
+        if (actorJson is not null)
+            claims.Add(new Claim("act", actorJson, JsonClaimValueTypes.Json));
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return WriteAccessToken(creds, audiences is { Count: > 0 } ? audiences : [clientId], claims, now.AddSeconds(lifetimeSeconds));
     }
 
-    public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes)
+    public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes, TokenAuthentication? authentication = null)
     {
         if (!_keyRing.IsConfigured) return null;
 
@@ -129,17 +137,29 @@ public class TokenService : ITokenService
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Iat, new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
-            new("auth_time", new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new(JwtRegisteredClaimNames.Iat, ToUnixTime(now), ClaimValueTypes.Integer64),
+            // auth_time is when the user authenticated, which an SSO session can predate by hours.
+            new("auth_time", ToUnixTime(authentication?.AuthenticatedAt ?? now), ClaimValueTypes.Integer64),
         };
+
+        if (authentication is not null)
+        {
+            // amr is always a JSON array, even with a single method (OIDC Core section 2).
+            claims.Add(new Claim("amr", JsonSerializer.Serialize(authentication.Methods), JsonClaimValueTypes.JsonArray));
+            claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
+            if (authentication.SessionId.HasValue)
+                claims.Add(new Claim(JwtRegisteredClaimNames.Sid, authentication.SessionId.Value.ToString()));
+        }
 
         if (nonce is not null)
             claims.Add(new Claim("nonce", nonce));
 
+        claims.Add(new Claim(JwtRegisteredClaimNames.Azp, clientId));
+
         if (scopes.Contains(DomainConstants.OAuthScopes.Email))
         {
             claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email!));
-            claims.Add(new Claim("email_verified", user.EmailConfirmed.ToString().ToLowerInvariant()));
+            claims.Add(new Claim("email_verified", user.EmailConfirmed ? "true" : "false", ClaimValueTypes.Boolean));
         }
 
         if (scopes.Contains(DomainConstants.OAuthScopes.Profile))
@@ -159,6 +179,129 @@ public class TokenService : ITokenService
 
     public string GetJwks() => _keyRing.Jwks;
 
+    // Access tokens carry typ "at+jwt" (RFC 9068) so a resource server can refuse an ID token that
+    // shares the same issuer, audience and algorithm.
+    private string WriteAccessToken(SigningCredentials credentials, string audience, IEnumerable<Claim> claims, DateTime expires) =>
+        WriteAccessToken(credentials, [audience], claims, expires);
+
+    private string WriteAccessToken(SigningCredentials credentials, IReadOnlyList<string> audiences, IEnumerable<Claim> claims, DateTime expires)
+    {
+        var header = new JwtHeader(credentials, null, DomainConstants.Claims.AccessTokenType);
+        var payload = new JwtPayload(_jwtSettings.Issuer, audiences.Count == 1 ? audiences[0] : null, claims, notBefore: null, expires: expires);
+        if (audiences.Count > 1)
+            payload[JwtRegisteredClaimNames.Aud] = audiences.ToArray();
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
+    }
+
+    private static Claim IssuedAt(DateTime now) =>
+        new(JwtRegisteredClaimNames.Iat, ToUnixTime(now), ClaimValueTypes.Integer64);
+
+    private static string ToUnixTime(DateTime value) =>
+        new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    public string? ReadIdTokenHintSubject(string idToken, string clientId)
+    {
+        var hint = ReadIdTokenHint(idToken);
+        return hint is not null && string.Equals(hint.ClientId, clientId, StringComparison.Ordinal) ? hint.Subject : null;
+    }
+
+    public IdTokenHint? ReadIdTokenHint(string idToken)
+    {
+        if (string.IsNullOrWhiteSpace(idToken) || !_keyRing.IsConfigured)
+            return null;
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        try
+        {
+            var principal = handler.ValidateToken(idToken, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _jwtSettings.Issuer,
+                // The audience names the client; callers check it against the client they expect.
+                ValidateAudience = false,
+                // An id_token_hint may be expired; only its origin and subject matter.
+                ValidateLifetime = false,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeys = _keyRing.ValidationKeys,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+            }, out var validated);
+
+            // Access and logout tokens share issuer and keys but are not ID tokens.
+            var type = ((JwtSecurityToken)validated).Header.Typ;
+            if (string.Equals(type, DomainConstants.Claims.AccessTokenType, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, DomainConstants.Claims.LogoutTokenType, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+            var audiences = principal.FindAll(JwtRegisteredClaimNames.Aud).Select(claim => claim.Value).ToList();
+            if (string.IsNullOrEmpty(subject) || audiences.Count != 1)
+                return null;
+            return new IdTokenHint(
+                subject,
+                audiences[0],
+                Guid.TryParse(principal.FindFirst(JwtRegisteredClaimNames.Sid)?.Value, out var sessionId) ? sessionId : null);
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    public ValidatedAccessToken? ValidateAccessToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 16_384 || !_keyRing.IsConfigured)
+            return null;
+        try
+        {
+            var principal = new JwtSecurityTokenHandler { MapInboundClaims = false }.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _jwtSettings.Issuer,
+                ValidateAudience = false,
+                ValidateLifetime = true,
+                RequireExpirationTime = true,
+                ClockSkew = TimeSpan.Zero,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeys = _keyRing.ValidationKeys,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                ValidTypes = [DomainConstants.Claims.AccessTokenType]
+            }, out var validated);
+            var jwt = (JwtSecurityToken)validated;
+            return new ValidatedAccessToken(
+                principal,
+                jwt.Audiences.ToList(),
+                jwt.ValidTo,
+                jwt.IssuedAt == DateTime.MinValue ? null : jwt.IssuedAt);
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    public string GenerateLogoutToken(string clientId, Guid userId, Guid? sessionId)
+    {
+        var credentials = GetRsaSigningCredentials();
+        var now = _dateTimeProvider.UtcNow;
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, userId.ToString()),
+            IssuedAt(now),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("events", JsonSerializer.Serialize(new Dictionary<string, object> { [DomainConstants.Claims.BackchannelLogoutEvent] = new { } }), JsonClaimValueTypes.Json)
+        };
+        if (sessionId.HasValue)
+            claims.Add(new Claim(JwtRegisteredClaimNames.Sid, sessionId.Value.ToString()));
+
+        // Logout tokens never carry a nonce and use their own type, so they cannot be replayed as
+        // ID or access tokens (OpenID Connect Back-Channel Logout 1.0, section 2.4).
+        var header = new JwtHeader(credentials, null, DomainConstants.Claims.LogoutTokenType);
+        var payload = new JwtPayload(_jwtSettings.Issuer, clientId, claims, notBefore: null, expires: now.AddMinutes(2));
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
+    }
+
     private SigningCredentials GetRsaSigningCredentials() => _keyRing.RequireSigningCredentials();
 
     public (string token, string hash) GenerateRefreshToken()
@@ -169,9 +312,9 @@ public class TokenService : ITokenService
         return (token, HashToken(token));
     }
 
-    public string GenerateMfaPendingToken(Guid userId, string applicationCode)
+    public string GenerateMfaPendingToken(Guid userId, string applicationCode, string? primaryMethod = null)
     {
-        return GeneratePendingToken(userId, applicationCode, "mfa_pending");
+        return GeneratePendingToken(userId, applicationCode, "mfa_pending", _mfaSettings.MfaTokenExpirySeconds, primaryMethod);
     }
 
     public MfaPendingTokenValidationResult? ValidateMfaPendingToken(string token)
@@ -210,7 +353,7 @@ public class TokenService : ITokenService
         return GeneratePendingToken(userId, applicationCode, purpose, _mfaSettings.MfaTokenExpirySeconds);
     }
 
-    private string GeneratePendingToken(Guid userId, string applicationCode, string purpose, double expirySeconds)
+    private string GeneratePendingToken(Guid userId, string applicationCode, string purpose, double expirySeconds, string? primaryMethod = null)
     {
         var claims = new List<Claim>
         {
@@ -219,6 +362,8 @@ public class TokenService : ITokenService
             new("appCode", applicationCode),
             new("purpose", purpose)
         };
+        if (!string.IsNullOrWhiteSpace(primaryMethod))
+            claims.Add(new Claim("amr", primaryMethod));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SigningKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -267,7 +412,7 @@ public class TokenService : ITokenService
                 return null;
             }
 
-            return new MfaPendingTokenValidationResult(userId, applicationCode, tokenId);
+            return new MfaPendingTokenValidationResult(userId, applicationCode, tokenId, principal.FindFirst("amr")?.Value);
         }
         catch
         {

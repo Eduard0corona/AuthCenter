@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Roles;
@@ -37,6 +38,7 @@ public class RolesController : ControllerBase
         return Ok(ApiResponse<object>.Ok(role));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.RolesWrite)]
     public async Task<IActionResult> Create([FromBody] CreateRoleRequest request, CancellationToken ct)

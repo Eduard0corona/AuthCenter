@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Policies;
@@ -43,6 +44,7 @@ public class AccessPoliciesController : ControllerBase
     public async Task<IActionResult> GetVersions(Guid applicationSystemId, CancellationToken ct) =>
         Ok(ApiResponse<object>.Ok(await _policies.GetVersionsAsync(applicationSystemId, ct)));
 
+    [Idempotent]
     [HttpPost("applications/{applicationSystemId:guid}/drafts")]
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
     public async Task<IActionResult> CreateDraft(Guid applicationSystemId, CancellationToken ct)
@@ -53,6 +55,7 @@ public class AccessPoliciesController : ControllerBase
             : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
+    [Idempotent]
     [HttpPost("applications/{applicationSystemId:guid}/versions/{policyVersionId:guid}/publish")]
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
     public async Task<IActionResult> Publish(Guid applicationSystemId, Guid policyVersionId, CancellationToken ct)
@@ -88,6 +91,7 @@ public class AccessPoliciesController : ControllerBase
             : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.AccessPoliciesWrite)]
     public async Task<IActionResult> Create([FromBody] CreateAccessPolicyRuleRequest request, CancellationToken ct)

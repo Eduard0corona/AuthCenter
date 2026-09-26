@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useId, useState } from "react";
+import { useModalDialog } from "../../hooks/useModalDialog";
 
 interface SecretRevealDialogProps {
   open: boolean;
@@ -8,16 +9,10 @@ interface SecretRevealDialogProps {
 }
 
 export function SecretRevealDialog({ open, secret, title, onClose }: SecretRevealDialogProps) {
-  const dialog = useRef<HTMLDialogElement>(null);
+  const dialog = useModalDialog(open);
+  const titleId = useId();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
-
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    if (open && !node.open) node.showModal();
-    if (!open && node.open) node.close();
-  }, [open]);
 
   async function copy(): Promise<void> {
     try {
@@ -29,10 +24,10 @@ export function SecretRevealDialog({ open, secret, title, onClose }: SecretRevea
     }
   }
 
-  return <dialog ref={dialog} className="dialog" onCancel={(event) => event.preventDefault()}>
+  return <dialog ref={dialog} className="dialog" aria-labelledby={titleId} onCancel={(event) => event.preventDefault()}>
     <div className="dialog__content">
       <p className="eyebrow">Secreto de un solo uso</p>
-      <h2>{title}</h2>
+      <h2 id={titleId}>{title}</h2>
       <p>Guárdalo ahora en un gestor seguro. AuthCenter no podrá volver a mostrar este valor.</p>
       <div className="secret-reveal"><code>{secret}</code></div>
       {copyError ? <p className="alert alert--error" role="alert">No pudimos copiarlo automáticamente. Selecciona el valor y cópialo manualmente.</p> : null}

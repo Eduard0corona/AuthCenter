@@ -60,11 +60,13 @@ public sealed class RetentionCleanupService : BackgroundService
         removed += await DeleteBatchesAsync(db, db.TransientStates.Where(item => item.ExpiresAt < now), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.OAuthAuthorizationCodes.Where(item => item.ExpiresAt < tokenCutoff), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.RefreshTokens.Where(item => item.ExpiresAt < tokenCutoff || (item.RevokedAt != null && item.RevokedAt < tokenCutoff)), batchSize, ct);
+        removed += await DeleteBatchesAsync(db, db.SingleSignOnSessionClients.Where(item => !db.RefreshTokens.Any(token => token.Id == item.SessionId)), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.UserTrustedDevices.Where(item => item.ExpiresAt < now), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.AuditLogs.Where(item => item.CreatedAt < auditCutoff), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.DistributedRateLimitBuckets.Where(item => item.ExpiresAt < now), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.OutboxMessages.Where(item => item.ProcessedAt != null && item.ProcessedAt < tokenCutoff), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.AuthenticationObservations.Where(item => item.ExpiresAt < now), batchSize, ct);
+        removed += await DeleteBatchesAsync(db, db.ScimRequestLogs.Where(item => item.CreatedAt < tokenCutoff), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.ProvisioningTokens.Where(item => item.ExpiresAt < tokenCutoff || (item.RevokedAt != null && item.RevokedAt < tokenCutoff)), batchSize, ct);
         removed += await DeleteBatchesAsync(db, db.EventHookDeliveries.Where(item => (item.DeliveredAt != null && item.DeliveredAt < tokenCutoff) || (item.DeadLetteredAt != null && item.DeadLetteredAt < auditCutoff)), batchSize, ct);
 

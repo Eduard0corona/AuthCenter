@@ -47,7 +47,7 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.RegisterAsync(request, GetIpAddress(), GetUserAgent(), ct);
         if (!result.IsSuccess)
-            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message ?? string.Empty), result.Details));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -70,7 +70,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -87,7 +87,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -104,7 +104,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -122,7 +122,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -140,7 +140,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -166,7 +166,7 @@ public class AuthController : ControllerBase
             }));
 
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -178,8 +178,8 @@ public class AuthController : ControllerBase
         var result = await _authService.VerifyMfaAsync(request, GetIpAddress(), GetUserAgent(), ct);
         if (!result.IsSuccess)
             return result.ErrorCode is "INVALID_MFA_CODE" or "INVALID_MFA_TOKEN" or "TOKEN_ALREADY_USED"
-                ? Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message))
-                : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+                ? Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)))
+                : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -200,9 +200,15 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ForcedChangePassword([FromBody] ForcedChangePasswordRequest request, CancellationToken ct)
     {
         var result = await _authService.ForcedChangePasswordAsync(request, GetIpAddress(), GetUserAgent(), ct);
+        if (!result.IsSuccess && result.ErrorCode == "MFA_REQUIRED")
+            return Ok(ApiResponse<object>.Ok(new MfaPendingResponse
+            {
+                MfaPendingToken = result.Message,
+                ExpiresIn = _mfaSettings.MfaTokenExpirySeconds
+            }));
         if (!result.IsSuccess)
             return result.ErrorCode is "INVALID_FORCED_CHANGE_TOKEN" or "TOKEN_ALREADY_USED"
-                ? Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message))
+                ? Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)))
                 : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
@@ -214,7 +220,7 @@ public class AuthController : ControllerBase
     {
         var result = await _authService.RefreshTokenAsync(request.RefreshToken, request.ApplicationCode, GetIpAddress(), GetUserAgent(), ct);
         if (!result.IsSuccess)
-            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -277,7 +283,7 @@ public class AuthController : ControllerBase
 
         var result = await _mfaService.SetupTotpAsync(userId.Value, ct);
         if (!result.IsSuccess)
-            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -291,7 +297,7 @@ public class AuthController : ControllerBase
 
         var result = await _mfaService.EnableTotpAsync(userId.Value, request, ct);
         if (!result.IsSuccess)
-            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -319,7 +325,7 @@ public class AuthController : ControllerBase
 
         var result = await _mfaService.RegenerateBackupCodesAsync(userId.Value, request.TotpCode, ct);
         if (!result.IsSuccess)
-            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
 
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
@@ -352,6 +358,21 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
 
         return Ok(ApiResponse.Ok("Email OTP MFA enabled successfully."));
+    }
+
+    /// <summary>Emails a code to confirm managing an enabled email factor (disabling it).</summary>
+    [Authorize]
+    [EnableRateLimiting(RateLimitingExtensions.SendMfaEmailOtp)]
+    [HttpPost("mfa/email-otp/verification")]
+    public async Task<IActionResult> SendEmailMfaVerification(CancellationToken ct)
+    {
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+
+        var result = await _mfaService.SendEmailOtpVerificationAsync(userId.Value, ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse.Ok("A verification code was sent to your email address."))
+            : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
     [Authorize]
@@ -508,6 +529,17 @@ public class AuthController : ControllerBase
 
         var providers = await _accountManagementService.GetExternalProvidersAsync(userId.Value, ct);
         return Ok(ApiResponse<object>.Ok(providers));
+    }
+
+    /// <summary>Applications the signed-in user can use (account portal).</summary>
+    [Authorize]
+    [HttpGet("applications")]
+    public async Task<IActionResult> GetApplications(CancellationToken ct)
+    {
+        var userId = _currentUserService.UserId;
+        if (userId is null) return Unauthorized();
+
+        return Ok(ApiResponse<object>.Ok(await _accountManagementService.GetApplicationsAsync(userId.Value, ct)));
     }
 
     [Authorize]

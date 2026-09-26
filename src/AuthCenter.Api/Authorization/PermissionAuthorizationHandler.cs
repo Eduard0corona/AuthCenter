@@ -7,11 +7,11 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
-        var hasPermission = context.User.Claims
-            .Where(c => c.Type == DomainConstants.Claims.Permissions)
-            .Any(c => c.Value == requirement.Permission);
-
-        if (hasPermission)
+        // Permission codes are only unique within an application, so AuthCenter's administration
+        // permissions count only in a session issued for AuthCenter itself: another application's
+        // token must not open this API because one of its permissions shares a code.
+        var issuedForAuthCenter = context.User.HasClaim(DomainConstants.Claims.Applications, DomainConstants.SystemCodes.AuthCenter);
+        if (issuedForAuthCenter && context.User.HasClaim(DomainConstants.Claims.Permissions, requirement.Permission))
             context.Succeed(requirement);
 
         return Task.CompletedTask;

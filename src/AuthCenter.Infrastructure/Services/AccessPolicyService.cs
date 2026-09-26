@@ -263,6 +263,8 @@ public sealed class AccessPolicyService : IAccessPolicyService
             return RuleFailure(targetValidation.ErrorCode, targetValidation.Message);
         if (await PriorityExistsAsync(rule.PolicyVersionId, request.Priority, rule.Id, ct))
             return RuleFailure("POLICY_PRIORITY_TAKEN", "Another rule already uses this priority in the policy version.");
+        if (!rule.TryAdvance(request.Version))
+            return RuleFailure(VersionedUpdates.ConflictCode, "The rule changed after it was loaded.");
 
         rule.UserId = request.UserId;
         rule.DirectoryGroupId = request.DirectoryGroupId;
@@ -287,6 +289,10 @@ public sealed class AccessPolicyService : IAccessPolicyService
         try
         {
             await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return RuleFailure(VersionedUpdates.ConflictCode, "The rule changed after it was loaded.");
         }
         catch (DbUpdateException)
         {
@@ -824,6 +830,7 @@ public sealed class AccessPolicyService : IAccessPolicyService
 
     private static AccessPolicyRuleDto MapRule(ApplicationAccessPolicyRule rule) => new()
     {
+        Version = rule.Version,
         Id = rule.Id,
         ApplicationSystemId = rule.ApplicationSystemId,
         PolicyVersionId = rule.PolicyVersionId,

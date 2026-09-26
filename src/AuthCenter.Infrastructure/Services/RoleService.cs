@@ -110,6 +110,8 @@ public class RoleService : IRoleService
         var applicationCode = role.ApplicationSystemId.HasValue
             ? await _db.ApplicationSystems.Where(app => app.Id == role.ApplicationSystemId).Select(app => app.Code).SingleAsync(ct)
             : "GLOBAL";
+        if (!role.TryAdvance(request.Version))
+            return OperationResult<RoleDto>.Failure(VersionedUpdates.ConflictCode, "The role changed after it was loaded.");
         role.DisplayName = request.Name;
         role.Name = $"{applicationCode}:{request.Name}";
         role.NormalizedName = role.Name.ToUpperInvariant();
@@ -118,6 +120,8 @@ public class RoleService : IRoleService
         var result = await _roleManager.UpdateAsync(role);
         if (!result.Succeeded)
         {
+            if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+                return OperationResult<RoleDto>.Failure(VersionedUpdates.ConflictCode, "The role changed after it was loaded.");
             var errors = result.Errors.Select(e => e.Description).ToList();
             return OperationResult<RoleDto>.Failure("ROLE_UPDATE_FAILED", string.Join(", ", errors));
         }
@@ -319,6 +323,7 @@ public class RoleService : IRoleService
 
     private static RoleDto MapToDto(ApplicationRole role) => new()
     {
+        Version = role.Version,
         Id = role.Id,
         Name = role.DisplayName,
         Description = role.Description,

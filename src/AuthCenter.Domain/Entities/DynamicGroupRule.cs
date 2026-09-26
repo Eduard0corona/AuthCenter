@@ -1,6 +1,7 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
-public sealed class DynamicGroupRule
+public sealed class DynamicGroupRule : IVersionedEntity
 {
     public Guid Id { get; set; }
     public Guid DirectoryGroupId { get; set; }

@@ -13,7 +13,8 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context)
     {
         if (IsUnsafe(context.Request.Method) &&
-            string.Equals(context.User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal))
+            string.Equals(context.User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal) &&
+            context.GetEndpoint()?.Metadata.GetMetadata<IgnoreUiCsrfAttribute>() is null)
         {
             var cookie = context.Request.Cookies[CookieName];
             var header = context.Request.Headers[HeaderName].ToString();
@@ -28,7 +29,11 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
         await next(context);
     }
 
-    public static string IssueToken(HttpResponse response)
+    /// <summary>
+    /// Issues the double-submit token. It lives as long as the hosted-login session, so a console or
+    /// portal left open keeps working until the session itself ends.
+    /// </summary>
+    public static string IssueToken(HttpResponse response, int sessionLifetimeMinutes)
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -39,7 +44,7 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
             SameSite = SameSiteMode.Strict,
             Path = "/",
             IsEssential = true,
-            MaxAge = TimeSpan.FromMinutes(30)
+            MaxAge = TimeSpan.FromMinutes(sessionLifetimeMinutes)
         });
         return token;
     }
@@ -55,3 +60,10 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
         return leftBytes.Length == rightBytes.Length && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 }
+
+/// <summary>
+/// Marks an endpoint that never acts with the hosted-login cookie and is protected otherwise (for
+/// example the SAML ACS, which a same-site identity provider posts with the cookie attached).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public sealed class IgnoreUiCsrfAttribute : Attribute;

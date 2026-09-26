@@ -6,7 +6,14 @@ export async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (csrfToken && !["GET", "HEAD"].includes((options.method || "GET").toUpperCase())) headers.set("X-AuthCenter-CSRF", csrfToken);
-  const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
+  let response;
+  try { response = await fetch(path, { ...options, headers, credentials: "same-origin" }); }
+  catch {
+    const error = new Error("No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.");
+    error.code = "NETWORK_ERROR";
+    error.status = 0;
+    throw error;
+  }
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("json") ? await response.json() : null;
   if (!response.ok) {
@@ -18,19 +25,34 @@ export async function api(path, options = {}) {
   return payload?.data ?? payload;
 }
 
-export async function requireSession() {
+// Resolves a caller-supplied return path and accepts it only when it stays on this origin.
+// Backslashes and control characters are rejected because browsers normalize "/\\host" to
+// "//host", which would otherwise turn a local-looking path into an open redirect.
+export function safeLocalPath(value, origin, fallback) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || /[\u0000-\u001f\\]/.test(value)) return fallback;
+  let resolved;
+  try { resolved = new URL(value, origin); } catch { return fallback; }
+  return resolved.origin === new URL(origin).origin ? `${resolved.pathname}${resolved.search}${resolved.hash}` : fallback;
+}
+
+// The signed-in session ({ user, sessionId, csrfToken }); without one, the browser goes to the login.
+export async function requireSessionState() {
   try {
     const session = await api("/ui-api/session");
     setCsrf(session.csrfToken);
-    return session.user;
+    return session;
   } catch (error) {
     if (error.status === 401) {
-      const returnUrl = encodeURIComponent(location.pathname + location.search);
+      const returnUrl = encodeURIComponent(location.pathname + location.search + location.hash);
       location.replace(`/login?return_url=${returnUrl}`);
       return null;
     }
     throw error;
   }
+}
+
+export async function requireSession() {
+  return (await requireSessionState())?.user ?? null;
 }
 
 export function status(element, message, type = "") {
@@ -100,4 +122,54 @@ export function serializeCredential(credential) {
       userHandle: credential.response.userHandle ? encode(credential.response.userHandle) : null
     }
   });
+}
+
+// WebAuthn ceremonies with the options AuthCenter returns ({ publicKey } in JSON form).
+export async function getPasskey(publicKey) {
+  return navigator.credentials.get({ publicKey: normalizeRequestOptions(structuredClone(publicKey)) });
+}
+
+export async function createPasskey(publicKey) {
+  return navigator.credentials.create({ publicKey: normalizeCreationOptions(structuredClone(publicKey)) });
+}
+
+export function passkeyErrorMessage(error, cancelled = "La operación con passkey fue cancelada.") {
+  if (error?.name === "NotAllowedError" || error?.name === "AbortError") return cancelled;
+  if (error?.name === "InvalidStateError") return "Esta passkey ya está registrada en tu cuenta.";
+  if (error?.name === "SecurityError") return "Este sitio no puede usar passkeys desde esta dirección.";
+  return error?.message || "No se pudo completar la operación con passkey.";
+}
+
+// A base32 secret in groups of four, easier to type into an authenticator app.
+export function groupSecret(secret) {
+  return (secret || "").replace(/\s+/g, "").match(/.{1,4}/g)?.join(" ") ?? "";
+}
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function downloadText(fileName, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Mirrors the server's password rules so the problem shows before the request is sent.
+export const passwordRules = "Usa al menos 8 caracteres, con una mayúscula, una minúscula y un número.";
+
+export function passwordProblem(value) {
+  return typeof value === "string" && value.length >= 8 && /[A-Z]/.test(value) && /[a-z]/.test(value) && /[0-9]/.test(value)
+    ? null
+    : passwordRules;
 }

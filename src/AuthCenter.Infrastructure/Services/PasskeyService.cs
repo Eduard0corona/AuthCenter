@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
@@ -217,11 +218,9 @@ public sealed class PasskeyService : IPasskeyService
         var updated = await _users.AddOrUpdatePasskeyAsync(user, assertion.Passkey);
         if (!updated.Succeeded)
             return OperationResult<AuthResponse>.Failure("PASSKEY_UPDATE_FAILED", "Passkey state could not be updated.");
-        user.LastLoginAt = _clock.UtcNow;
-        user.UpdatedAt = _clock.UtcNow;
-        await _users.UpdateAsync(user);
+        await _users.RecordSignInAsync(_db, user, _clock.UtcNow, ct);
         await _audit.LogAsync("PASSKEY_LOGIN_SUCCESS", user.Id, app.Code, "Passkey", Encode(assertion.Passkey.CredentialId), ipAddress, userAgent, new { phishingResistant = true, userVerified = assertion.Passkey.IsUserVerified }, ct);
-        return await _sessions.IssueAsync(user, app.Id, app.Code, ipAddress, userAgent, ct: ct);
+        return await _sessions.IssueAsync(user, app.Id, app.Code, ipAddress, userAgent, authentication: AuthenticationContext.Passkey, ct: ct);
     }
 
     private static PasskeyCredentialDto Map(UserPasskeyInfo passkey) => new()

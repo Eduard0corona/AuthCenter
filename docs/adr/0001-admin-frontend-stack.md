@@ -1,7 +1,12 @@
 # ADR 0001: frontend administrativo React con migración progresiva
 
-- Estado: aceptada
+- Estado: aceptada; migración completada
 - Fecha: 2026-08-11
+- Actualización 2026-09-26: la consola React cubre todos los módulos de `/admin` (y los que le
+  faltaban: Event Hooks, System Log completo, esquema de perfil, catálogo de APIs). `/admin` y
+  `/admin.html` redirigen a `/admin-v2/`, sus archivos se eliminaron y la forma legacy
+  `deadLettersOnly` de las entregas dejó de existir. Ver `REMEDIACION-INTEGRACION-FEDERACION.md`
+  (UI-08).
 
 ## Contexto
 

@@ -1,7 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import type { ApplicationSummary } from "../../api/types";
+import { useModalDialog } from "../../hooks/useModalDialog";
 import { brandingSchema, contrastRatio, type BrandingFormValues } from "./branding";
 
 interface BrandingDialogProps {
@@ -13,13 +14,11 @@ interface BrandingDialogProps {
 }
 
 export function BrandingDialog({ application, busy, error, onSave, onClose }: BrandingDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useModalDialog(application !== null);
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm<BrandingFormValues>({ resolver: zodResolver(brandingSchema) });
   const values = useWatch({ control });
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
     if (application) {
       const branding = application.branding;
       reset({
@@ -31,15 +30,14 @@ export function BrandingDialog({ application, busy, error, onSave, onClose }: Br
         privacyUrl: branding?.privacyUrl ?? "",
         termsUrl: branding?.termsUrl ?? ""
       });
-      if (!dialog.open) dialog.showModal();
-    } else if (dialog.open) dialog.close();
+    }
   }, [application, reset]);
 
   const ratio = values.primaryColor && values.backgroundColor ? contrastRatio(values.primaryColor, values.backgroundColor) : 0;
   return (
-    <dialog ref={dialogRef} className="dialog dialog--wide" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+    <dialog ref={dialogRef} className="dialog dialog--wide" aria-labelledby="branding-dialog-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
       <form onSubmit={(event) => void handleSubmit(onSave)(event)}>
-        <div className="dialog__heading"><div><p className="eyebrow">Aplicaciones</p><h2>Editar branding</h2><p>{application?.code}</p></div><button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Cerrar">×</button></div>
+        <div className="dialog__heading"><div><p className="eyebrow">Aplicaciones</p><h2 id="branding-dialog-title">Editar branding</h2><p>{application?.code}</p></div><button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Cerrar">×</button></div>
         <div className="branding-layout">
           <div className="form-stack">
             <Field label="Nombre visible" error={errors.displayName?.message}><input {...register("displayName")} maxLength={100} /></Field>

@@ -2,9 +2,13 @@ using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Domain.Enums;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using AuthCenter.Domain.Constants;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -18,42 +22,99 @@ public class OAuthController : ControllerBase
 {
     private readonly IOAuthAuthorizationService _oAuthService;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IAuthService _authService;
+    private readonly IEndSessionService _endSession;
 
-    public OAuthController(IOAuthAuthorizationService oAuthService, ICurrentUserService currentUserService)
+    public OAuthController(
+        IOAuthAuthorizationService oAuthService,
+        ICurrentUserService currentUserService,
+        IAuthService authService,
+        IEndSessionService endSession)
     {
         _oAuthService = oAuthService;
         _currentUserService = currentUserService;
+        _authService = authService;
+        _endSession = endSession;
     }
 
     [HttpGet("authorize")]
-    public async Task<IActionResult> Authorize(CancellationToken ct)
+    public Task<IActionResult> Authorize(CancellationToken ct) => AuthorizeAsync(Request.Query, ct);
+
+    // OpenID Connect Core section 3.1.2.1: the authorization endpoint also accepts form posts.
+    [HttpPost("authorize")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> AuthorizePost(CancellationToken ct) =>
+        await AuthorizeAsync((await Request.ReadFormAsync(ct)).ToDictionary(item => item.Key, item => item.Value), ct);
+
+    private async Task<IActionResult> AuthorizeAsync(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> parameters, CancellationToken ct)
     {
-        var q = Request.Query;
+        var parameterList = parameters.ToList();
+        var values = parameterList.ToDictionary(item => item.Key, item => item.Value.ToString(), StringComparer.Ordinal);
+        // RFC 8707: resource may repeat, once per API.
+        var resources = parameterList.Where(item => item.Key == "resource").SelectMany(item => item.Value).OfType<string>().ToList();
+        string? Value(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value : null;
         var request = new AuthorizeRequest
         {
-            ResponseType = q["response_type"],
-            ClientId = q["client_id"],
-            RedirectUri = q["redirect_uri"],
-            Scope = q["scope"],
-            State = q["state"],
-            CodeChallenge = q["code_challenge"],
-            CodeChallengeMethod = q["code_challenge_method"],
-            Nonce = q["nonce"]
+            ResponseType = Value("response_type"),
+            ClientId = Value("client_id"),
+            RedirectUri = Value("redirect_uri"),
+            Scope = Value("scope"),
+            State = Value("state"),
+            CodeChallenge = Value("code_challenge"),
+            CodeChallengeMethod = Value("code_challenge_method"),
+            Nonce = Value("nonce"),
+            Prompt = Value("prompt"),
+            MaxAge = Value("max_age"),
+            LoginHint = Value("login_hint"),
+            IdentityProvider = Value("idp"),
+            DomainHint = Value("domain_hint"),
+            IdTokenHint = Value("id_token_hint"),
+            AcrValues = Value("acr_values"),
+            ResponseMode = Value("response_mode"),
+            UiLocales = Value("ui_locales"),
+            Request = Value("request"),
+            RequestUri = Value("request_uri"),
+            Resources = resources
         };
 
-        var result = await _oAuthService.InitiateAuthorizationAsync(request, ct);
+        // The hosted-login cookie is SameSite=Lax, so it reaches this top-level navigation and an
+        // existing single sign-on session can answer the client without showing a page.
+        var sso = await HttpContext.AuthenticateAsync(AuthenticationSchemes.UiCookie);
+        var caller = new AuthorizationCaller
+        {
+            UserId = sso.Succeeded ? SessionClaims.UserId(sso.Principal!) : null,
+            SessionId = sso.Succeeded ? SessionClaims.SessionId(sso.Principal!) : null,
+            BrowserBinding = BrowserBinding.Ensure(HttpContext),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
+        };
+
+        var result = await _oAuthService.InitiateAuthorizationAsync(request, caller, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
-        return Redirect(result.Data!);
+        return result.Data!.Response is { } response ? AuthorizationResponseResult.Create(response) : Redirect(result.Data.LoginUrl!);
+    }
+
+    /// <summary>
+    /// Non-sensitive context for the hosted login (application, login hint, freshness), readable
+    /// before sign-in and only from the browser that started the authorization request.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("interactions/{interactionId}/context")]
+    public async Task<IActionResult> GetInteractionContext(string interactionId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _oAuthService.GetInteractionContextAsync(interactionId, BrowserBinding.Read(HttpContext), ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
     [Authorize]
     [HttpGet("interactions/{interactionId}")]
     public async Task<IActionResult> GetInteraction(string interactionId, CancellationToken ct)
     {
-        var userId = _currentUserService.UserId;
-        if (userId is null) return Unauthorized();
-        var result = await _oAuthService.GetInteractionAsync(interactionId, userId.Value, ct);
+        var result = await _oAuthService.GetInteractionAsync(interactionId, CurrentCaller(), ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
@@ -84,15 +145,146 @@ public class OAuthController : ControllerBase
     [HttpPost("authorize/complete")]
     public async Task<IActionResult> CompleteAuthorization([FromBody] CompleteAuthorizationRequest request, CancellationToken ct)
     {
-        var userId = _currentUserService.UserId;
-        if (userId is null) return Unauthorized();
+        var caller = CurrentCaller();
+        if (caller.UserId is null) return Unauthorized();
 
-        var result = await _oAuthService.CompleteAuthorizationAsync(request, userId.Value, ct);
+        var result = await _oAuthService.CompleteAuthorizationAsync(request, caller, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+
+        var response = result.Data!;
         if (Request.Headers["X-AuthCenter-UI"] == "1")
-            return Ok(ApiResponse<object>.Ok(new { redirectUrl = result.Data! }));
-        return Redirect(result.Data!);
+        {
+            // The hosted login navigates with location.assign; a form post response is rendered by
+            // AuthCenter itself so its CSP can allow exactly the client's origin as form action.
+            var redirectUrl = response.IsFormPost
+                ? $"/oauth/authorize/response/{Uri.EscapeDataString(await _oAuthService.StorePendingResponseAsync(response, caller.BrowserBinding, ct))}"
+                : response.ToRedirectUrl();
+            return Ok(ApiResponse<object>.Ok(new { redirectUrl }));
+        }
+
+        return AuthorizationResponseResult.Create(response);
+    }
+
+    /// <summary>
+    /// Starts the step-up the client's application requires for the hosted-login session: returns
+    /// an MFA pending token for <c>/ui-api/session/mfa</c>, or why the level cannot be reached.
+    /// </summary>
+    [Authorize(AuthenticationSchemes = AuthenticationSchemes.UiCookie)]
+    [EnableRateLimiting(RateLimitingExtensions.Login)]
+    [HttpPost("interactions/{interactionId}/step-up")]
+    public async Task<IActionResult> BeginStepUp(string interactionId, [FromServices] IMfaService mfa, CancellationToken ct)
+    {
+        var caller = CurrentCaller();
+        if (caller.UserId is null) return Unauthorized();
+
+        var requirement = await _oAuthService.GetStepUpRequirementAsync(interactionId, caller, ct);
+        if (!requirement.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(requirement.ErrorCode, requirement.Message));
+        if (requirement.Data!.RequiredAssurance is not { } required)
+            return Ok(ApiResponse<object>.Ok(new { stepUpRequired = false }));
+
+        var result = await _authService.BeginStepUpAsync(
+            caller.UserId.Value, requirement.Data.ApplicationCode, required, requirement.Data.PrimaryMethod, caller.IpAddress, caller.UserAgent, ct);
+        return result.ErrorCode switch
+        {
+            "MFA_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfa = true, mfaPendingToken = result.Message, mfaMethod = (await mfa.GetStatusAsync(caller.UserId.Value, ct)).Method == nameof(MfaMethod.EmailOtp) ? "email" : "totp" })),
+            // The hosted login enrolls the missing factor in place, then completes the same request.
+            "MFA_SETUP_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresMfaEnrollment = true, enrollmentToken = result.Message })),
+            "PASSKEY_ENROLLMENT_REQUIRED" => Ok(ApiResponse<object>.Ok(new { stepUpRequired = true, requiresPasskeyEnrollment = true, enrollmentToken = result.Message })),
+            _ => BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message))
+        };
+    }
+
+    [AllowAnonymous]
+    [HttpGet("authorize/response/{responseId}")]
+    public async Task<IActionResult> AuthorizationResponsePage(string responseId, CancellationToken ct)
+    {
+        var response = await _oAuthService.TakePendingResponseAsync(responseId, BrowserBinding.Read(HttpContext), ct);
+        return response is null
+            ? NotFound(ApiResponse<object>.Fail("INVALID_RESPONSE", "The authorization response expired or was already delivered."))
+            : AuthorizationResponseResult.Create(response);
+    }
+
+    /// <summary>
+    /// OpenID Connect RP-Initiated Logout (end_session_endpoint). An ID token of the current
+    /// session signs out at once; otherwise the hosted logout page asks the user to confirm.
+    /// </summary>
+    [HttpGet("logout")]
+    public async Task<IActionResult> EndSession(CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        string? Value(string name) => Request.Query.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value.ToString() : null;
+        var sso = await HttpContext.AuthenticateAsync(AuthenticationSchemes.UiCookie);
+        var caller = new EndSessionCaller
+        {
+            UserId = sso.Succeeded ? SessionClaims.UserId(sso.Principal!) : null,
+            SessionId = sso.Succeeded ? SessionClaims.SessionId(sso.Principal!) : null,
+            BrowserBinding = BrowserBinding.Ensure(HttpContext)
+        };
+        var result = await _endSession.BeginAsync(new EndSessionRequest
+        {
+            IdTokenHint = Value("id_token_hint"),
+            ClientId = Value("client_id"),
+            PostLogoutRedirectUri = Value("post_logout_redirect_uri"),
+            State = Value("state")
+        }, caller, ct);
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (result.Data!.SessionEnded)
+            await SignOutHostedLoginAsync();
+        return Redirect(result.Data.RedirectUrl);
+    }
+
+    // A cross-site form post does not carry the SameSite=Lax session cookie, so the parameters move
+    // to a top-level GET, which does.
+    [HttpPost("logout")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> EndSessionPost(CancellationToken ct)
+    {
+        var form = await Request.ReadFormAsync(ct);
+        var query = QueryString.Create(form
+            .Where(item => item.Key is "id_token_hint" or "client_id" or "post_logout_redirect_uri" or "state" or "ui_locales" or "logout_hint")
+            .Select(item => new KeyValuePair<string, string?>(item.Key, item.Value.ToString())));
+        Response.Headers.Location = $"/oauth/logout{query}";
+        return StatusCode(StatusCodes.Status303SeeOther);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("logout/{logoutId}")]
+    public async Task<IActionResult> GetPendingLogout(string logoutId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _endSession.GetPendingAsync(logoutId, BrowserBinding.Read(HttpContext), ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    /// <summary>The user confirmed the sign-out on the hosted logout page.</summary>
+    [AllowAnonymous]
+    [HttpPost("logout/{logoutId}/confirm")]
+    public async Task<IActionResult> ConfirmLogout(string logoutId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var cookie = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal);
+        var result = await _endSession.ConfirmAsync(logoutId, new EndSessionCaller
+        {
+            UserId = cookie ? SessionClaims.UserId(User) : null,
+            SessionId = cookie ? SessionClaims.SessionId(User) : null,
+            BrowserBinding = BrowserBinding.Read(HttpContext)
+        }, ct);
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (result.Data!.SessionEnded)
+            await SignOutHostedLoginAsync();
+        return Ok(ApiResponse<object>.Ok(new { redirectUrl = result.Data.RedirectUrl }));
+    }
+
+    private async Task SignOutHostedLoginAsync()
+    {
+        await HttpContext.SignOutAsync(AuthenticationSchemes.UiCookie);
+        Response.Cookies.Delete(Middleware.UiCsrfMiddleware.CookieName, new CookieOptions { Secure = true, SameSite = SameSiteMode.Strict, Path = "/" });
     }
 
     [HttpPost("token")]
@@ -105,6 +297,10 @@ public class OAuthController : ControllerBase
         if (!credentials.IsValid)
             return OAuthError("invalid_client", credentials.Error!, StatusCodes.Status401Unauthorized);
 
+        // One token has one API audience; several resource parameters cannot be honoured at once.
+        if (form["resource"].Count > 1 || form["audience"].Count > 1)
+            return OAuthError("invalid_target", "Request one resource per token.", StatusCodes.Status400BadRequest);
+
         var request = new OAuthTokenRequest
         {
             GrantType = form["grant_type"],
@@ -114,7 +310,12 @@ public class OAuthController : ControllerBase
             ClientSecret = credentials.ClientSecret,
             CodeVerifier = form["code_verifier"],
             Scope = form["scope"],
-            RefreshToken = form["refresh_token"]
+            RefreshToken = form["refresh_token"],
+            Resource = form["resource"].FirstOrDefault(),
+            SubjectToken = form["subject_token"],
+            SubjectTokenType = form["subject_token_type"],
+            RequestedTokenType = form["requested_token_type"],
+            Audience = form["audience"].FirstOrDefault()
         };
 
         OperationResult<OAuthTokenResponse> result = request.GrantType switch
@@ -122,6 +323,7 @@ public class OAuthController : ControllerBase
             "authorization_code" => await _oAuthService.ExchangeCodeAsync(request, ct),
             "client_credentials" => await _oAuthService.ClientCredentialsAsync(request, ct),
             "refresh_token" => await _oAuthService.RefreshOAuthTokenAsync(request, ct),
+            DomainConstants.OAuthGrantTypes.TokenExchange => await _oAuthService.TokenExchangeAsync(request, ct),
             _ => OperationResult<OAuthTokenResponse>.Failure(
                 "UNSUPPORTED_GRANT_TYPE",
                 $"Grant type '{request.GrantType}' is not supported.")
@@ -135,6 +337,35 @@ public class OAuthController : ControllerBase
                     ? StatusCodes.Status401Unauthorized
                     : StatusCodes.Status400BadRequest);
 
+        return Ok(result.Data!);
+    }
+
+    /// <summary>RFC 7662 token introspection for confidential clients and the APIs a token is for.</summary>
+    [HttpPost("introspect")]
+    [EnableRateLimiting(RateLimitingExtensions.OAuthToken)]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> Introspect(CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var form = await Request.ReadFormAsync(ct);
+        var credentials = ReadClientCredentials(form);
+        if (!credentials.IsValid)
+            return OAuthError("invalid_client", credentials.Error!, StatusCodes.Status401Unauthorized);
+
+        var result = await _oAuthService.IntrospectAsync(new OAuthIntrospectionRequest
+        {
+            Token = form["token"],
+            TokenTypeHint = form["token_type_hint"],
+            ClientId = credentials.ClientId,
+            ClientSecret = credentials.ClientSecret
+        }, ct);
+        if (!result.IsSuccess)
+            return OAuthError(
+                result.ErrorCode.ToLowerInvariant(),
+                result.Message,
+                result.ErrorCode is "INVALID_CLIENT" or "INVALID_CLIENT_CREDENTIALS" or "UNAUTHORIZED_CLIENT"
+                    ? StatusCodes.Status401Unauthorized
+                    : StatusCodes.Status400BadRequest);
         return Ok(result.Data!);
     }
 
@@ -222,6 +453,16 @@ public class OAuthController : ControllerBase
             return (false, null, null, "Malformed HTTP Basic client credentials.");
         }
     }
+
+    private AuthorizationCaller CurrentCaller() => new()
+    {
+        UserId = _currentUserService.UserId,
+        SessionId = SessionClaims.SessionId(User),
+        BrowserBinding = BrowserBinding.Read(HttpContext),
+        RequiresBrowserBinding = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal),
+        IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+        UserAgent = Request.Headers.UserAgent.ToString()
+    };
 
     private ObjectResult OAuthError(string error, string description, int statusCode)
     {

@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
@@ -46,6 +47,7 @@ public class OAuthClientsController : ControllerBase
         return Ok(ApiResponse<object>.Ok(client));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.OAuthClientsWrite)]
     public async Task<IActionResult> Create([FromBody] CreateOAuthClientRequest request, CancellationToken ct)
@@ -104,6 +106,7 @@ public class OAuthClientsController : ControllerBase
         return Ok(ApiResponse.Ok());
     }
 
+    [Idempotent]
     [HttpPost("{clientId}/rotate-secret")]
     [Authorize(Policy = DomainConstants.Permissions.OAuthClientsWrite)]
     public async Task<IActionResult> RotateSecret(string clientId, CancellationToken ct)

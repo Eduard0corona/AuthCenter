@@ -95,6 +95,9 @@ aplicación consumidora sin eliminar inmediatamente el cliente ni la clave anter
 ventana controlada de solapamiento, revoca sesiones si hubo exposición y rota el secreto cuando el
 rollback quede estable.
 
-AuthCenter no publica por ahora `end_session_endpoint`: el logout revoca la sesión de la aplicación
-consumidora, pero la sesión SSO hospedada puede seguir activa. Esta limitación debe considerarse en
-pruebas de equipos compartidos hasta que se implemente logout federado global.
+El logout global usa el `end_session_endpoint` de discovery: la aplicación lo llama con
+`id_token_hint` y AuthCenter cierra la sesión SSO hospedada, revoca los grants OAuth de esa sesión,
+envía un `logout_token` a la back-channel logout URI de cada cliente que la registró y vuelve al
+post-logout redirect URI registrado (detalle en `docs/integration-quickstarts.md`, sección Logout).
+Pruébalo en equipos compartidos: tras salir de una aplicación, otra que comparte la sesión debe
+pedir credenciales de nuevo.

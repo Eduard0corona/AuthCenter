@@ -14,11 +14,19 @@ public class OAuthTokenResponse
     public int ExpiresIn { get; init; }
 
     [JsonPropertyName("refresh_token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RefreshToken { get; init; }
 
     [JsonPropertyName("id_token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IdToken { get; init; }
 
     [JsonPropertyName("scope")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Scope { get; init; }
+
+    /// <summary>RFC 8693: the type of the token issued by a token exchange.</summary>
+    [JsonPropertyName("issued_token_type")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IssuedTokenType { get; init; }
 }

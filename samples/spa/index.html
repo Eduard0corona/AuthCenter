@@ -1,1 +1,34 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AuthCenter SPA quickstart</title></head><body><main><h1>AuthCenter SPA</h1><button id="login">Iniciar sesión con PKCE</button><p id="status" role="status"></p></main><script type="module" src="./src/app.ts"></script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AuthCenter SPA quickstart</title>
+  <link rel="stylesheet" href="./src/app.css">
+</head>
+<body>
+  <main>
+    <h1>AuthCenter SPA</h1>
+    <p id="status" role="status" aria-live="polite"></p>
+    <section id="signed-out" hidden aria-labelledby="signed-out-title">
+      <h2 id="signed-out-title">Sin sesión</h2>
+      <p>Inicia sesión con Authorization Code + PKCE. Si ya iniciaste sesión en otra aplicación de AuthCenter, el SSO te devuelve sin pedir credenciales.</p>
+      <div class="actions">
+        <button id="login" type="button">Iniciar sesión</button>
+        <button id="silent" type="button" class="secondary">Reanudar sesión (SSO silencioso)</button>
+      </div>
+    </section>
+    <section id="signed-in" hidden aria-labelledby="signed-in-title">
+      <h2 id="signed-in-title">Sesión iniciada</h2>
+      <dl id="claims"></dl>
+      <div class="actions">
+        <button id="userinfo" type="button" class="secondary">Consultar UserInfo</button>
+        <button id="call-api" type="button" class="secondary">Llamar a la API</button>
+        <button id="logout" type="button">Cerrar sesión</button>
+      </div>
+      <pre id="output" aria-label="Respuesta"></pre>
+    </section>
+  </main>
+  <script type="module" src="./src/app.ts"></script>
+</body>
+</html>

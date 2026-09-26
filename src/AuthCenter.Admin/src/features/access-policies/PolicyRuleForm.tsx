@@ -1,20 +1,25 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, type ReactNode } from "react";
-import { useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
-import type { AccessPolicyRule, DirectoryGroupSummary, UserSummary } from "../../api/types";
+import { useEffect, useState, type ReactNode } from "react";
+import { Controller, useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
+import type { AccessPolicyRule, DirectoryGroupSummary } from "../../api/types";
+import { UserPicker } from "../../components/UserPicker";
 import { policyDays, policyRuleDefaults, policyRuleSchema, riskLevels, type PolicyRuleFormValues } from "./policy";
 
 interface PolicyRuleFormProps {
   rule: AccessPolicyRule | undefined;
   busy: boolean;
   error: string;
-  users: UserSummary[];
+  /** The application of the policy: the user search only offers users with access to it. */
+  applicationSystemId: string;
+  /** With AUTHCENTER_USERS_READ the target user is searched by name; otherwise its UUID is typed. */
+  canSearchUsers: boolean;
   groups: DirectoryGroupSummary[];
   onSave: (values: PolicyRuleFormValues) => Promise<void>;
   onCancel: () => void;
 }
 
-export function PolicyRuleForm({ rule, busy, error, users, groups, onSave, onCancel }: PolicyRuleFormProps) {
+export function PolicyRuleForm({ rule, busy, error, applicationSystemId, canSearchUsers, groups, onSave, onCancel }: PolicyRuleFormProps) {
+  const [userLabel, setUserLabel] = useState(rule?.userEmail ?? "");
   const form = useForm<PolicyRuleFormValues>({ resolver: zodResolver(policyRuleSchema), defaultValues: policyRuleDefaults(rule) });
   const targetType = useWatch({ control: form.control, name: "targetType" });
   useEffect(() => form.reset(policyRuleDefaults(rule)), [form, rule]);
@@ -24,7 +29,7 @@ export function PolicyRuleForm({ rule, busy, error, users, groups, onSave, onCan
     {error ? <p className="alert alert--error" role="alert">{error}</p> : null}
     <form className="form-stack" onSubmit={(event) => void form.handleSubmit(onSave)(event)}>
       <div className="form-grid"><Field label="Nombre" error={form.formState.errors.name?.message}><input {...form.register("name")} autoComplete="off" /></Field><Field label="Prioridad" error={form.formState.errors.priority?.message}><input type="number" min={1} {...form.register("priority", { valueAsNumber: true })} /></Field></div>
-      <div className="form-grid"><Field label="Objetivo" error={form.formState.errors.targetType?.message}><select {...form.register("targetType")}><option value="all">Todos</option><option value="user">Usuario</option><option value="group">Grupo</option></select></Field>{targetType !== "all" ? <Field label={targetType === "user" ? "Usuario objetivo" : "Grupo objetivo"} error={form.formState.errors.targetId?.message}>{targetType === "user" && users.length ? <select {...form.register("targetId")}><option value="">Selecciona un usuario</option>{users.map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.email}</option>)}</select> : targetType === "group" && groups.length ? <select {...form.register("targetId")}><option value="">Selecciona un grupo</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : <input {...form.register("targetId")} placeholder="UUID" autoComplete="off" />}</Field> : <input type="hidden" {...form.register("targetId")} />}</div>
+      <div className="form-grid"><Field label="Objetivo" error={form.formState.errors.targetType?.message}><select {...form.register("targetType")}><option value="all">Todos</option><option value="user">Usuario</option><option value="group">Grupo</option></select></Field>{targetType === "user" && canSearchUsers ? <Controller control={form.control} name="targetId" render={({ field, fieldState }) => <UserPicker label="Usuario objetivo" value={field.value} selectedLabel={userLabel} onChange={(userId, label) => { field.onChange(userId); setUserLabel(label); }} applicationSystemId={applicationSystemId} error={fieldState.error?.message} />} /> : targetType !== "all" ? <Field label={targetType === "user" ? "Usuario objetivo" : "Grupo objetivo"} error={form.formState.errors.targetId?.message}>{targetType === "group" && groups.length ? <select {...form.register("targetId")}><option value="">Selecciona un grupo</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : <input {...form.register("targetId")} placeholder="UUID" autoComplete="off" />}</Field> : <input type="hidden" {...form.register("targetId")} />}</div>
       <div className="form-grid"><Field label="Acción" error={form.formState.errors.action?.message}><select {...form.register("action")}><option value="Allow">Allow</option><option value="Deny">Deny</option></select></Field><Field label="MFA" error={form.formState.errors.mfaRequirement?.message}><select {...form.register("mfaRequirement")}><option value="Optional">Opcional</option><option value="Required">Obligatorio</option></select></Field></div>
       <div className="form-grid"><Field label="CIDR incluidos" error={form.formState.errors.includedIpCidrs?.message} help="Uno por línea; vacío acepta cualquier red."><textarea rows={3} {...form.register("includedIpCidrs")} /></Field><Field label="CIDR excluidos" error={form.formState.errors.excludedIpCidrs?.message} help="Las exclusiones tienen precedencia."><textarea rows={3} {...form.register("excludedIpCidrs")} /></Field></div>
       <fieldset className="check-group"><legend>Días UTC</legend><div className="checkbox-grid">{policyDays.map((day) => <Checkbox key={day} label={day} registration={form.register("activeDaysUtc")} value={day} />)}</div></fieldset>

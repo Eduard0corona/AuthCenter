@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { fetchAllAsPage } from "../../api/catalog";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, OAuthClientSummary, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
@@ -23,7 +25,7 @@ export default function OAuthClientsPage() {
   const applications = useQuery({
     queryKey: ["applications", "oauth-client-filter"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const clients = useQuery({
     queryKey: ["oauth-clients", page, pageSize, search, applicationId, clientType, status],
@@ -55,7 +57,7 @@ export default function OAuthClientsPage() {
       <label className="field"><span>Estado</span><select value={status} onChange={(event) => update("status", event.target.value)}><option value="">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select></label>
     </section>
     {clients.isPending ? <PageState title="Cargando OAuth clients" busy /> : null}
-    {clients.isError ? <PageState title="No pudimos cargar los OAuth clients" detail={message(clients.error)} tone="error" action={<button className="button" onClick={() => void clients.refetch()}>Reintentar</button>} /> : null}
+    {clients.isError ? <PageState title="No pudimos cargar los OAuth clients" detail={errorMessage(clients.error)} tone="error" action={<button className="button" onClick={() => void clients.refetch()}>Reintentar</button>} /> : null}
     {clients.data && clients.data.items.length === 0 ? <PageState title="No hay OAuth clients" detail="Ajusta los filtros o registra el primer cliente." /> : null}
     {clients.data?.items.length ? <>
       <div className="data-table" tabIndex={0} role="region" aria-label="OAuth clients, desplazamiento horizontal"><table><caption className="sr-only">OAuth clients</caption><thead><tr><th>Cliente</th><th>Aplicación</th><th>Tipo</th><th>Grants</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{clients.data.items.map((client) => <tr key={client.id}><td><strong>{client.displayName}</strong><span className="cell-detail mono">{client.clientId}</span></td><td>{client.applicationName}</td><td>{client.clientType === 0 ? "Confidencial" : "Público"}</td><td><span className="cell-detail">{client.grantTypes.join(", ")}</span></td><td><StatusBadge active={client.isActive} /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/oauth-clients/${encodeURIComponent(client.clientId)}`}>{canWrite ? "Configurar" : "Consultar"}</Link></td></tr>)}</tbody></table></div>
@@ -64,4 +66,3 @@ export default function OAuthClientsPage() {
   </>;
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

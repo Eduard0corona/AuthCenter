@@ -1,9 +1,12 @@
+using AuthCenter.Domain.Common;
 using AuthCenter.Domain.Enums;
 
 namespace AuthCenter.Domain.Entities;
 
-public class UserProfileAttributeDefinition
+public class UserProfileAttributeDefinition : IVersionedEntity
 {
+    public long Version { get; set; }
+
     public Guid Id { get; set; }
     public string Key { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;

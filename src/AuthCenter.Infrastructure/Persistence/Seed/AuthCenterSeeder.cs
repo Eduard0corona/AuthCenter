@@ -70,6 +70,16 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.AccessPoliciesWrite, "Write access policies"),
             (DomainConstants.Permissions.ProfileSchemasRead, "Read universal directory profile schemas"),
             (DomainConstants.Permissions.ProfileSchemasWrite, "Write universal directory profile schemas"),
+            (DomainConstants.Permissions.EventHooksRead, "Read event hooks and their deliveries"),
+            (DomainConstants.Permissions.EventHooksWrite, "Manage event hooks and replay deliveries"),
+            (DomainConstants.Permissions.FederationRead, "Read enterprise federation providers and routing"),
+            (DomainConstants.Permissions.FederationWrite, "Manage enterprise federation providers and routing"),
+            (DomainConstants.Permissions.ProvisioningRead, "Read provisioning tokens"),
+            (DomainConstants.Permissions.ProvisioningWrite, "Manage provisioning tokens"),
+            (DomainConstants.Permissions.SamlAppsRead, "Read SAML applications and the identity provider"),
+            (DomainConstants.Permissions.SamlAppsWrite, "Manage SAML applications"),
+            (DomainConstants.Permissions.GovernanceRead, "Read application owners, access requests, access reviews and separation of duties"),
+            (DomainConstants.Permissions.GovernanceWrite, "Manage application owners, decide access requests, run access reviews and separation of duties rules"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -105,6 +115,11 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.AccessPoliciesWrite,
                 DomainConstants.Permissions.ProfileSchemasRead,
                 DomainConstants.Permissions.ProfileSchemasWrite,
+                DomainConstants.Permissions.EventHooksRead,
+                DomainConstants.Permissions.FederationRead,
+                DomainConstants.Permissions.ProvisioningRead,
+                DomainConstants.Permissions.GovernanceRead,
+                DomainConstants.Permissions.GovernanceWrite,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);

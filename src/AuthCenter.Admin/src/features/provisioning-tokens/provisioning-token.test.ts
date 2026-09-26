@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { provisioningTokenPayload, provisioningTokenSchema } from "./provisioning-token";
+import { describeScimOutcome, provisioningTokenPayload, provisioningTokenSchema, scimBaseUrl } from "./provisioning-token";
 
 describe("provisioning token form", () => {
   it("builds a bounded scoped request", () => {
@@ -24,5 +24,13 @@ describe("provisioning token form", () => {
       expiresAt: "2028-01-01T00:00"
     }).success).toBe(false);
     vi.useRealTimers();
+  });
+
+  it("describes SCIM outcomes and the base URL clients are configured with", () => {
+    expect(describeScimOutcome(201, null)).toBe("201 Creado");
+    expect(describeScimOutcome(400, "invalidValue")).toBe("400 Solicitud inválida (invalidValue)");
+    expect(describeScimOutcome(412, null)).toBe("412 Versión obsoleta");
+    expect(describeScimOutcome(418, null)).toBe("418 Error");
+    expect(scimBaseUrl("https://id.example.com")).toBe("https://id.example.com/scim/v2");
   });
 });

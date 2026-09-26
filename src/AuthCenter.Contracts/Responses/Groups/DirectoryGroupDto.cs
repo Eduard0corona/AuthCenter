@@ -2,6 +2,9 @@ namespace AuthCenter.Contracts.Responses.Groups;
 
 public class DirectoryGroupDto
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }
@@ -9,6 +12,10 @@ public class DirectoryGroupDto
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
     public int MemberCount { get; init; }
+
+    /// <summary>Active group rules decide the members, so they cannot be added or removed by hand.</summary>
+    public bool IsRuleManaged { get; init; }
+
     public IReadOnlyList<DirectoryGroupApplicationDto> Applications { get; init; } = [];
     public IReadOnlyList<DirectoryGroupRoleDto> Roles { get; init; } = [];
 }

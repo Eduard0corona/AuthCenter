@@ -1,8 +1,10 @@
 # Plan de implementacion del frontend administrativo de AuthCenter
 
-> Estado del documento: implementacion activa en `feat/admin-federation`, actualizada el
-> 2026-09-20. Las casillas marcadas cuentan con codigo y evidencia automatizada local; Azure sigue
-> pendiente hasta integrar la rama en `main`.
+> Estado del documento: cerrado por la remediacion del 2026-09-26 (`REMEDIACION-INTEGRACION-FEDERACION.md`,
+> fases F11 y F15), revisado casilla por casilla contra el codigo y las pruebas. Las cifras de la
+> seccion 4 son instantaneas de cada entrega; las vigentes estan en ese documento. Las casillas que
+> siguen abiertas son alcance posterior (observabilidad frontend, i18n, Lighthouse) o acciones del
+> propietario (revision manual WCAG, validacion en Azure).
 >
 > Este documento distingue deliberadamente entre lo que existe, los defectos confirmados, las
 > dependencias de backend y el objetivo de producto. Una casilla solo debe marcarse como lista
@@ -59,9 +61,9 @@ La UI desplegada es un MVP de cinco secciones:
 4. System Log con los primeros 50 resultados;
 5. entregas de Event Hooks con replay de dead letters.
 
-La declaracion `Fase 5 lista` de `OKTA-LEVEL-ROADMAP.md` debe interpretarse actualmente como
-"MVP disponible". No debe considerarse una consola administrativa terminada hasta cerrar este
-plan y producir evidencia E2E, de accesibilidad y de operacion.
+Al redactar este plan, la declaracion `Fase 5 lista` de `OKTA-LEVEL-ROADMAP.md` equivalia a "MVP
+disponible". La remediacion F11 completo la consola y F15 agrego la evidencia de accesibilidad
+(axe con WCAG 2.2, reflow), los flujos E2E minimos y los runbooks; el roadmap ya refleja ese estado.
 
 ## 4. Evidencia revisada
 
@@ -300,7 +302,7 @@ accesibilidad.
 - [x] Agregar component tests para formularios, tablas, permisos y estados.
 - [x] Agregar baseline E2E con Playwright para shell y navegacion responsive.
 - [x] Ejecutar axe-core sobre las rutas cubiertas por el baseline.
-- [ ] Verificar teclado, foco, zoom 200/400 %, reduced motion y contraste.
+- [x] Verificar teclado, foco, zoom 200/400 %, reduced motion y contraste. *(`e2e/accessibility.spec.ts`: teclado y foco, contraste con axe, reflow a 320 px en las 39 rutas y reduced motion emulado)*
 - [x] Probar desktop, tablet y mobile en CI.
 
 ## 7. Matriz de cobertura funcional
@@ -490,34 +492,34 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 - [x] Routing rules ordenables y simulables.
 - [x] Profile mappings con preview de transformacion.
 - [x] Group rules con preview de miembros afectados.
-- [ ] Estado y diagnostico de integraciones SCIM.
+- [x] Estado y diagnostico de integraciones SCIM. *(`ScimDiagnosticsPanel`; `ScimProtocolTests.Diagnostics_RecordTheRequestsOfEachToken_WithoutPayloads`)*
 
 ### 10.7 Event Hooks y System Log
 
-- [ ] CRUD y verificacion de Event Hooks.
-- [ ] Seleccion de tipos de evento y aplicacion.
-- [ ] Entregas paginadas con estado, intento, error y proximo retry.
-- [ ] Replay con confirmacion e idempotencia.
-- [ ] System Log con filtros por accion, usuario, app, trace y fechas.
-- [ ] Drawer de detalle con metadata sanitizada.
-- [ ] Deep links desde una entidad hacia sus eventos relacionados.
-- [ ] Exportacion con limites, progreso y auditoria.
+- [x] CRUD y verificacion de Event Hooks. *(eliminar equivale a desactivar, como en la API; `e2e/operations.spec.ts`)*
+- [x] Seleccion de tipos de evento y aplicacion. *(`EventTypePicker` y alcance por aplicacion)*
+- [x] Entregas paginadas con estado, intento, error y proximo retry. *(`EventDeliveriesPage`)*
+- [x] Replay con confirmacion e idempotencia. *(`Idempotency-Key`; `EventHookReplayRelationalTests`)*
+- [x] System Log con filtros por accion, usuario, app, trace y fechas. *(`SystemLogPage`)*
+- [x] Drawer de detalle con metadata sanitizada. *(dialogo de detalle; la metadata se sanea al escribir el evento)*
+- [x] Deep links desde una entidad hacia sus eventos relacionados. *(`HistoryLink`)*
+- [x] Exportacion con limites, progreso y auditoria. *(hasta 10 000 eventos con aviso de truncado, `SYSTEM_LOG_EXPORTED`)*
 
 ## 11. Accesibilidad y design system
 
 ### 11.1 Criterios obligatorios
 
-- [ ] WCAG 2.2 AA verificado, no solo declarado.
-- [ ] Navegacion completa por teclado.
-- [ ] Orden de foco predecible y restauracion al cerrar dialogs.
+- [ ] WCAG 2.2 AA verificado, no solo declarado. *(automatico: axe con `target-size` en consola, login, portal y enlaces, reflow y teclado; falta la revision manual con lectores de pantalla, accion del propietario UI-07)*
+- [ ] Navegacion completa por teclado. *(probados salto al contenido, navegacion, dialogos, menu movil y combobox; falta un recorrido completo manual)*
+- [x] Orden de foco predecible y restauracion al cerrar dialogs. *(`useModalDialog` en todos los dialogos)*
 - [x] Contraste AA para colores configurables.
-- [ ] Zoom 200 % y reflow a 400 % sin perdida funcional.
+- [x] Zoom 200 % y reflow a 400 % sin perdida funcional. *(reflow a 320 px en las 39 rutas; corrigio tres desbordes, UI-13)*
 - [x] Estados que no dependan exclusivamente del color.
 - [x] Labels, descripciones, errores y ayudas asociados semanticamente en los modulos migrados.
 - [x] Tablas con captions, encabezados y desplazamiento responsive enfocable.
 - [x] `aria-live` para feedback de mutaciones sin anuncios duplicados.
 - [x] Compatibilidad con `prefers-reduced-motion`.
-- [ ] Textos en UTF-8 e internacionalizacion preparada.
+- [ ] Textos en UTF-8 e internacionalizacion preparada. *(UTF-8 si; los textos en espanol estan en los componentes, sin capa i18n)*
 
 ### 11.2 Componentes minimos
 
@@ -552,18 +554,18 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
   conservan su orden fijo hasta ampliar sus contratos.
 - [x] Debounce y `AbortController` para busquedas.
 - [x] Invalidacion selectiva despues de mutaciones.
-- [ ] Virtualizacion solo cuando el diseno realmente lo requiera.
-- [ ] Lighthouse CI con budgets, sin tratarlo como sustituto de pruebas reales.
+- [x] Virtualizacion solo cuando el diseno realmente lo requiera. *(evaluada: no se requiere, las tablas se paginan en el servidor con hasta 100 filas)*
+- [ ] Lighthouse CI con budgets, sin tratarlo como sustituto de pruebas reales. *(no adoptado; CI aplica un presupuesto gzip al JavaScript, `scripts/check-bundle-budget.mjs`)*
 
 ## 13. Observabilidad frontend
 
-- [ ] Capturar errores no controlados sin cuerpo de requests ni PII.
-- [ ] Propagar y mostrar correlation/trace ID en errores soportables.
-- [ ] Medir navegacion, latencia y fallos por operacion, no por datos del usuario.
+- [ ] Capturar errores no controlados sin cuerpo de requests ni PII. *(`ErrorBoundary` y el aviso global los muestran; no se envian a telemetria)*
+- [x] Propagar y mostrar correlation/trace ID en errores soportables. *("Referencia: <traceId>")*
+- [ ] Medir navegacion, latencia y fallos por operacion, no por datos del usuario. *(alcance posterior)*
 - [x] Diferenciar error de validacion, autorizacion, conflicto y disponibilidad.
-- [ ] Registrar version del frontend y commit desplegado.
-- [ ] Dashboard operativo para errores frontend y degradacion de endpoints.
-- [ ] Source maps privados y restringidos al pipeline de diagnostico.
+- [x] Registrar version del frontend y commit desplegado. *(la consola viaja en el mismo artefacto; la barra lateral muestra version y commit de `/api/version`)*
+- [ ] Dashboard operativo para errores frontend y degradacion de endpoints. *(alcance posterior; el backend tiene SLO y alertas en `ops/`)*
+- [ ] Source maps privados y restringidos al pipeline de diagnostico. *(no se generan source maps, tampoco publicos)*
 
 ## 14. Estrategia de pruebas
 
@@ -578,19 +580,19 @@ Cada entrada y accion debe usar permisos explicitos. Una ruta sin permiso debe d
 
 ### 14.2 Flujos E2E minimos
 
-- [ ] Login y entrada a la consola segun permisos.
-- [ ] Usuario read-only no ve ni puede ejecutar escrituras.
-- [ ] Invitar, aprobar, asignar rol/aplicacion y desactivar usuario.
-- [ ] Bloqueo del ultimo SuperAdmin.
+- [x] Login y entrada a la consola segun permisos. *(`tests/AuthCenter.HostedUi.Tests/e2e/admin.spec.mjs` contra la API real)*
+- [x] Usuario read-only no ve ni puede ejecutar escrituras. *(`admin-shell.spec.ts`, `operations.spec.ts` y 403 en `admin.spec.mjs`)*
+- [x] Invitar, aprobar, asignar rol/aplicacion y desactivar usuario. *(`admin-shell.spec.ts` "deactivates a user after confirming" y `governance.spec.ts`)*
+- [x] Bloqueo del ultimo SuperAdmin. *(`admin-shell.spec.ts` "explains inside the confirmation that the last SuperAdmin cannot be deactivated"; `UserDirectoryDetailTests`)*
 - [x] Crear aplicacion y editar branding sin perder URLs.
 - [x] Crear roles/permisos, actualizar matriz RBAC y asignar rol predeterminado valido.
 - [x] Crear y rotar OAuth client mostrando el secreto una sola vez.
 - [x] Crear, filtrar, rotar y revocar provisioning tokens con secret reveal y step-up.
 - [x] Crear draft, simular y publicar politica con step-up.
-- [ ] Crear/verificar hook y reproducir un dead letter.
-- [ ] Filtrar System Log por trace ID.
-- [ ] Expiracion de sesion durante una mutacion.
-- [ ] Navegacion por teclado en rutas y dialogs principales.
+- [x] Crear/verificar hook y reproducir un dead letter. *(`operations.spec.ts`)*
+- [x] Filtrar System Log por trace ID. *(`operations.spec.ts` "narrows the System Log to one trace, typed or from an event's detail")*
+- [x] Expiracion de sesion durante una mutacion. *(`admin-shell.spec.ts` "a session that expires during a change returns to the sign-in and back to the same page")*
+- [x] Navegacion por teclado en rutas y dialogs principales. *(`accessibility.spec.ts`)*
 - [x] Responsive en resoluciones mobile, tablet y desktop.
 
 ## 15. CI/CD y publicacion
@@ -619,11 +621,11 @@ El pipeline debe ejecutar, en orden:
 
 ### Fase A: seguridad y fundacion
 
-- [ ] Corregir FE-001 a FE-008.
+- [x] Corregir FE-001 a FE-008. *(todas las subtareas marcadas)*
 - [x] Implementar BE-001, BE-002 y SEC-001.
 - [x] Registrar ADR de stack frontend.
 - [x] Crear scaffold TypeScript, design system y app shell.
-- [ ] Implementar cliente OpenAPI, sesion, CSRF y errores.
+- [ ] Implementar cliente OpenAPI, sesion, CSRF y errores. *(sesion, CSRF y errores listos y probados; el cliente es manual (`src/api/types.ts`) y `AdminConsoleContractTests` protege el contrato, sin generacion OpenAPI)*
 - [x] Integrar build hasheado al publish de .NET.
 - [x] Crear baseline Playwright/axe y CI.
 
@@ -644,21 +646,21 @@ El pipeline debe ejecutar, en orden:
 - [x] OAuth clients.
 - [x] Access policies y simulacion.
 - [x] Federacion OIDC/SAML.
-- [ ] Provisioning tokens y SCIM.
+- [x] Provisioning tokens y SCIM. *(F11 y F12)*
 - [x] Mappings y group rules.
-- [ ] Event Hooks completos.
+- [x] Event Hooks completos. *(F11)*
 
 **Salida:** integraciones y seguridad avanzada operables desde la consola.
 
 ### Fase D: operacion y refinamiento AAA
 
-- [ ] Dashboard operativo y de seguridad.
-- [ ] System Log completo.
-- [ ] Observabilidad frontend.
-- [ ] Validacion manual WCAG y matriz de navegadores.
-- [ ] Pruebas de rendimiento y directorios grandes.
-- [ ] Documentacion de operador, soporte y runbooks UI.
-- [ ] Actualizar `OKTA-LEVEL-ROADMAP.md` con evidencia verificable.
+- [x] Dashboard operativo y de seguridad. *(F11 y F14)*
+- [x] System Log completo. *(F11)*
+- [ ] Observabilidad frontend. *(solo el traceId en errores; telemetria y dashboard son alcance posterior)*
+- [ ] Validacion manual WCAG y matriz de navegadores. *(accion del propietario UI-07; las pruebas usan Chromium)*
+- [x] Pruebas de rendimiento y directorios grandes. *(`DirectoryScaleRelationalTests` con 100 000 usuarios, workflow semanal y `docs/operations/CAPACITY.md`)*
+- [x] Documentacion de operador, soporte y runbooks UI. *(`docs/operations/CONSOLE-RUNBOOKS.md` y `OWNER-ACTIONS.md`)*
+- [x] Actualizar `OKTA-LEVEL-ROADMAP.md` con evidencia verificable. *(F15)*
 
 **Salida:** consola administrable, observable, accesible y preparada para crecimiento.
 
@@ -694,12 +696,12 @@ Una historia o modulo solo puede marcarse listo cuando:
 
 - [x] Aprobar React/TypeScript/Vite o registrar una alternativa en ADR.
 - [x] Decidir migracion progresiva bajo `/admin-v2` o reemplazo por modulo.
-- [ ] Definir entorno E2E y estrategia de datos de prueba.
+- [x] Definir entorno E2E y estrategia de datos de prueba. *(suite de la consola con API simulada y suite hospedada contra la API Release con una base SQL desechable por ejecucion)*
 - [x] Aprobar matriz de step-up administrativo.
-- [ ] Aprobar budgets de rendimiento y navegadores soportados.
+- [ ] Aprobar budgets de rendimiento y navegadores soportados. *(budgets aplicados en CI: JavaScript 110/45/420 KB gzip y 2 s por lectura con 100 000 usuarios; falta decidir los navegadores soportados)*
 - [x] Definir retencion y mecanismo de exportacion de System Log: 365 dias configurables y CSV
   paginado de hasta 100 eventos por solicitud, con filtros y auditoria de cada exportacion.
-- [ ] Decidir si la administracion de custom domains entra en una fase posterior.
+- [x] Decidir si la administracion de custom domains entra en una fase posterior. *(si: queda fuera del alcance (seccion 2) como objetivo del roadmap)*
 
 ## 20. Criterio para cerrar la Fase 5 del roadmap
 
@@ -712,3 +714,9 @@ La Fase 5 solo debe volver a marcarse completamente lista cuando:
 4. la suite E2E y axe pase en CI;
 5. exista evidencia visual manual desktop/mobile y WCAG 2.2 AA;
 6. el artefacto desplegado en Azure haya superado smoke, version y cache checks.
+
+Estado al 2026-09-26: 1 a 3 se cumplen (lo abierto quedo registrado arriba como alcance posterior).
+4 se cumple: la suite E2E y axe paso en GitHub Actions en el PR #23. 5 y 6 dependen del
+propietario: revision manual (UI-07) y despliegue con las migraciones aplicadas (OPS-03); ver
+`docs/operations/OWNER-ACTIONS.md`. El workflow ya verifica salud,
+CSP, cache y compresion de la consola en cada despliegue.

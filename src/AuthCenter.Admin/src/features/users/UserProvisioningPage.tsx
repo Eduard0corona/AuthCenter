@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
-import type { ApplicationSummary, PagedResult, RoleSummary, UserSummary } from "../../api/types";
+import { fetchAllAsPage } from "../../api/catalog";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
+import type { ApplicationSummary, RoleSummary, UserSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { PageHeader } from "../../components/PageHeader";
@@ -26,12 +28,12 @@ export default function UserProvisioningPage({ mode }: { mode: UserProvisioningM
   const applications = useQuery({
     queryKey: ["applications", "user-provisioning"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100&isActive=true", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications?isActive=true", signal)
   });
   const roles = useQuery({
     queryKey: ["roles", "user-provisioning", applicationId],
     enabled: canReadRoles && Boolean(applicationId),
-    queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?page=1&pageSize=100&isActive=true&applicationSystemId=${encodeURIComponent(applicationId)}`, { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>(`/api/roles?isActive=true&applicationSystemId=${encodeURIComponent(applicationId)}`, signal)
   });
   const save = useMutation({
     mutationFn: (values: UserProvisioningForm) => apiRequest<UserSummary>(mode === "invite" ? "/api/users/invitations" : "/api/users", {
@@ -49,12 +51,12 @@ export default function UserProvisioningPage({ mode }: { mode: UserProvisioningM
   const title = mode === "invite" ? "Invitar usuario" : "Crear usuario";
   const selectedApplication = applications.data?.items.find((application) => application.id === applicationId);
 
-  if (applications.isError) return <PageState title="No pudimos cargar las aplicaciones" detail={message(applications.error)} tone="error" action={<button className="button" onClick={() => void applications.refetch()}>Reintentar</button>} />;
+  if (applications.isError) return <PageState title="No pudimos cargar las aplicaciones" detail={errorMessage(applications.error)} tone="error" action={<button className="button" onClick={() => void applications.refetch()}>Reintentar</button>} />;
   return <>
     <Breadcrumbs items={[{ label: "Usuarios", to: "/users" }, { label: title }]} />
     <PageHeader eyebrow="Directorio" title={title} description={mode === "invite" ? "Envía un vínculo de un solo uso y concede únicamente el acceso inicial necesario." : "Crea una identidad local con una contraseña temporal que deberá cambiarse en el primer acceso."} actions={<Link className="button button--secondary" to="/users">Volver al listado</Link>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback} {created ? <Link to={`/users/${created.id}`}>Administrar {created.fullName}</Link> : null}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{message(save.error)}</p> : null}
+    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
     {!canReadApplications ? <p className="alert alert--info">Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar acceso inicial. Puedes crear un usuario sin acceso, pero no enviar invitaciones.</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
       <fieldset className="settings-fieldset" disabled={save.isPending || (mode === "invite" && !canReadApplications)}>
@@ -85,4 +87,3 @@ function Field({ label, error, help, children }: { label: string; error: string 
   return <label className="field"><span>{label}</span>{children}{help ? <small className="field-help">{help}</small> : null}{error ? <small className="field-error">{error}</small> : null}</label>;
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

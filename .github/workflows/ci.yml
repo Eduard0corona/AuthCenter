@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -61,9 +61,14 @@ jobs:
           cache-dependency-path: |
             sdk/typescript/package-lock.json
             src/AuthCenter.Admin/package-lock.json
+            tests/AuthCenter.HostedUi.Tests/package-lock.json
 
       - name: Restore dependencies
         run: dotnet restore
+
+      # dotnet-ef and ReportGenerator, pinned in .config/dotnet-tools.json.
+      - name: Restore .NET tools
+        run: dotnet tool restore
 
       - name: Wait for SQL Server
         shell: bash
@@ -76,7 +81,7 @@ jobs:
 
       - name: Admin frontend quality gates
         working-directory: src/AuthCenter.Admin
-        run: npm ci && npm audit --audit-level=high && npm run lint && npm run typecheck && npm test && npm run build
+        run: npm ci && npm audit --audit-level=high && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run budget
 
       - name: Install admin E2E browser
         working-directory: src/AuthCenter.Admin
@@ -89,8 +94,56 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
+      # Every model change ships with its migration.
+      - name: Check the EF Core model against the migrations
+        run: dotnet ef migrations has-pending-model-changes --no-build --configuration Release --project src/AuthCenter.Infrastructure --startup-project src/AuthCenter.Api
+
+      # Production applies migrations out of band, before the deployment
+      # (docs/operations/OWNER-ACTIONS.md, OPS-03): this is the idempotent script of this commit.
+      # sqlcmd starts with QUOTED_IDENTIFIER OFF, and SQL Server then rejects every change to a table
+      # with a filtered index (AspNetUsers has several): the script sets it first, for any client.
+      - name: Generate the database migration script
+        shell: bash
+        run: |
+          dotnet ef migrations script --idempotent --no-build --configuration Release --project src/AuthCenter.Infrastructure --startup-project src/AuthCenter.Api --output "${{ runner.temp }}/ef-migrations.sql"
+          mkdir -p "${{ runner.temp }}/database-migrations"
+          { printf 'SET ANSI_NULLS ON;\nSET QUOTED_IDENTIFIER ON;\nGO\n\n'; sed '1s/^\xEF\xBB\xBF//' "${{ runner.temp }}/ef-migrations.sql"; } > "${{ runner.temp }}/database-migrations/migrations.sql"
+
+      - name: Upload the database migration script
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: database-migrations
+          path: ${{ runner.temp }}/database-migrations/migrations.sql
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
+        run: >-
+          dotnet test --configuration Release --no-build --verbosity normal
+          --settings coverlet.runsettings --collect:"XPlat Code Coverage"
+          --results-directory "${{ runner.temp }}/coverage"
+
+      # Merges the unit and integration coverage into the run summary and fails under 80% of lines
+      # or 60% of branches (85% and 64% when the gate was introduced). The console enforces its own
+      # minimums in vite.config.ts.
+      - name: Coverage report and gate
+        shell: bash
+        run: |
+          dotnet reportgenerator -reports:"${{ runner.temp }}/coverage/**/coverage.cobertura.xml" \
+            -targetdir:"${{ runner.temp }}/coverage-report/dotnet" \
+            -reporttypes:"Cobertura;HtmlSummary;MarkdownSummaryGithub"
+          cp -r src/AuthCenter.Admin/coverage "${{ runner.temp }}/coverage-report/console"
+          cat "${{ runner.temp }}/coverage-report/dotnet/SummaryGithub.md" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci/coverage-gate.py "${{ runner.temp }}/coverage-report/dotnet/Cobertura.xml" 80 60
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report
+          path: ${{ runner.temp }}/coverage-report
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: OIDC and SCIM conformance profile
         run: dotnet test tests/AuthCenter.IntegrationTests/AuthCenter.IntegrationTests.csproj --configuration Release --no-build --filter Category=Conformance --verbosity normal
@@ -98,6 +151,27 @@ jobs:
       - name: TypeScript SDK
         working-directory: sdk/typescript
         run: npm ci && npm test
+
+      - name: Hosted UI unit tests
+        working-directory: tests/AuthCenter.HostedUi.Tests
+        run: npm ci && npm test
+
+      # The login, portal and emailed-link pages against the Release API, SQL Server and Chromium
+      # (browser installed by the admin E2E step; same Playwright version).
+      - name: Hosted UI end-to-end
+        working-directory: tests/AuthCenter.HostedUi.Tests
+        run: npx playwright test
+
+      - name: Upload hosted UI end-to-end report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-ui-e2e-report
+          path: |
+            tests/AuthCenter.HostedUi.Tests/playwright-report
+            tests/AuthCenter.HostedUi.Tests/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Pack .NET integration SDK
         run: dotnet pack sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj --configuration Release --no-build --output "${{ runner.temp }}/sdk-packages"
@@ -194,12 +268,14 @@ jobs:
             echo "Deployment check ${attempt}/18 returned live=${live_status:-unreachable}, ready=${ready_status:-unreachable}, branding=${branding_status:-unreachable}."
             if [ "$attempt" = "18" ]; then
               echo "The deployment completed, but required runtime checks did not become healthy." >&2
+              # Names the failing readiness check; "database-schema" means migrations are pending (OPS-03).
+              curl --silent --show-error --max-time 20 "${APP_URL%/}/health/ready" >&2 || true
               exit 1
             fi
             sleep 10
           done
 
-          for ui_path in login portal admin login.html portal.html admin.html; do
+          for ui_path in login portal login.html portal.html reset-password magic-link admin-v2/; do
             headers="$(curl --silent --show-error --dump-header - --output /dev/null \
               --max-time 20 "${APP_URL%/}/${ui_path}")"
             if ! grep --quiet --ignore-case '^content-type: text/html' <<< "$headers"; then
@@ -211,6 +287,13 @@ jobs:
               exit 1
             fi
           done
+
+          # The retired /admin console redirects to the current one.
+          admin_redirect="$(curl --silent --show-error --output /dev/null --write-out '%{http_code} %{redirect_url}' --max-time 20 "${APP_URL%/}/admin")"
+          if [ "${admin_redirect%% *}" != "302" ] || [[ "${admin_redirect#* }" != */admin-v2/ ]]; then
+            echo "The retired /admin console does not redirect to /admin-v2/ (${admin_redirect})." >&2
+            exit 1
+          fi
 
           admin_v2_html="$(curl --fail --silent --show-error --max-time 20 "${APP_URL%/}/admin-v2/")"
           admin_v2_asset="$(grep --only-matching --max-count=1 '/admin-v2/assets/[^\" ]*\.js' <<< "$admin_v2_html")"

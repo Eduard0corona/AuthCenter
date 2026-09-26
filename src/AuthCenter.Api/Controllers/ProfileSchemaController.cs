@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Profiles;
@@ -25,6 +26,7 @@ public sealed class ProfileSchemaController : ControllerBase
     public async Task<IActionResult> Get([FromQuery] bool includeInactive, CancellationToken ct) =>
         Ok(ApiResponse<object>.Ok(await _profiles.GetSchemaAsync(includeInactive, ct)));
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.ProfileSchemasWrite)]
     public async Task<IActionResult> Create(CreateProfileAttributeDefinitionRequest request, CancellationToken ct)

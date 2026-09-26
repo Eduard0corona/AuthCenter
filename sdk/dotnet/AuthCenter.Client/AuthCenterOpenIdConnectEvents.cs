@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace AuthCenter.Client;
 
@@ -29,10 +30,27 @@ internal sealed class AuthCenterOpenIdConnectEvents(
         }
     }
 
+    public override Task RedirectToIdentityProvider(RedirectContext context)
+    {
+        // Per-request parameters set by the login endpoint (prompt and max_age are handled by the
+        // OpenID Connect handler itself).
+        if (context.Properties.GetParameter<string>(OpenIdConnectParameterNames.LoginHint) is { Length: > 0 } loginHint)
+            context.ProtocolMessage.LoginHint = loginHint;
+        if (context.Properties.GetParameter<string>(OpenIdConnectParameterNames.AcrValues) is { Length: > 0 } acrValues)
+            context.ProtocolMessage.AcrValues = acrValues;
+        foreach (var name in new[] { AuthCenterChallengeParameters.IdentityProviderParameter, AuthCenterChallengeParameters.DomainHintParameter })
+            if (context.Properties.GetParameter<string>(name) is { Length: > 0 } value)
+                context.ProtocolMessage.SetParameter(name, value);
+        return Task.CompletedTask;
+    }
+
     public override Task RemoteFailure(RemoteFailureContext context)
     {
         context.HandleResponse();
-        context.Response.Redirect(options.RemoteFailurePath);
+        var error = AuthCenterChallengeParameters.ForwardedError(context.Failure);
+        context.Response.Redirect(error is null
+            ? options.RemoteFailurePath
+            : $"{options.RemoteFailurePath}?error={Uri.EscapeDataString(error)}");
         return Task.CompletedTask;
     }
 }

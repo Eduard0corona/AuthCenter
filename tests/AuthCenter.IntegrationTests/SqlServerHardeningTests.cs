@@ -17,12 +17,9 @@ namespace AuthCenter.IntegrationTests;
 
 public sealed class SqlServerHardeningTests
 {
-    [Fact]
+    [RelationalFact]
     public async Task IdempotentDeploymentScript_UpgradesProductionBaseline()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
         try
@@ -56,7 +53,7 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(24, applied.Count);
+            Assert.Equal(verifyDb.Database.GetMigrations().Count(), applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
             Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
             Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
@@ -66,6 +63,7 @@ public sealed class SqlServerHardeningTests
             Assert.Contains("20260811105540_CompleteOperationalExcellencePhase6", applied);
             Assert.Contains("20260811120003_EnsureFirstPartyApplicationAvailability", applied);
             Assert.Contains(applied, migration => migration.EndsWith("_CompleteAdminBackendContracts", StringComparison.Ordinal));
+            Assert.Contains("20260926092052_AddSingleSignOnSessionContext", applied);
 
             var firstPartyApplication = await verifyDb.ApplicationSystems
                 .Include(application => application.RegistrationSettings)
@@ -83,12 +81,9 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
     public async Task Phase1Migration_PreservesExistingRulesAsPublishedVersion()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
         try
@@ -133,12 +128,108 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
+    public async Task OperationsPermissionsMigration_GrantsNewPermissionsToRolesHoldingLegacyOnes()
+    {
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            await using var db = new AuthCenterDbContext(options);
+            var migrator = db.Database.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260926131814_AddEventHookSecretRotation");
+
+            var readerRoleId = Guid.NewGuid();
+            var writerRoleId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            await db.Database.ExecuteSqlInterpolatedAsync($$"""
+                DECLARE @applicationId uniqueidentifier = (SELECT Id FROM dbo.ApplicationSystems WHERE Code = 'AUTHCENTER');
+                INSERT INTO dbo.Permissions (Id, ApplicationSystemId, Code, Name, Description, IsActive, CreatedAt)
+                SELECT NEWID(), @applicationId, legacy.Code, legacy.Code, NULL, 1, {{now}}
+                FROM (VALUES ('AUTHCENTER_APPLICATIONS_READ'), ('AUTHCENTER_APPLICATIONS_WRITE')) legacy(Code)
+                WHERE NOT EXISTS (SELECT 1 FROM dbo.Permissions p WHERE p.ApplicationSystemId = @applicationId AND p.Code = legacy.Code);
+
+                INSERT INTO dbo.AspNetRoles (Id, ApplicationSystemId, Name, NormalizedName, DisplayName, IsActive, IsSystemRole, CreatedAt)
+                VALUES ({{readerRoleId}}, @applicationId, 'Migration reader', 'MIGRATION READER', 'Migration reader', 1, 0, {{now}}),
+                       ({{writerRoleId}}, @applicationId, 'Migration writer', 'MIGRATION WRITER', 'Migration writer', 1, 0, {{now}});
+
+                INSERT INTO dbo.RolePermissions (RoleId, PermissionId, CreatedAt)
+                SELECT {{readerRoleId}}, Id, {{now}} FROM dbo.Permissions WHERE ApplicationSystemId = @applicationId AND Code = 'AUTHCENTER_APPLICATIONS_READ'
+                UNION ALL
+                SELECT {{writerRoleId}}, Id, {{now}} FROM dbo.Permissions WHERE ApplicationSystemId = @applicationId AND Code IN ('AUTHCENTER_APPLICATIONS_READ', 'AUTHCENTER_APPLICATIONS_WRITE');
+                """);
+
+            await migrator.MigrateAsync();
+            db.ChangeTracker.Clear();
+
+            async Task<string[]> GrantedCodesAsync(Guid roleId) => await db.RolePermissions
+                .Where(grant => grant.RoleId == roleId)
+                .Select(grant => grant.Permission.Code)
+                .OrderBy(code => code)
+                .ToArrayAsync();
+
+            Assert.Equal(
+                [
+                    DomainConstants.Permissions.ApplicationsRead,
+                    DomainConstants.Permissions.EventHooksRead,
+                    DomainConstants.Permissions.FederationRead,
+                    DomainConstants.Permissions.ProvisioningRead
+                ],
+                await GrantedCodesAsync(readerRoleId));
+            Assert.Equal(
+                [
+                    DomainConstants.Permissions.ApplicationsRead,
+                    DomainConstants.Permissions.ApplicationsWrite,
+                    DomainConstants.Permissions.EventHooksRead,
+                    DomainConstants.Permissions.EventHooksWrite,
+                    DomainConstants.Permissions.FederationRead,
+                    DomainConstants.Permissions.FederationWrite,
+                    DomainConstants.Permissions.ProvisioningRead,
+                    DomainConstants.Permissions.ProvisioningWrite
+                ],
+                await GrantedCodesAsync(writerRoleId));
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [RelationalFact]
+    public async Task VersionedRecords_RefuseTheSecondOfTwoConcurrentSaves()
+    {
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        await using (var migrationDb = new AuthCenterDbContext(options))
+            await migrationDb.Database.MigrateAsync();
+        try
+        {
+            await using var first = new AuthCenterDbContext(options);
+            await using var second = new AuthCenterDbContext(options);
+            var fromFirst = await first.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER");
+            var fromSecond = await second.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER");
+
+            fromFirst.Description = "Saved first";
+            await first.SaveChangesAsync();
+            fromSecond.Description = "Saved second";
+
+            // Any change advances the version, and the version is checked by the UPDATE itself.
+            Assert.Equal(fromSecond.Version + 1, fromFirst.Version);
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+            await using var verify = new AuthCenterDbContext(options);
+            Assert.Equal("Saved first", (await verify.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER")).Description);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [RelationalFact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
 
@@ -218,8 +309,8 @@ public sealed class SqlServerHardeningTests
             var firstToken = await firstDb.RefreshTokens.SingleAsync(token => token.Id == refreshId);
             var secondToken = await secondDb.RefreshTokens.SingleAsync(token => token.Id == refreshId);
             var jwt = Options.Create(new JwtSettings { RefreshTokenDays = 30 });
-            var firstService = new RefreshTokenService(firstDb, new DateTimeProvider(), jwt);
-            var secondService = new RefreshTokenService(secondDb, new DateTimeProvider(), jwt);
+            var firstService = new RefreshTokenService(firstDb, new DateTimeProvider(), new BackchannelLogoutQueue(firstDb, new EphemeralDataProtectionProvider(), new DateTimeProvider()), jwt);
+            var secondService = new RefreshTokenService(secondDb, new DateTimeProvider(), new BackchannelLogoutQueue(secondDb, new EphemeralDataProtectionProvider(), new DateTimeProvider()), jwt);
 
             var rotations = await Task.WhenAll(
                 firstService.TryRotateAsync(firstToken, Guid.NewGuid(), "replacement-a", null, null),
@@ -276,10 +367,9 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
     public async Task SuperAdminApplicationLock_SerializesConcurrentRemovalAttempts()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION"))) return;
         var connectionString = BuildIsolatedConnectionString(); var options = CreateOptions(connectionString);
         try
         {
@@ -311,7 +401,7 @@ public sealed class SqlServerHardeningTests
         finally { await using var cleanup = new AuthCenterDbContext(options); await cleanup.Database.EnsureDeletedAsync(); }
     }
 
-    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
+    internal static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
     {
         var services = new ServiceCollection();
         services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(identity =>

@@ -5,9 +5,6 @@ import { convertExpectedValue } from "../group-rules/group-rule";
 export const federationProtocols = ["Oidc", "Saml2"] as const;
 export const accountLinkingModes = ["Disabled", "VerifiedEmail"] as const;
 
-const httpsUrl = (message: string) => z.string().trim().refine((value) => {
-  try { return new URL(value).protocol === "https:"; } catch { return false; }
-}, message);
 const optionalHttpsUrl = (message: string) => z.string().trim().refine((value) => {
   if (!value) return true;
   try { return new URL(value).protocol === "https:"; } catch { return false; }
@@ -17,7 +14,8 @@ export const federationProviderSchema = z.object({
   applicationSystemId: z.string().uuid("Selecciona una aplicación válida."),
   name: z.string().trim().min(1, "El nombre es obligatorio.").max(150, "Usa máximo 150 caracteres."),
   protocol: z.enum(federationProtocols),
-  issuer: httpsUrl("El issuer debe ser una URL HTTPS."),
+  // OIDC issuers are HTTPS URLs; SAML entity IDs may be any absolute URI (https, http or urn).
+  issuer: z.string().trim().min(1, "El issuer es obligatorio.").max(500, "Usa máximo 500 caracteres."),
   discoveryEndpoint: optionalHttpsUrl("El discovery endpoint debe ser una URL HTTPS."),
   clientId: z.string().trim(),
   oidcCallbackUrl: z.string().trim(),
@@ -26,24 +24,37 @@ export const federationProviderSchema = z.object({
   samlSigningCertificatePem: z.string().trim(),
   jitProvisioningEnabled: z.boolean(),
   accountLinkingMode: z.enum(accountLinkingModes),
+  requireVerifiedEmail: z.boolean(),
+  trustUpstreamMfa: z.boolean(),
+  groupsClaim: z.string().trim().max(256, "Usa máximo 256 caracteres."),
+  groupMappings: z.array(z.object({
+    upstreamValue: z.string().trim().min(1, "Indica el valor que envía el IdP.").max(256, "Usa máximo 256 caracteres."),
+    directoryGroupId: z.string().uuid("Selecciona un grupo.")
+  })).max(200, "Usa máximo 200 mapeos."),
   isActive: z.boolean(),
   /** True while editing an existing SAML provider: a blank PEM keeps the stored certificate. */
   hasStoredCertificate: z.boolean()
 }).superRefine((values, context) => {
   if (values.protocol === "Oidc") {
+    if (!isHttps(values.issuer)) context.addIssue({ code: "custom", path: ["issuer"], message: "El issuer OIDC debe ser una URL HTTPS." });
     if (!values.clientId) context.addIssue({ code: "custom", path: ["clientId"], message: "El client ID es obligatorio para OIDC." });
-    if (!isHttps(values.oidcCallbackUrl)) context.addIssue({ code: "custom", path: ["oidcCallbackUrl"], message: "La callback URL debe ser HTTPS y exacta." });
+    // Blank uses AuthCenter's hosted callback; any other value must be exact and HTTPS.
+    if (values.oidcCallbackUrl && !isHttps(values.oidcCallbackUrl)) context.addIssue({ code: "custom", path: ["oidcCallbackUrl"], message: "La callback URL debe ser HTTPS y exacta." });
   } else {
+    if (!isAbsoluteUri(values.issuer)) context.addIssue({ code: "custom", path: ["issuer"], message: "El entity ID del IdP debe ser una URI absoluta (https:, http: o urn:)." });
     if (!isHttps(values.samlSingleSignOnUrl)) context.addIssue({ code: "custom", path: ["samlSingleSignOnUrl"], message: "La URL de SSO debe ser HTTPS." });
     if (!values.samlSigningCertificatePem && !values.hasStoredCertificate) context.addIssue({ code: "custom", path: ["samlSigningCertificatePem"], message: "Pega el certificado de firma en formato PEM." });
     if (values.samlSigningCertificatePem && !/-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----/.test(values.samlSigningCertificatePem)) context.addIssue({ code: "custom", path: ["samlSigningCertificatePem"], message: "El certificado debe estar en formato PEM (BEGIN/END CERTIFICATE)." });
   }
+  if (values.groupMappings.length > 0 && !values.groupsClaim) context.addIssue({ code: "custom", path: ["groupsClaim"], message: "Indica el claim o atributo de grupos antes de mapear sus valores." });
+  const keys = values.groupMappings.map((mapping) => `${mapping.upstreamValue.trim().toLowerCase()}|${mapping.directoryGroupId}`);
+  if (new Set(keys).size !== keys.length) context.addIssue({ code: "custom", path: ["groupMappings"], message: "No repitas mapeos de grupo." });
 });
 
 export type FederationProviderFormValues = z.input<typeof federationProviderSchema>;
 
 export function federationProviderDefaults(): FederationProviderFormValues {
-  return { applicationSystemId: "", name: "", protocol: "Oidc", issuer: "", discoveryEndpoint: "", clientId: "", oidcCallbackUrl: "", clientSecret: "", samlSingleSignOnUrl: "", samlSigningCertificatePem: "", jitProvisioningEnabled: false, accountLinkingMode: "Disabled", isActive: true, hasStoredCertificate: false };
+  return { applicationSystemId: "", name: "", protocol: "Oidc", issuer: "", discoveryEndpoint: "", clientId: "", oidcCallbackUrl: "", clientSecret: "", samlSingleSignOnUrl: "", samlSigningCertificatePem: "", jitProvisioningEnabled: false, accountLinkingMode: "Disabled", requireVerifiedEmail: true, trustUpstreamMfa: false, groupsClaim: "", groupMappings: [], isActive: true, hasStoredCertificate: false };
 }
 
 export function federationProviderFromResponse(provider: FederationProvider): FederationProviderFormValues {
@@ -60,6 +71,10 @@ export function federationProviderFromResponse(provider: FederationProvider): Fe
     samlSigningCertificatePem: "",
     jitProvisioningEnabled: provider.jitProvisioningEnabled,
     accountLinkingMode: provider.accountLinkingMode,
+    requireVerifiedEmail: provider.requireVerifiedEmail ?? true,
+    trustUpstreamMfa: provider.trustUpstreamMfa ?? false,
+    groupsClaim: provider.groupsClaim ?? "",
+    groupMappings: (provider.groupMappings ?? []).map((mapping) => ({ upstreamValue: mapping.upstreamValue, directoryGroupId: mapping.directoryGroupId })),
     isActive: provider.isActive,
     hasStoredCertificate: Boolean(provider.samlSigningCertificateThumbprint)
   };
@@ -79,16 +94,40 @@ export function federationProviderPayload(values: FederationProviderFormValues, 
     issuer: parsed.issuer,
     discoveryEndpoint: oidc && parsed.discoveryEndpoint ? parsed.discoveryEndpoint : null,
     clientId: oidc ? parsed.clientId : null,
-    oidcCallbackUrl: oidc ? parsed.oidcCallbackUrl : null,
+    oidcCallbackUrl: oidc && parsed.oidcCallbackUrl ? parsed.oidcCallbackUrl : null,
     clientSecret: oidc && parsed.clientSecret ? parsed.clientSecret : null,
     samlSingleSignOnUrl: oidc ? null : parsed.samlSingleSignOnUrl,
     samlSigningCertificatePem: !oidc && parsed.samlSigningCertificatePem ? parsed.samlSigningCertificatePem : null,
     jitProvisioningEnabled: parsed.jitProvisioningEnabled,
     accountLinkingMode: parsed.accountLinkingMode,
+    requireVerifiedEmail: oidc ? parsed.requireVerifiedEmail : true,
+    trustUpstreamMfa: parsed.trustUpstreamMfa,
+    groupsClaim: parsed.groupsClaim || null,
+    groupMappings: parsed.groupMappings.map((mapping) => ({ upstreamValue: mapping.upstreamValue, directoryGroupId: mapping.directoryGroupId })),
     isActive: parsed.isActive,
     version
   };
 }
+
+/** Friendly names of the connection-test checks returned by the API. */
+export const connectionCheckLabels: Record<string, string> = {
+  "provider.active": "Proveedor activo",
+  "routing.domain": "Regla por dominio",
+  "oidc.discovery": "Documento de discovery",
+  "oidc.issuer": "Issuer",
+  "oidc.endpoints": "Endpoints HTTPS",
+  "oidc.signing_keys": "Llaves de firma",
+  "oidc.response_type": "Authorization code",
+  "oidc.pkce": "PKCE S256",
+  "oidc.callback": "Callback hospedado",
+  "oidc.client_secret": "Client secret",
+  "oidc.email_scope": "Scope email",
+  "saml.idp_certificate": "Certificado del IdP",
+  "saml.idp_key": "Llave del IdP",
+  "saml.sso_url": "URL de SSO",
+  "saml.sp_certificate": "Certificado de AuthCenter",
+  "saml.sp_endpoints": "Entity ID y ACS de AuthCenter"
+};
 
 export const routingRuleSchema = z.object({
   federationProviderId: z.string().uuid("Selecciona un proveedor válido."),
@@ -190,4 +229,8 @@ export function describeRoutingRule(rule: FederationRoutingRule, groupName?: str
 
 function isHttps(value: string): boolean {
   try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
+
+function isAbsoluteUri(value: string): boolean {
+  try { return new URL(value).protocol.length > 1; } catch { return false; }
 }

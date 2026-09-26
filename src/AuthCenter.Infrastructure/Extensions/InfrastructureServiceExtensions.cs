@@ -50,6 +50,8 @@ public static class InfrastructureServiceExtensions
         services.Configure<GitHubAuthSettings>(configuration.GetSection("Authentication:GitHub"));
         services.Configure<AppleAuthSettings>(configuration.GetSection("Authentication:Apple"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        services.Configure<SingleSignOnSettings>(configuration.GetSection("Sso"));
+        services.AddSingleton<IValidateOptions<SingleSignOnSettings>, SingleSignOnSettingsValidator>();
         services.Configure<MfaSettings>(configuration.GetSection("Mfa"));
         services.AddSingleton<IValidateOptions<MfaSettings>, MfaSettingsValidator>();
         services.Configure<PasskeySettings>(configuration.GetSection("Passkeys"));
@@ -57,10 +59,12 @@ public static class InfrastructureServiceExtensions
         services.Configure<AdaptiveAuthenticationSettings>(configuration.GetSection("AdaptiveAuth"));
         services.AddSingleton<IValidateOptions<AdaptiveAuthenticationSettings>, AdaptiveAuthenticationSettingsValidator>();
         services.Configure<SamlSettings>(configuration.GetSection("Saml"));
+        services.Configure<OidcSettings>(configuration.GetSection("Oidc"));
         services.AddSingleton<IValidateOptions<SamlSettings>, SamlSettingsValidator>();
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
         services.AddHostedService<RetentionCleanupService>();
+        services.Configure<GovernanceSettings>(configuration.GetSection("Governance"));
 
         services.AddHttpClient("GitHub", client =>
         {
@@ -68,8 +72,21 @@ public static class InfrastructureServiceExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AuthCenter/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddHttpClient("Federation", client => client.Timeout = TimeSpan.FromSeconds(15));
-        services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10));
+        // Upstream metadata and token requests go to the exact configured URLs, never to a redirect.
+        services.AddHttpClient(FederationMetadataCache.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddSingleton<FederationMetadataCache>();
+        // Hooks call administrator-configured URLs: never a redirect, and only public addresses at the
+        // moment of connecting, so neither a redirect nor a DNS answer that changes reaches an internal host.
+        services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                ConnectCallback = OutboundUrlSafety.ConnectToPublicAddressAsync
+            });
+        // Logout tokens are posted to the exact registered URI; a redirect is a failed delivery.
+        services.AddHttpClient(BackchannelLogoutQueue.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -110,6 +127,10 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddScoped<BackchannelLogoutQueue>();
+        services.AddScoped<ISingleSignOnSessionService, SingleSignOnSessionService>();
+        services.AddScoped<IEndSessionService, EndSessionService>();
+        services.AddScoped<IApiResourceService, ApiResourceService>();
         services.AddScoped<IAuthenticationSessionIssuer, AuthenticationSessionIssuer>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<ITransientStateStore, TransientStateStore>();
@@ -134,6 +155,16 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IDirectoryGroupService, DirectoryGroupService>();
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<DynamicGroupMembershipService>();
+        services.AddScoped<ISsoAccessGate, SsoAccessGate>();
+        services.AddSingleton<Services.Saml.SamlIdentityProviderKeys>();
+        services.AddScoped<ISamlIdentityProviderService, Services.Saml.SamlIdentityProviderService>();
+        services.AddScoped<ISamlServiceProviderService, Services.Saml.SamlServiceProviderService>();
+        services.AddScoped<ISeparationOfDutiesChecker, Services.Governance.SeparationOfDutiesChecker>();
+        services.AddScoped<ISeparationOfDutiesService, Services.Governance.SeparationOfDutiesService>();
+        services.AddScoped<IAccessGovernanceService, Services.Governance.AccessGovernanceService>();
+        services.AddScoped<IAccessReviewService, Services.Governance.AccessReviewService>();
+        services.AddHostedService<Services.Governance.GovernanceMaintenanceService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();

@@ -36,6 +36,13 @@ public sealed class OutboxEmailService : IEmailService
     public Task SendMfaEmailOtpAsync(string toEmail, string toName, string code, CancellationToken ct = default) =>
         EnqueueAsync(new EmailPayload("mfa-otp", toEmail, toName, code, null, null), ct);
 
+    // The subject travels in ApplicationName and the detail in Secret, keeping the payload shape stable.
+    public Task SendSecurityNoticeAsync(string toEmail, string toName, string subject, string detail, CancellationToken ct = default) =>
+        EnqueueAsync(new EmailPayload("security-notice", toEmail, toName, detail, null, subject), ct);
+
+    public Task SendNotificationAsync(string toEmail, string toName, string subject, string detail, string actionUrl, string actionLabel, CancellationToken ct = default) =>
+        EnqueueAsync(new EmailPayload("notification", toEmail, toName, detail, actionUrl, subject, actionLabel), ct);
+
     private async Task EnqueueAsync(EmailPayload payload, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
@@ -56,5 +63,6 @@ public sealed class OutboxEmailService : IEmailService
         string ToName,
         string Secret,
         string? ActionUrl,
-        string? ApplicationName);
+        string? ApplicationName,
+        string? ActionLabel = null);
 }

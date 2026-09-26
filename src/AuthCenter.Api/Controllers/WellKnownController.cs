@@ -1,4 +1,5 @@
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Infrastructure.Settings;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -33,17 +34,34 @@ public class WellKnownController : ControllerBase
             authorization_endpoint = $"{baseUrl}/oauth/authorize",
             token_endpoint = $"{baseUrl}/oauth/token",
             revocation_endpoint = $"{baseUrl}/oauth/revoke",
+            introspection_endpoint = $"{baseUrl}/oauth/introspect",
             userinfo_endpoint = $"{baseUrl}/oauth/userinfo",
+            end_session_endpoint = $"{baseUrl}/oauth/logout",
             jwks_uri = $"{baseUrl}/.well-known/jwks.json",
             scopes_supported = new[] { "openid", "profile", "email", "offline_access" },
             response_types_supported = new[] { "code" },
-            grant_types_supported = new[] { "authorization_code", "client_credentials", "refresh_token" },
+            grant_types_supported = DomainConstants.OAuthGrantTypes.All,
             subject_types_supported = new[] { "public" },
             id_token_signing_alg_values_supported = new[] { "RS256" },
             token_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
             revocation_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
+            introspection_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post" },
             code_challenge_methods_supported = new[] { "S256" },
-            authorization_response_iss_parameter_supported = true
+            authorization_response_iss_parameter_supported = true,
+            response_modes_supported = new[] { "query", "form_post" },
+            prompt_values_supported = new[] { "none", "login", "consent", "select_account" },
+            acr_values_supported = DomainConstants.AuthenticationContextClasses.All,
+            claims_supported = new[]
+            {
+                "sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "azp", "sid", "amr", "acr", "name",
+                "email", "email_verified", "client_id", "scope", "role", "permissions", "applications"
+            },
+            backchannel_logout_supported = true,
+            backchannel_logout_session_supported = true,
+            frontchannel_logout_supported = false,
+            request_parameter_supported = false,
+            request_uri_parameter_supported = false,
+            claims_parameter_supported = false
         };
         return Ok(discovery);
     }

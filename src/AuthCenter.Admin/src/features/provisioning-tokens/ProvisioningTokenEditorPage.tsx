@@ -3,23 +3,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
-import type { ApplicationSummary, PagedResult, ProvisioningTokenCreated, ProvisioningTokenMetadata } from "../../api/types";
+import { fetchAllAsPage } from "../../api/catalog";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
+import type { ApplicationSummary, ProvisioningTokenCreated, ProvisioningTokenMetadata } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
 import { formatDate } from "../../utils/format";
 import { SecretRevealDialog } from "../oauth-clients/SecretRevealDialog";
-import { defaultExpiration, provisioningScopes, provisioningTokenDefaults, provisioningTokenPayload, provisioningTokenRotationPayload, provisioningTokenRotationSchema, provisioningTokenSchema, type ProvisioningTokenFormValues, type ProvisioningTokenRotationValues } from "./provisioning-token";
+import { defaultExpiration, provisioningScopes, scimBaseUrl, provisioningTokenDefaults, provisioningTokenPayload, provisioningTokenRotationPayload, provisioningTokenRotationSchema, provisioningTokenSchema, type ProvisioningTokenFormValues, type ProvisioningTokenRotationValues } from "./provisioning-token";
 import { TokenStatus } from "./ProvisioningTokensPage";
+import { ScimDiagnosticsPanel } from "./ScimDiagnosticsPanel";
 
 type SensitiveAction = "rotate" | "revoke" | null;
 
-export default function ProvisioningTokenEditorPage({ create = false }: { create?: boolean }) {
+// One page instance per token: after a rotation navigates to the replacement, no dialog or
+// pending action of the previous credential can survive into the next one.
+export default function ProvisioningTokenEditorRoute({ create = false }: { create?: boolean }) {
+  const { tokenId = "" } = useParams();
+  return <ProvisioningTokenEditorPage key={create ? "new" : tokenId} create={create} />;
+}
+
+function ProvisioningTokenEditorPage({ create }: { create: boolean }) {
   const { permissions } = useSession();
-  const canWrite = permissions.has("AUTHCENTER_APPLICATIONS_WRITE");
+  const canWrite = permissions.has("AUTHCENTER_PROVISIONING_WRITE");
   const canReadApplications = permissions.has("AUTHCENTER_APPLICATIONS_READ");
   const { tokenId = "" } = useParams();
   const navigate = useNavigate();
@@ -36,7 +47,7 @@ export default function ProvisioningTokenEditorPage({ create = false }: { create
   const applications = useQuery({
     queryKey: ["applications", "provisioning-token-editor"],
     enabled: create && canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const form = useForm<ProvisioningTokenFormValues>({ resolver: zodResolver(provisioningTokenSchema), defaultValues: provisioningTokenDefaults() });
   const rotationForm = useForm<ProvisioningTokenRotationValues>({ resolver: zodResolver(provisioningTokenRotationSchema), defaultValues: { expiresAt: defaultExpiration() } });
@@ -69,7 +80,7 @@ export default function ProvisioningTokenEditorPage({ create = false }: { create
   });
 
   if (!create && token.isPending) return <PageState title="Cargando provisioning token" busy />;
-  if (!create && token.isError) return <PageState title="No pudimos cargar el provisioning token" detail={message(token.error)} tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
+  if (!create && token.isError) return <PageState title="No pudimos cargar el provisioning token" detail={errorMessage(token.error)} tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
   if (create && !canReadApplications) return <PageState title="No puedes crear provisioning tokens" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación propietaria." tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
   const title = create ? "Nuevo provisioning token" : current?.name ?? "Provisioning token";
   const actionError = rotate.error ?? revoke.error;
@@ -81,9 +92,9 @@ export default function ProvisioningTokenEditorPage({ create = false }: { create
 
   return <>
     <Breadcrumbs items={[{ label: "Provisioning tokens", to: "/provisioning-tokens" }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.applicationName ?? "Integraciones"} title={title} description={create ? "Emite una credencial SCIM con el alcance mínimo y una expiración explícita." : canWrite ? "Consulta el uso y rota o revoca la credencial. Su valor original nunca se recupera." : "Consulta los metadatos de la credencial. El secreto no está disponible."} actions={<Link className="button button--secondary" to="/provisioning-tokens">Volver al listado</Link>} />
+    <PageHeader eyebrow={create ? "Alta" : current?.applicationName ?? "Integraciones"} title={title} description={create ? "Emite una credencial SCIM con el alcance mínimo y una expiración explícita." : canWrite ? "Consulta el uso y rota o revoca la credencial. Su valor original nunca se recupera." : "Consulta los metadatos de la credencial. El secreto no está disponible."} actions={<>{create ? null : <HistoryLink entityName="ProvisioningToken" entityId={tokenId} />}<Link className="button button--secondary" to="/provisioning-tokens">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{message(save.error)}</p> : null}
+    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
     {create ? <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="provisioning-token-identity">
@@ -100,11 +111,12 @@ export default function ProvisioningTokenEditorPage({ create = false }: { create
     </form> : current ? <>
       <section className="settings-panel" aria-labelledby="provisioning-token-detail">
         <div className="settings-panel__heading"><div><h2 id="provisioning-token-detail">Metadatos</h2><p>Estos datos permiten operar la credencial sin exponer el token original.</p></div><TokenStatus status={current.status} /></div>
-        <dl className="profile-summary"><div><dt>Aplicación</dt><dd>{current.applicationName}</dd></div><div><dt>Creado</dt><dd>{formatDate(current.createdAt)}</dd></div><div><dt>Expira</dt><dd>{formatDate(current.expiresAt)}</dd></div><div><dt>Último uso</dt><dd>{formatDate(current.lastUsedAt)}</dd></div></dl>
+        <dl className="profile-summary"><div><dt>Aplicación</dt><dd>{current.applicationName}</dd></div><div><dt>Creado</dt><dd>{formatDate(current.createdAt)}</dd></div><div><dt>Expira</dt><dd>{formatDate(current.expiresAt)}</dd></div><div><dt>Último uso</dt><dd>{formatDate(current.lastUsedAt)}</dd></div><div><dt>URL base SCIM</dt><dd className="mono">{scimBaseUrl()}</dd></div></dl>
         <div><p className="field-help">Scopes efectivos</p><div className="button-group" aria-label="Scopes efectivos">{current.scopes.map((scope) => <span className="tag mono" key={scope}>{scope}</span>)}</div></div>
         <p className="alert alert--info">AuthCenter almacena únicamente el hash de esta credencial; el valor original no puede recuperarse.</p>
       </section>
-      {canWrite && current.status === "active" ? <section className="settings-panel settings-panel--actions" aria-labelledby="provisioning-token-actions"><div className="settings-panel__heading"><div><h2 id="provisioning-token-actions">Rotación y revocación</h2><p>Ambas acciones requieren reautenticación y consumen una prueba de un solo uso.</p></div></div><div className="form-grid"><Field label="Expiración del reemplazo" error={rotationForm.formState.errors.expiresAt?.message} help="La rotación revoca esta credencial de inmediato."><input type="datetime-local" {...rotationForm.register("expiresAt")} /></Field></div><div className="button-group"><button className="button button--secondary" type="button" onClick={() => void rotationForm.handleSubmit(() => { rotate.reset(); setSensitiveAction("rotate"); })()}>Rotar token</button><button className="button button--danger-quiet" type="button" onClick={() => { revoke.reset(); setSensitiveAction("revoke"); }}>Revocar token</button></div>{actionError ? <p className="alert alert--error" role="alert">{message(actionError)}</p> : null}</section> : null}
+      <ScimDiagnosticsPanel tokenId={current.id} />
+      {canWrite && current.status === "active" ? <section className="settings-panel settings-panel--actions" aria-labelledby="provisioning-token-actions"><div className="settings-panel__heading"><div><h2 id="provisioning-token-actions">Rotación y revocación</h2><p>Ambas acciones requieren reautenticación y consumen una prueba de un solo uso.</p></div></div><div className="form-grid"><Field label="Expiración del reemplazo" error={rotationForm.formState.errors.expiresAt?.message} help="La rotación revoca esta credencial de inmediato."><input type="datetime-local" {...rotationForm.register("expiresAt")} /></Field></div><div className="button-group"><button className="button button--secondary" type="button" onClick={() => void rotationForm.handleSubmit(() => { rotate.reset(); setSensitiveAction("rotate"); })()}>Rotar token</button><button className="button button--danger-quiet" type="button" onClick={() => { revoke.reset(); setSensitiveAction("revoke"); }}>Revocar token</button></div>{actionError ? <p className="alert alert--error" role="alert">{errorMessage(actionError)}</p> : null}</section> : null}
     </> : null}
     <ReauthenticationDialog open={sensitiveAction !== null} purpose={sensitiveAction === "rotate" ? "admin.provisioning-token.rotate" : "admin.provisioning-token.revoke"} title={sensitiveAction === "rotate" ? "Rotar provisioning token" : "Revocar provisioning token"} detail={sensitiveAction === "rotate" ? "La credencial actual dejará de funcionar de inmediato y el reemplazo se mostrará una sola vez." : "La credencial dejará de autenticar solicitudes SCIM de inmediato. Esta acción no se puede deshacer."} confirmLabel={sensitiveAction === "rotate" ? "Verificar y rotar" : "Verificar y revocar"} dangerous={sensitiveAction === "revoke"} onCancel={() => setSensitiveAction(null)} onProof={async (proof) => { if (sensitiveAction === "rotate") await rotate.mutateAsync({ proofToken: proof, values: rotationForm.getValues() }); else if (sensitiveAction === "revoke") await revoke.mutateAsync(proof); }} />
     <SecretRevealDialog open={Boolean(secret)} secret={secret} title={`Token para ${title}`} onClose={closeSecret} />
@@ -113,4 +125,3 @@ export default function ProvisioningTokenEditorPage({ create = false }: { create
 
 function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }
 function Checkbox({ label, registration, value }: { label: string; registration: UseFormRegisterReturn; value: string }) { return <label className="checkbox-field"><input type="checkbox" {...registration} value={value} /><span>{label}</span></label>; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

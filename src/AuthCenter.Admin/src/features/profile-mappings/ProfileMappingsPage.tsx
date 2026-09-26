@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { fetchAllAsPage } from "../../api/catalog";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, ProfileMapping } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
@@ -21,7 +23,7 @@ export default function ProfileMappingsPage() {
   const applications = useQuery({
     queryKey: ["applications", "profile-mapping-filter"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const mappings = useQuery({
     queryKey: ["profile-mappings", page, pageSize, applicationId, active],
@@ -46,7 +48,7 @@ export default function ProfileMappingsPage() {
       <label className="field"><span>Estado</span><select value={active} onChange={(event) => update("active", event.target.value)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Inactivos</option></select></label>
     </section>
     {mappings.isPending ? <PageState title="Cargando profile mappings" busy /> : null}
-    {mappings.isError ? <PageState title="No pudimos cargar los profile mappings" detail={message(mappings.error)} tone="error" action={<button className="button" onClick={() => void mappings.refetch()}>Reintentar</button>} /> : null}
+    {mappings.isError ? <PageState title="No pudimos cargar los profile mappings" detail={errorMessage(mappings.error)} tone="error" action={<button className="button" onClick={() => void mappings.refetch()}>Reintentar</button>} /> : null}
     {mappings.data && mappings.data.items.length === 0 ? <PageState title="No hay profile mappings" detail="Ajusta los filtros o crea el primer mapping SCIM hacia el perfil universal." /> : null}
     {mappings.data?.items.length ? <>
       <div className="data-table" tabIndex={0} role="region" aria-label="Profile mappings, desplazamiento horizontal"><table><caption className="sr-only">Profile mappings</caption><thead><tr><th>Origen SCIM</th><th>Atributo destino</th><th>Aplicación</th><th>Autoritativo</th><th>Creado</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{mappings.data.items.map((mapping) => <tr key={mapping.id}><td><strong className="mono">{mapping.sourcePath}</strong><span className="cell-detail">{mapping.sourceSystem}</span></td><td><span className="mono">{mapping.targetAttributeName}</span></td><td>{mapping.applicationName}</td><td>{mapping.isAuthoritative ? "Sí" : "No"}</td><td>{formatDate(mapping.createdAt)}</td><td><StatusBadge active={mapping.isActive} /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/profile-mappings/${mapping.id}`}>{canWrite ? "Editar" : "Consultar"}</Link></td></tr>)}</tbody></table></div>
@@ -55,4 +57,3 @@ export default function ProfileMappingsPage() {
   </>;
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

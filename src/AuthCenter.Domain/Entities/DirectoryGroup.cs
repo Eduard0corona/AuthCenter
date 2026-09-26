@@ -1,7 +1,10 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
-public class DirectoryGroup
+public class DirectoryGroup : IVersionedEntity
 {
+    public long Version { get; set; }
+
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string NormalizedName { get; set; } = string.Empty;

@@ -10,6 +10,10 @@ const valid = {
   allowedScopes: ["openid", "profile", "email", "offline_access"] as const,
   grantTypes: ["authorization_code", "refresh_token"] as const,
   loginUrl: "https://partner.example.com/login",
+  apiScopes: "",
+  allowedCorsOrigins: "https://partner.example.com",
+  postLogoutRedirectUris: "https://partner.example.com/signout-callback-authcenter",
+  backchannelLogoutUri: "https://partner.example.com/auth/backchannel-logout",
   accessTokenLifetimeSeconds: 900,
   requirePkce: true,
   autoConsent: false,
@@ -41,8 +45,45 @@ describe("OAuth client form", () => {
     expect(result.success).toBe(false);
   });
 
+  it("sends logout registration and clears an empty back-channel URI", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false)).toMatchObject({
+      postLogoutRedirectUris: ["https://partner.example.com/signout-callback-authcenter"],
+      backchannelLogoutUri: "https://partner.example.com/auth/backchannel-logout"
+    });
+    expect(oauthClientPayload(oauthClientSchema.parse({ ...valid, backchannelLogoutUri: "" }), false)).toMatchObject({ backchannelLogoutUri: null });
+  });
+
+  it("rejects insecure logout URIs and back-channel logout without authorization code", () => {
+    expect(oauthClientSchema.safeParse({ ...valid, postLogoutRedirectUris: "http://partner.example.com/bye" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({ ...valid, backchannelLogoutUri: "https://partner.example.com/logout#x" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({
+      ...valid, grantTypes: ["client_credentials"], allowedScopes: ["email"], redirectUris: "", postLogoutRedirectUris: "", requirePkce: false
+    }).success).toBe(false);
+  });
+
+  it("accepts bare origins for CORS and rejects paths or insecure schemes", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false)).toMatchObject({ allowedCorsOrigins: ["https://partner.example.com"] });
+    for (const origin of ["https://partner.example.com/app", "http://partner.example.com", "https://partner.example.com?x=1"])
+      expect(oauthClientSchema.safeParse({ ...valid, allowedCorsOrigins: origin }).success).toBe(false);
+  });
+
+  it("merges API scopes into the allowed scopes and validates their names", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse({ ...valid, apiScopes: "orders.read\nbilling.read" }), false).allowedScopes)
+      .toEqual(["openid", "profile", "email", "offline_access", "orders.read", "billing.read"]);
+    expect(oauthClientSchema.safeParse({ ...valid, apiScopes: "Orders Read" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({ ...valid, allowedScopes: [], apiScopes: "" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({
+      ...valid, clientType: "1", grantTypes: ["urn:ietf:params:oauth:grant-type:token-exchange"], allowedScopes: [], apiScopes: "orders.read", redirectUris: "", postLogoutRedirectUris: "", backchannelLogoutUri: "", requirePkce: false
+    }).success).toBe(false);
+  });
+
   it("rejects identity scopes for a machine-only client", () => {
     const result = oauthClientSchema.safeParse({ ...valid, grantTypes: ["client_credentials"], allowedScopes: ["openid", "email"], redirectUris: "", requirePkce: false });
     expect(result.success).toBe(false);
+  });
+
+  it("keeps the back-channel session setting chosen for the client", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse({ ...valid, backchannelLogoutSessionRequired: false }), false).backchannelLogoutSessionRequired).toBe(false);
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false).backchannelLogoutSessionRequired).toBe(true);
   });
 });

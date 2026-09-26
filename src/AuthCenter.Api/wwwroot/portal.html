@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>Mi cuenta · AuthCenter</title>
   <link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/portal.js"></script>
 </head>
@@ -10,19 +11,157 @@
   <div class="app-shell">
     <aside class="sidebar"><h1>AuthCenter</h1><nav aria-label="Mi cuenta">
       <a href="#overview" data-panel="overview" aria-current="page">Resumen</a>
+      <a href="#security" data-panel="security">Seguridad</a>
       <a href="#sessions" data-panel="sessions">Sesiones</a>
-      <a href="#factors" data-panel="factors">Factores</a>
+      <a href="#applications" data-panel="applications">Aplicaciones</a>
+      <a href="#approvals" data-panel="approvals" id="approvals-nav" hidden>Aprobaciones</a>
+      <a href="#providers" data-panel="providers">Proveedores</a>
       <a href="#consents" data-panel="consents">Consentimientos</a>
+      <a href="#account" data-panel="account">Cuenta</a>
     </nav></aside>
     <main id="content" class="main">
-      <header class="topbar"><div><p class="muted">Portal de usuario</p><h2 id="user-name">Cargando…</h2></div><div class="actions"><a id="admin-link" class="button" href="/admin" hidden>Administración</a><button id="logout" class="secondary">Cerrar sesión</button></div></header>
+      <header class="topbar"><div><p class="muted">Portal de usuario</p><h2 id="user-name">Cargando…</h2><p id="user-email" class="muted"></p></div><div class="actions"><a id="admin-link" class="button" href="/admin-v2/" hidden>Administración</a><button id="logout" class="secondary">Cerrar sesión</button></div></header>
       <p id="status" class="status" role="status" aria-live="polite"></p>
-      <section id="overview" class="panel active"><h2>Resumen de seguridad</h2><div id="overview-grid" class="grid"></div></section>
-      <section id="sessions" class="panel"><h2>Sesiones y dispositivos</h2><p class="muted">Revoca cualquier acceso que no reconozcas.</p><h3>Sesiones activas</h3><div id="sessions-list" class="grid"></div><h3>Dispositivos confiables</h3><div id="devices-list" class="grid"></div></section>
-      <section id="factors" class="panel"><div class="topbar"><div><h2>Passkeys y proveedores</h2><p class="muted">Las passkeys son resistentes al phishing.</p></div><button id="add-passkey">Agregar passkey</button></div><h3>Passkeys</h3><div id="passkeys-list" class="grid"></div><h3>Proveedores vinculados</h3><div id="providers-list" class="grid"></div></section>
-      <section id="consents" class="panel"><h2>Aplicaciones autorizadas</h2><p class="muted">Revocar un consentimiento también invalida sus refresh tokens.</p><div id="consents-list" class="grid"></div></section>
+
+      <section id="overview" class="panel active" tabindex="-1" aria-labelledby="overview-title"><h2 id="overview-title">Resumen de seguridad</h2><div id="overview-grid" class="grid"></div></section>
+
+      <section id="security" class="panel" tabindex="-1" aria-labelledby="security-title">
+        <h2 id="security-title">Seguridad</h2>
+        <article class="card section" aria-labelledby="password-title">
+          <h3 id="password-title">Contraseña</h3>
+          <p id="password-summary" class="muted"></p>
+          <form id="password-form" class="stack" novalidate hidden method="post">
+            <label>Contraseña actual <input id="current-password" type="password" autocomplete="current-password" required></label>
+            <label>Nueva contraseña <input id="changed-password" type="password" autocomplete="new-password" minlength="8" required></label>
+            <label>Confirmar contraseña <input id="changed-password-confirm" type="password" autocomplete="new-password" minlength="8" required></label>
+            <div class="actions"><button type="submit">Cambiar contraseña</button></div>
+          </form>
+        </article>
+        <article class="card section" aria-labelledby="mfa-title">
+          <h3 id="mfa-title">Verificación en dos pasos</h3>
+          <p id="mfa-summary" class="muted">Cargando…</p>
+          <div class="actions">
+            <button id="mfa-totp-setup" type="button" hidden>Configurar app de autenticación</button>
+            <button id="mfa-email-setup" class="secondary" type="button" hidden>Recibir códigos por correo</button>
+            <button id="mfa-backup-regenerate" class="secondary" type="button" hidden>Generar códigos de respaldo nuevos</button>
+            <button id="mfa-disable" class="danger" type="button" hidden>Desactivar</button>
+          </div>
+        </article>
+        <article class="card section" aria-labelledby="passkeys-title">
+          <div class="section-header"><div><h3 id="passkeys-title">Passkeys</h3><p class="muted">Inicia sesión sin contraseña, con protección contra phishing.</p></div><button id="add-passkey" type="button">Agregar passkey</button></div>
+          <div id="passkeys-list" class="list"></div>
+        </article>
+      </section>
+
+      <section id="sessions" class="panel" tabindex="-1" aria-labelledby="sessions-title">
+        <div class="section-header"><div><h2 id="sessions-title">Sesiones y dispositivos</h2><p class="muted">Revoca cualquier acceso que no reconozcas.</p></div><button id="revoke-all-sessions" class="danger" type="button">Cerrar todas las sesiones</button></div>
+        <h3>Sesiones activas</h3><div id="sessions-list" class="list"></div>
+        <h3>Dispositivos de confianza</h3><div id="devices-list" class="list"></div>
+      </section>
+
+      <section id="applications" class="panel" tabindex="-1" aria-labelledby="applications-title">
+        <h2 id="applications-title">Mis aplicaciones</h2><p class="muted">Aplicaciones a las que tienes acceso, directamente o por tus grupos.</p><div id="applications-list" class="list"></div>
+        <article class="card section" aria-labelledby="request-access-title">
+          <h3 id="request-access-title">Solicitar acceso</h3>
+          <p id="request-access-help" class="muted">Pide acceso a otra aplicación, o un rol en una que ya usas. Sus responsables deciden y te avisamos por correo.</p>
+          <form id="request-access-form" class="stack" novalidate method="post" hidden>
+            <label>Aplicación <select id="request-application" required></select></label>
+            <label>Rol <select id="request-role"><option value="">Sin un rol en particular</option></select></label>
+            <label>Justificación <textarea id="request-justification" maxlength="1000" rows="3" required></textarea></label>
+            <div class="actions"><button type="submit">Enviar solicitud</button></div>
+          </form>
+        </article>
+        <h3>Mis solicitudes</h3><div id="requests-list" class="list"></div>
+      </section>
+
+      <section id="approvals" class="panel" tabindex="-1" aria-labelledby="approvals-title">
+        <h2 id="approvals-title">Aprobaciones</h2>
+        <p class="muted">Solicitudes y revisiones de acceso de las aplicaciones de las que eres responsable.</p>
+        <h3>Solicitudes de acceso</h3><div id="approval-requests-list" class="list"></div>
+        <h3>Revisiones de acceso</h3><div id="reviews-list" class="list"></div>
+        <div id="review-detail" class="section" hidden>
+          <h3 id="review-title" tabindex="-1"></h3>
+          <p id="review-summary" class="muted"></p>
+          <div id="review-items" class="list"></div>
+        </div>
+      </section>
+
+      <section id="providers" class="panel" tabindex="-1" aria-labelledby="providers-title">
+        <h2 id="providers-title">Proveedores de identidad</h2>
+        <p class="muted">Cuentas externas con las que puedes iniciar sesión en AuthCenter.</p>
+        <h3>Vinculados</h3><div id="providers-list" class="list"></div>
+        <h3>Disponibles en tus aplicaciones</h3><p class="muted">Vincula la cuenta de tu organización para iniciar sesión con ella.</p><div id="linkable-list" class="list"></div>
+      </section>
+
+      <section id="consents" class="panel" tabindex="-1" aria-labelledby="consents-title"><h2 id="consents-title">Aplicaciones autorizadas</h2><p class="muted">Revocar un consentimiento también invalida sus refresh tokens.</p><div id="consents-list" class="list"></div></section>
+
+      <section id="account" class="panel" tabindex="-1" aria-labelledby="account-title">
+        <h2 id="account-title">Cuenta</h2>
+        <article class="card section" aria-labelledby="email-title">
+          <h3 id="email-title">Correo electrónico</h3>
+          <p id="email-summary" class="muted"></p>
+          <form id="email-form" class="stack" novalidate method="post">
+            <label>Correo nuevo <input id="new-email" type="email" autocomplete="email" required></label>
+            <div class="actions"><button type="submit">Cambiar correo</button></div>
+          </form>
+        </article>
+        <article class="card section danger-zone" aria-labelledby="delete-title">
+          <h3 id="delete-title">Eliminar cuenta</h3>
+          <p class="muted">Se cerrarán todas tus sesiones y perderás el acceso a todas las aplicaciones. Esta acción no se puede deshacer.</p>
+          <form id="delete-form" class="stack" novalidate method="post">
+            <label id="delete-password-field">Contraseña <input id="delete-password" type="password" autocomplete="current-password"></label>
+            <label class="checkbox"><input id="delete-confirm" type="checkbox"> Entiendo que mi cuenta se eliminará</label>
+            <div class="actions"><button class="danger" type="submit">Eliminar mi cuenta</button></div>
+          </form>
+        </article>
+      </section>
     </main>
   </div>
-  <dialog id="reauth-dialog"><form id="reauth-form" class="stack"><h2>Confirma tu identidad</h2><p>Esta operación requiere una contraseña reciente.</p><label>Contraseña <input id="reauth-password" type="password" autocomplete="current-password" required></label><div class="actions"><button type="submit">Confirmar</button><button id="reauth-cancel" class="secondary" type="button">Cancelar</button></div><p id="reauth-status" class="status" role="status"></p></form></dialog>
+
+  <dialog id="reauth-dialog" aria-labelledby="reauth-title">
+    <form id="reauth-form" class="stack" novalidate method="post">
+      <h2 id="reauth-title">Confirma tu identidad</h2>
+      <p id="reauth-description">Esta operación requiere que confirmes tu identidad.</p>
+      <label id="reauth-password-field">Contraseña <input id="reauth-password" type="password" autocomplete="current-password"></label>
+      <div class="actions"><button id="reauth-submit" type="submit">Confirmar</button><button id="reauth-passkey" class="secondary" type="button" hidden>Usar una passkey</button><button id="reauth-cancel" class="secondary" type="button">Cancelar</button></div>
+      <p id="reauth-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="decision-dialog" aria-labelledby="decision-title">
+    <form id="decision-form" class="stack" novalidate method="post">
+      <h2 id="decision-title"></h2>
+      <p id="decision-description"></p>
+      <label><span id="decision-label">Comentario</span> <textarea id="decision-comment" maxlength="1000" rows="3"></textarea></label>
+      <div class="actions"><button id="decision-submit" type="submit">Confirmar</button><button id="decision-cancel" class="secondary" type="button">Cancelar</button></div>
+      <p id="decision-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="code-dialog" aria-labelledby="code-title">
+    <form id="code-form" class="stack" novalidate method="post">
+      <h2 id="code-title"></h2>
+      <p id="code-description" class="muted"></p>
+      <div id="code-qr" class="qr" hidden></div>
+      <details id="code-secret" class="secret" hidden>
+        <summary>¿No puedes escanearlo? Escribe la clave</summary>
+        <p><code id="code-secret-value" class="secret-value"></code></p>
+        <div class="actions"><button id="code-secret-copy" class="secondary" type="button">Copiar clave</button><a id="code-secret-open" class="button secondary" href="#">Abrir en la app</a></div>
+      </details>
+      <label id="code-field"><span id="code-label">Código</span> <input id="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="12"></label>
+      <div class="actions"><button id="code-submit" type="submit">Continuar</button><button id="code-extra" class="secondary" type="button" hidden></button><button id="code-cancel" class="secondary" type="button">Cancelar</button></div>
+      <p id="code-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <dialog id="codes-dialog" aria-labelledby="codes-title">
+    <div class="stack">
+      <h2 id="codes-title">Guarda tus códigos de respaldo</h2>
+      <p class="muted">Cada código sirve una sola vez si pierdes el acceso a tu app de autenticación. No volveremos a mostrarlos.</p>
+      <ol id="codes-list" class="codes"></ol>
+      <div class="actions"><button id="codes-copy" class="secondary" type="button">Copiar</button><button id="codes-download" class="secondary" type="button">Descargar</button><button id="codes-close" type="button">Listo</button></div>
+      <p id="codes-status" class="status" role="status" aria-live="polite"></p>
+    </div>
+  </dialog>
 </body>
 </html>

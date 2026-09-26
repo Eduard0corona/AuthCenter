@@ -14,4 +14,10 @@ public interface IEventHookService
     Task<OperationResult> DeleteAsync(Guid id, CancellationToken ct = default);
     Task<OperationResult> ReplayDeadLetterAsync(Guid deliveryId, string idempotencyKey, CancellationToken ct = default);
     Task<PagedResult<EventHookDeliveryDto>> GetDeliveriesAsync(EventHookDeliveryQuery query, CancellationToken ct = default);
+    Task<EventHookDeliveryDto?> GetDeliveryAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Replaces the signing secret; the previous one keeps signing for a grace period.</summary>
+    Task<OperationResult<EventHookSecretResponse>> RotateSecretAsync(Guid id, CancellationToken ct = default);
+
+    IReadOnlyList<EventTypeDto> GetEventTypes();
 }

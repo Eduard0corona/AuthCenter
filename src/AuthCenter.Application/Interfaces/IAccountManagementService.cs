@@ -11,6 +11,7 @@ public interface IAccountManagementService
     Task<OperationResult> RevokeSessionAsync(Guid userId, Guid tokenId, CancellationToken ct = default);
     Task<OperationResult> RevokeAllSessionsAsync(Guid userId, CancellationToken ct = default);
     Task<IReadOnlyList<ExternalProviderDto>> GetExternalProvidersAsync(Guid userId, CancellationToken ct = default);
+    Task<IReadOnlyList<UserApplicationDto>> GetApplicationsAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult> UnlinkExternalProviderAsync(Guid userId, Guid providerId, CancellationToken ct = default);
     Task<OperationResult> RequestEmailChangeAsync(Guid userId, RequestEmailChangeRequest request, CancellationToken ct = default);
     Task<OperationResult> ConfirmEmailChangeAsync(ConfirmEmailChangeRequest request, CancellationToken ct = default);

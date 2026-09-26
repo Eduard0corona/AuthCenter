@@ -1,6 +1,7 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
-public sealed class FederationRoutingRule
+public sealed class FederationRoutingRule : IVersionedEntity
 {
     public Guid Id { get; set; }
     public Guid FederationProviderId { get; set; }

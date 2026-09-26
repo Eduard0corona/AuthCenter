@@ -12,6 +12,8 @@ const ApplicationsPage = lazy(() => import("../features/applications/Application
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClientsPage"));
 const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
+const SamlAppsPage = lazy(() => import("../features/saml-apps/SamlAppsPage"));
+const SamlAppEditorPage = lazy(() => import("../features/saml-apps/SamlAppEditorPage"));
 const ProvisioningTokensPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokensPage"));
 const ProvisioningTokenEditorPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokenEditorPage"));
 const ProfileMappingsPage = lazy(() => import("../features/profile-mappings/ProfileMappingsPage"));
@@ -29,7 +31,19 @@ const PermissionEditorPage = lazy(() => import("../features/permissions/Permissi
 const GroupsPage = lazy(() => import("../features/groups/GroupsPage"));
 const GroupEditorPage = lazy(() => import("../features/groups/GroupEditorPage"));
 const SystemLogPage = lazy(() => import("../features/system-log/SystemLogPage"));
+const ProfileSchemaPage = lazy(() => import("../features/profile-schema/ProfileSchemaPage"));
+const ProfileSchemaEditorPage = lazy(() => import("../features/profile-schema/ProfileSchemaEditorPage"));
+const ApiResourcesPage = lazy(() => import("../features/api-resources/ApiResourcesPage"));
+const ApiResourceEditorPage = lazy(() => import("../features/api-resources/ApiResourceEditorPage"));
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
+const EventHookEditorPage = lazy(() => import("../features/event-hooks/EventHookEditorPage"));
+const EventDeliveriesPage = lazy(() => import("../features/event-hooks/EventDeliveriesPage"));
+const AccessRequestsPage = lazy(() => import("../features/governance/AccessRequestsPage"));
+const AccessReviewsPage = lazy(() => import("../features/governance/AccessReviewsPage"));
+const AccessReviewEditorPage = lazy(() => import("../features/governance/AccessReviewEditorPage"));
+const AccessReviewDetailPage = lazy(() => import("../features/governance/AccessReviewDetailPage"));
+const SodRulesPage = lazy(() => import("../features/governance/SodRulesPage"));
+const SodRuleEditorPage = lazy(() => import("../features/governance/SodRuleEditorPage"));
 
 const loading = <PageState title="Cargando módulo" detail="Estamos preparando esta sección." busy />;
 
@@ -46,21 +60,30 @@ export function AppRouter() {
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
           <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
           <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />
+          <Route path="saml-apps" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_READ"><SamlAppsPage /></PermissionRoute>} />
+          <Route path="saml-apps/new" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_WRITE"><SamlAppEditorPage create /></PermissionRoute>} />
+          <Route path="saml-apps/:providerId" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_READ"><SamlAppEditorPage /></PermissionRoute>} />
           <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
           <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
           <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />
-          <Route path="provisioning-tokens" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokensPage /></PermissionRoute>} />
-          <Route path="provisioning-tokens/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ProvisioningTokenEditorPage create /></PermissionRoute>} />
-          <Route path="provisioning-tokens/:tokenId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProvisioningTokenEditorPage /></PermissionRoute>} />
+          <Route path="api-resources" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><ApiResourcesPage /></PermissionRoute>} />
+          <Route path="api-resources/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><ApiResourceEditorPage create /></PermissionRoute>} />
+          <Route path="api-resources/:resourceId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><ApiResourceEditorPage /></PermissionRoute>} />
+          <Route path="profile-schema" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_READ"><ProfileSchemaPage /></PermissionRoute>} />
+          <Route path="profile-schema/new" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_WRITE"><ProfileSchemaEditorPage create /></PermissionRoute>} />
+          <Route path="profile-schema/:definitionId" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_READ"><ProfileSchemaEditorPage /></PermissionRoute>} />
+          <Route path="provisioning-tokens" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_READ"><ProvisioningTokensPage /></PermissionRoute>} />
+          <Route path="provisioning-tokens/new" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_WRITE"><ProvisioningTokenEditorPage create /></PermissionRoute>} />
+          <Route path="provisioning-tokens/:tokenId" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_READ"><ProvisioningTokenEditorPage /></PermissionRoute>} />
           <Route path="profile-mappings" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><ProfileMappingsPage /></PermissionRoute>} />
           <Route path="profile-mappings/new" element={<PermissionRoute permission="AUTHCENTER_USERS_WRITE"><ProfileMappingEditorPage create /></PermissionRoute>} />
           <Route path="profile-mappings/:mappingId" element={<PermissionRoute permission="AUTHCENTER_USERS_READ"><ProfileMappingEditorPage /></PermissionRoute>} />
           <Route path="group-rules" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupRulesPage /></PermissionRoute>} />
           <Route path="group-rules/new" element={<PermissionRoute permission="AUTHCENTER_GROUPS_WRITE"><GroupRuleEditorPage create /></PermissionRoute>} />
           <Route path="group-rules/:ruleId" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupRuleEditorPage /></PermissionRoute>} />
-          <Route path="federation" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><FederationPage /></PermissionRoute>} />
-          <Route path="federation/providers/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ProviderEditorPage create /></PermissionRoute>} />
-          <Route path="federation/providers/:providerId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ProviderEditorPage /></PermissionRoute>} />
+          <Route path="federation" element={<PermissionRoute permission="AUTHCENTER_FEDERATION_READ"><FederationPage /></PermissionRoute>} />
+          <Route path="federation/providers/new" element={<PermissionRoute permission="AUTHCENTER_FEDERATION_WRITE"><ProviderEditorPage create /></PermissionRoute>} />
+          <Route path="federation/providers/:providerId" element={<PermissionRoute permission="AUTHCENTER_FEDERATION_READ"><ProviderEditorPage /></PermissionRoute>} />
           <Route path="access-policies" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPoliciesPage /></PermissionRoute>} />
           <Route path="access-policies/:applicationId" element={<PermissionRoute permission="AUTHCENTER_ACCESS_POLICIES_READ"><AccessPolicyEditorPage /></PermissionRoute>} />
           <Route path="roles" element={<PermissionRoute permission="AUTHCENTER_ROLES_READ"><RolesPage /></PermissionRoute>} />
@@ -69,8 +92,18 @@ export function AppRouter() {
           <Route path="permissions" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionsPage /></PermissionRoute>} />
           <Route path="permissions/new" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_WRITE"><PermissionEditorPage create /></PermissionRoute>} />
           <Route path="permissions/:permissionId" element={<PermissionRoute permission="AUTHCENTER_PERMISSIONS_READ"><PermissionEditorPage /></PermissionRoute>} />
+          <Route path="access-requests" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessRequestsPage /></PermissionRoute>} />
+          <Route path="access-reviews" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessReviewsPage /></PermissionRoute>} />
+          <Route path="access-reviews/new" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_WRITE"><AccessReviewEditorPage /></PermissionRoute>} />
+          <Route path="access-reviews/:reviewId" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><AccessReviewDetailPage /></PermissionRoute>} />
+          <Route path="sod-rules" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><SodRulesPage /></PermissionRoute>} />
+          <Route path="sod-rules/new" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_WRITE"><SodRuleEditorPage create /></PermissionRoute>} />
+          <Route path="sod-rules/:ruleId" element={<PermissionRoute permission="AUTHCENTER_GOVERNANCE_READ"><SodRuleEditorPage /></PermissionRoute>} />
           <Route path="system-log" element={<PermissionRoute permission="AUTHCENTER_AUDIT_LOGS_READ"><SystemLogPage /></PermissionRoute>} />
-          <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><EventHooksPage /></PermissionRoute>} />
+          <Route path="event-hooks" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_READ"><EventHooksPage /></PermissionRoute>} />
+          <Route path="event-hooks/new" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_WRITE"><EventHookEditorPage create /></PermissionRoute>} />
+          <Route path="event-hooks/deliveries" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_READ"><EventDeliveriesPage /></PermissionRoute>} />
+          <Route path="event-hooks/:hookId" element={<PermissionRoute permission="AUTHCENTER_EVENT_HOOKS_READ"><EventHookEditorPage /></PermissionRoute>} />
           <Route path="groups" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupsPage /></PermissionRoute>} />
           <Route path="groups/new" element={<PermissionRoute permission="AUTHCENTER_GROUPS_WRITE"><GroupEditorPage create /></PermissionRoute>} />
           <Route path="groups/:groupId" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupEditorPage /></PermissionRoute>} />

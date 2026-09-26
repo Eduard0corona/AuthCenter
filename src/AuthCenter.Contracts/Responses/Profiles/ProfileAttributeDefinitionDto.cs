@@ -4,6 +4,9 @@ namespace AuthCenter.Contracts.Responses.Profiles;
 
 public sealed class ProfileAttributeDefinitionDto
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public string Key { get; init; } = string.Empty;
     public string DisplayName { get; init; } = string.Empty;

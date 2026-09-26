@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
@@ -55,6 +56,21 @@ public sealed class AuthCenterClientSdkTests
     [InlineData("/\\attacker.example")]
     public void BffReturnUrl_RejectsExternalOrAmbiguousValues(string? value) =>
         Assert.False(AuthCenterBffEndpointRouteBuilderExtensions.IsLocalReturnUrl(value));
+
+    [Fact]
+    public void AuthorizationUri_CarriesFederationHints_AndRejectsMalformedOnes()
+    {
+        var client = new AuthCenterClient(new HttpClient(), new AuthCenterClientOptions { Authority = new Uri("https://identity.example.test"), ClientId = "web" });
+        var provider = Guid.NewGuid();
+        var uri = client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(),
+            identityProvider: provider.ToString("N"), domainHint: "@Contoso.COM");
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        Assert.Equal(provider.ToString(), query["idp"].ToString());
+        Assert.Equal("contoso.com", query["domain_hint"].ToString());
+
+        Assert.Throws<ArgumentException>(() => client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(), identityProvider: "corporate"));
+        Assert.Throws<ArgumentException>(() => client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(), domainHint: "not a domain"));
+    }
 
     [Fact]
     public void AccessTokenClaims_AreBoundToValidatedOidcSubjectAndClient()
@@ -106,6 +122,7 @@ public sealed class AuthCenterClientSdkTests
         Assert.Equal(["orders-api"], options.TokenValidationParameters.ValidAudiences);
         Assert.Equal([SecurityAlgorithms.RsaSha256], options.TokenValidationParameters.ValidAlgorithms);
         Assert.Equal(AuthCenterBffDefaults.RoleClaim, options.TokenValidationParameters.RoleClaimType);
+        Assert.Equal(["at+jwt"], options.TokenValidationParameters.ValidTypes);
         Assert.True(options.TokenValidationParameters.ValidateIssuerSigningKey);
     }
 
@@ -129,28 +146,43 @@ public sealed class AuthCenterClientSdkTests
         var validator = new AuthCenterAccessTokenValidator(
             new StaticOptionsMonitor<OpenIdConnectOptions>(oidcOptions),
             ValidOptions());
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: "shop-web",
-            claims: [new Claim("sub", "user-1")],
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256));
-
         var principal = await validator.ValidateAsync(
-            new JwtSecurityTokenHandler().WriteToken(token),
+            CreateToken(signingKey, issuer, "shop-web", "at+jwt"),
             CancellationToken.None);
 
         Assert.Equal("user-1", principal.FindFirstValue("sub"));
 
-        var wrongAudience = new JwtSecurityToken(
-            issuer: issuer,
-            audience: "another-client",
-            claims: [new Claim("sub", "user-1")],
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256));
         await Assert.ThrowsAsync<SecurityTokenException>(() => validator.ValidateAsync(
-            new JwtSecurityTokenHandler().WriteToken(wrongAudience),
+            CreateToken(signingKey, issuer, "another-client", "at+jwt"),
             CancellationToken.None));
+
+        // An ID token shares issuer, audience and algorithm; its "JWT" type must not pass as an access token.
+        await Assert.ThrowsAsync<SecurityTokenException>(() => validator.ValidateAsync(
+            CreateToken(signingKey, issuer, "shop-web", "JWT"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public void AccessTokenClaims_MapLegacyAndShortRoleClaimsToTheIdentityRoleType()
+    {
+        foreach (var roleClaimType in new[] { "role", ClaimTypes.Role })
+        {
+            var identity = new ClaimsIdentity([new Claim("sub", "user-1")], "oidc", "name", "role");
+            var principal = new ClaimsPrincipal(identity);
+            var accessTokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim("sub", "user-1"), new Claim(roleClaimType, "Operator")], "jwt"));
+
+            AuthCenterAccessTokenPrincipalFactory.Enrich(principal, accessTokenPrincipal);
+
+            Assert.True(principal.IsInRole("Operator"), roleClaimType);
+        }
+    }
+
+    private static string CreateToken(SecurityKey key, string issuer, string audience, string type)
+    {
+        var header = new JwtHeader(new SigningCredentials(key, SecurityAlgorithms.RsaSha256), null, type);
+        var payload = new JwtPayload(issuer, audience, [new Claim("sub", "user-1")], null, DateTime.UtcNow.AddMinutes(5));
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
     [Fact]
@@ -204,6 +236,155 @@ public sealed class AuthCenterClientSdkTests
 
         Assert.Equal(1, Volatile.Read(ref invocationCount));
         Assert.All(results, result => Assert.Equal("new-refresh-token", result.RefreshToken));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(new[] { "orders.read", "orders.read" }, "orders.read")]
+    public async Task ClientCredentials_SendsOnlyExplicitMachineScopes(string[]? scopes, string? expectedScope)
+    {
+        var handler = new CapturingHandler();
+        var client = new AuthCenterClient(new HttpClient(handler), new AuthCenterClientOptions
+        {
+            Authority = new Uri("https://identity.example.test"),
+            ClientId = "orders-worker",
+            ClientSecret = "test-only-secret-with-32-characters"
+        });
+
+        await client.ClientCredentialsAsync(scopes);
+
+        var form = System.Web.HttpUtility.ParseQueryString(handler.Body!);
+        Assert.Equal("client_credentials", form["grant_type"]);
+        Assert.Equal(expectedScope, form["scope"]);
+        Assert.Equal("Basic", handler.Authorization?.Scheme);
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+        public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            // The client reads its endpoints from discovery first.
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/.well-known/openid-configuration")
+            {
+                var authority = request.RequestUri.GetLeftPart(UriPartial.Authority);
+                var discovery = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+                {
+                    ["issuer"] = authority,
+                    ["authorization_endpoint"] = $"{authority}/oauth/authorize",
+                    ["token_endpoint"] = $"{authority}/oauth/token",
+                    ["jwks_uri"] = $"{authority}/.well-known/jwks.json"
+                });
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(discovery, System.Text.Encoding.UTF8, "application/json") };
+            }
+            Body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Authorization = request.Headers.Authorization;
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"access_token\":\"token\",\"token_type\":\"Bearer\",\"expires_in\":900}", System.Text.Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    [Fact]
+    public async Task DistributedRefreshCoordinator_RefreshesOnceAcrossInstances_AndSharesTheResult()
+    {
+        var (first, second) = TwoInstances();
+        var calls = 0;
+        var release = new TaskCompletionSource();
+        async Task<OAuthTokenSet> Refresh(CancellationToken _)
+        {
+            Interlocked.Increment(ref calls);
+            await release.Task;
+            return new OAuthTokenSet { AccessToken = "new-access", RefreshToken = "new-refresh", ExpiresIn = 900 };
+        }
+
+        var fromFirst = first.CoordinateAsync("refresh-1", Refresh);
+        await Task.Delay(300);
+        var fromSecond = second.CoordinateAsync("refresh-1", Refresh);
+        await Task.Delay(300);
+        release.SetResult();
+        var results = await Task.WhenAll(fromFirst, fromSecond);
+
+        Assert.Equal(1, calls);
+        Assert.All(results, result => Assert.Equal("new-refresh", result.RefreshToken));
+    }
+
+    [Fact]
+    public async Task DistributedRefreshCoordinator_SharesARejectionInsteadOfReplayingTheToken()
+    {
+        var (first, second) = TwoInstances();
+        var calls = 0;
+        var release = new TaskCompletionSource();
+        async Task<OAuthTokenSet> Refresh(CancellationToken _)
+        {
+            Interlocked.Increment(ref calls);
+            await release.Task;
+            throw new HttpRequestException("invalid_grant");
+        }
+
+        var fromFirst = first.CoordinateAsync("refresh-2", Refresh);
+        await Task.Delay(300);
+        var fromSecond = second.CoordinateAsync("refresh-2", Refresh);
+        await Task.Delay(300);
+        release.SetResult();
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => fromFirst);
+        await Assert.ThrowsAsync<HttpRequestException>(() => fromSecond);
+        Assert.Equal(1, calls);
+    }
+
+    /// <summary>Two coordinators that share a distributed cache and Data Protection keys, as two app instances would.</summary>
+    private static (DistributedAuthCenterRefreshCoordinator First, DistributedAuthCenterRefreshCoordinator Second) TwoInstances()
+    {
+        var cache = new Microsoft.Extensions.Caching.Distributed.MemoryDistributedCache(Options.Create(new Microsoft.Extensions.Caching.Memory.MemoryDistributedCacheOptions()));
+        var keys = new EphemeralDataProtectionProvider();
+        var options = new DistributedRefreshCoordinationOptions { SettleDelay = TimeSpan.FromMilliseconds(50), PollInterval = TimeSpan.FromMilliseconds(20) };
+        return (new DistributedAuthCenterRefreshCoordinator(cache, keys, options), new DistributedAuthCenterRefreshCoordinator(cache, keys, options));
+    }
+
+    [Fact]
+    public async Task Configuration_BindsTheBffAndTheResourceServer()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AuthCenter:Authority"] = "https://identity.example.test",
+            ["AuthCenter:ClientId"] = "shop-web",
+            ["AuthCenter:ClientSecret"] = "test-only-secret-with-32-characters",
+            ["AuthCenter:Scopes:0"] = "openid",
+            ["AuthCenter:Scopes:1"] = "orders.read",
+            ["AuthCenter:Resource"] = "https://orders.example.test/api",
+            ["AuthCenter:SessionLifetime"] = "02:00:00",
+            ["AuthCenter:UseDistributedRefreshCoordination"] = "true",
+            ["Api:Authority"] = "https://identity.example.test",
+            ["Api:Audience"] = "https://orders.example.test/api",
+            ["Api:Audiences:0"] = "https://legacy.example.test/api"
+        }).Build();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthCenterBff(configuration.GetSection("AuthCenter"));
+        services.AddAuthentication().AddAuthCenterJwtBearer(configuration.GetSection("Api"), "api");
+        await using var provider = services.BuildServiceProvider();
+
+        var bff = provider.GetRequiredService<AuthCenterBffOptions>();
+        Assert.Equal(["openid", "orders.read"], bff.Scopes);
+        Assert.Equal("https://orders.example.test/api", bff.Resource);
+        Assert.Equal(TimeSpan.FromHours(2), bff.SessionLifetime);
+        Assert.Equal("/auth/login", bff.LoginPath);
+        Assert.IsType<DistributedAuthCenterRefreshCoordinator>(provider.GetRequiredService<IAuthCenterRefreshCoordinator>());
+        var jwt = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get("api");
+        Assert.Equal(["https://orders.example.test/api", "https://legacy.example.test/api"], jwt.TokenValidationParameters.ValidAudiences);
+
+        var missingSecret = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AuthCenter:Authority"] = "https://identity.example.test",
+            ["AuthCenter:ClientId"] = "shop-web"
+        }).Build();
+        var error = Assert.Throws<InvalidOperationException>(() => { new ServiceCollection().AddAuthCenterBff(missingSecret.GetSection("AuthCenter")); });
+        Assert.Contains("AuthCenter:ClientSecret", error.Message);
     }
 
     private static AuthCenterBffOptions ValidOptions() => new()

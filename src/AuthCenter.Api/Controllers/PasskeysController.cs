@@ -38,7 +38,7 @@ public sealed class PasskeysController : ControllerBase
         var userId = _currentUser.UserId;
         if (userId is null) return Unauthorized();
         var result = await _passkeys.GetRegistrationOptionsAsync(userId.Value, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize]
@@ -50,7 +50,7 @@ public sealed class PasskeysController : ControllerBase
         if (!await HasProofAsync(userId.Value, "factor.enroll", ct))
             return StatusCode(StatusCodes.Status403Forbidden, ApiResponse.Fail("REAUTHENTICATION_REQUIRED", "A recent single-use reauthentication proof for factor.enroll is required."));
         var result = await _passkeys.RegisterAsync(userId.Value, request, GetIpAddress(), GetUserAgent(), ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize]
@@ -82,7 +82,7 @@ public sealed class PasskeysController : ControllerBase
     public async Task<IActionResult> LoginOptions([FromBody] BeginPasskeyLoginRequest request, CancellationToken ct)
     {
         var result = await _passkeys.GetLoginOptionsAsync(request, ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [EnableRateLimiting(RateLimitingExtensions.Login)]
@@ -90,7 +90,7 @@ public sealed class PasskeysController : ControllerBase
     public async Task<IActionResult> CompleteLogin([FromBody] CompletePasskeyLoginRequest request, CancellationToken ct)
     {
         var result = await _passkeys.LoginAsync(request, GetIpAddress(), GetUserAgent(), ct);
-        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize]
@@ -103,7 +103,7 @@ public sealed class PasskeysController : ControllerBase
         var result = await _reauthentication.GetPasskeyOptionsAsync(userId.Value, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     [Authorize]
@@ -116,7 +116,7 @@ public sealed class PasskeysController : ControllerBase
         var result = await _reauthentication.VerifyPasskeyAsync(userId.Value, request, GetIpAddress(), GetUserAgent(), ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();

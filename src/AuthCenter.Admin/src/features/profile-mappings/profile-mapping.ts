@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { ProfileMapping } from "../../api/types";
 
 const sourcePathSchema = z.string().trim().min(1, "La ruta de origen es obligatoria.").max(300, "Usa máximo 300 caracteres.")
-  .regex(/^\$?\.?[A-Za-z0-9_:-]+(\.[A-Za-z0-9_:-]+)*$/, "Usa una ruta de propiedades separada por puntos, por ejemplo name.givenName.");
+  // A SCIM attribute path (the server validates it the same way it reads SCIM requests).
+  .regex(/^(\$\.)?[A-Za-z][\w:.$-]*(\[[A-Za-z][\w$-]*\s+eq\s+("[^"]*"|true|false|-?\d+(\.\d+)?)\])?(\.[A-Za-z$][\w$-]*)?$/, "Usa una ruta SCIM, por ejemplo name.givenName, emails[type eq \"work\"].value o urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department.");
 
 export const profileMappingSchema = z.object({
   applicationSystemId: z.string().uuid("Selecciona una aplicación válida."),

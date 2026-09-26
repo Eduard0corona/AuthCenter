@@ -20,13 +20,13 @@ public sealed class ReauthenticationService : IReauthenticationService
     private const string ProofPurpose = "reauthentication_proof";
     private static readonly HashSet<string> AllowedPurposes = new(StringComparer.Ordinal)
     {
-        "account.change-email", "account.change-password", "account.delete",
+        "account.change-email", "account.change-password", "account.delete", "account.link-provider",
         "factor.enroll", "factor.change", "passkey.manage", "session.revoke-all",
         "admin.mfa.reset", "admin.user.delete",
         "admin.oauth-client.rotate-secret", "admin.oauth-client.deactivate", "admin.oauth-client.activate",
         "admin.access-policy.publish",
         "admin.super-admin.remove", "admin.federation.change",
-        "admin.provisioning-token.rotate", "admin.provisioning-token.revoke"
+        "admin.provisioning-token.rotate", "admin.provisioning-token.revoke", "admin.event-hook.rotate-secret"
     };
 
     private readonly UserManager<ApplicationUser> _users;

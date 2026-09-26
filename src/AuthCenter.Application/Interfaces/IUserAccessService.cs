@@ -3,6 +3,7 @@ using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Users;
+using AuthCenter.Domain.Enums;
 
 namespace AuthCenter.Application.Interfaces;
 
@@ -15,8 +16,13 @@ public interface IUserAccessService
     Task<OperationResult<UserDto>> InviteUserAsync(InviteUserRequest request, CancellationToken ct = default);
     Task<OperationResult<UserDto>> UpdateUserAsync(Guid userId, UpdateUserRequest request, CancellationToken ct = default);
     Task<OperationResult<UserDto>> SetDirectAccessAsync(Guid userId, SetUserDirectAccessRequest request, CancellationToken ct = default);
-    Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default);
-    Task<OperationResult> ApproveApplicationAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
+    /// <summary>
+    /// Grants access to the application, or leaves it pending approval (<paramref name="isActive"/>
+    /// false): then a request from <paramref name="pendingSource"/> waits for the application's owners.
+    /// Pending access is approved through <see cref="IAccessGovernanceService.ApprovePendingAccessAsync"/>.
+    /// </summary>
+    Task<OperationResult> GrantAccessAsync(Guid userId, Guid applicationSystemId, bool isActive = true, CancellationToken ct = default,
+        AccessRequestSource pendingSource = AccessRequestSource.Registration);
     Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default);
     Task<OperationResult> AssignRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default);
     Task<OperationResult> RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default);

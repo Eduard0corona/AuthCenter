@@ -1,5 +1,8 @@
+using System.Data.Common;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
+using AuthCenter.Api.Filters;
 using AuthCenter.Api.Middleware;
 using AuthCenter.Api.Services;
 using AuthCenter.Application.Extensions;
@@ -17,6 +20,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -59,6 +64,7 @@ try
     builder.Services.AddOptions<PasskeySettings>().ValidateOnStart();
     builder.Services.AddOptions<AdaptiveAuthenticationSettings>().ValidateOnStart();
     builder.Services.AddOptions<SamlSettings>().ValidateOnStart();
+    builder.Services.AddOptions<SingleSignOnSettings>().ValidateOnStart();
 
     builder.Services.AddAuthentication(options =>
     {
@@ -83,7 +89,9 @@ try
             options.Cookie.Name = "__Host-AuthCenter.Ui";
             options.Cookie.HttpOnly = true;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-            options.Cookie.SameSite = SameSiteMode.Strict;
+            // Lax lets the single sign-on session reach top-level navigations to /oauth/authorize
+            // (prompt=none, silent SSO). Unsafe cookie requests still need the CSRF double submit.
+            options.Cookie.SameSite = SameSiteMode.Lax;
             options.Cookie.Path = "/";
             options.SlidingExpiration = false;
             options.Events.OnRedirectToLogin = context =>
@@ -188,9 +196,12 @@ try
                 OnTokenValidated = context =>
                 {
                     var clientId = context.Principal?.FindFirst("client_id")?.Value;
+                    // A token for the client itself, or a token for an API that also names UserInfo
+                    // (issued with openid), may call the OAuth endpoints of this server.
                     var audienceMatches = context.Principal?
                         .FindAll(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Aud)
-                        .Any(claim => string.Equals(claim.Value, clientId, StringComparison.Ordinal)) == true;
+                        .Any(claim => string.Equals(claim.Value, clientId, StringComparison.Ordinal) ||
+                                      string.Equals(claim.Value, AuthCenter.Domain.Constants.DomainConstants.OAuthAudiences.UserInfo, StringComparison.Ordinal)) == true;
 
                     if (string.IsNullOrWhiteSpace(clientId) || !audienceMatches)
                         context.Fail("The OAuth token audience does not match its client_id.");
@@ -209,37 +220,18 @@ try
     var distributedRateLimiting = builder.Configuration.GetValue<bool>("RateLimiting:DistributedEnabled")
         && !builder.Environment.IsDevelopment()
         && !builder.Environment.IsEnvironment("Testing");
-    if (!distributedRateLimiting && !builder.Environment.IsEnvironment("Testing"))
-        builder.Services.AddAuthRateLimiting();
-    if (distributedRateLimiting)
-        builder.Services.AddScoped<DistributedRateLimitStore>();
+    builder.Services.AddAuthRateLimiting(distributedRateLimiting);
 
-    // Controllers
-    builder.Services.AddControllers();
-
-    // CORS
-    var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-    builder.Services.AddCors(options =>
+    // Controllers. Every bound request contract is validated before the action runs.
+    builder.Services.AddControllers(options =>
     {
-        options.AddPolicy("Default", policy =>
-        {
-            if (allowedOrigins.Length > 0)
-            {
-                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
-            }
-            else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
-            {
-                // Wildcard is only intentional in local dev and automated test runs.
-                policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
-            }
-            else
-            {
-                // Non-dev/test with no origins should have been caught by ValidateStartupConfiguration.
-                // Fall back to localhost-only so a misconfigured staging is not wide open.
-                policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod();
-            }
-        });
+        options.Filters.Add<RequestValidationFilter>();
+        options.Filters.Add<ConcurrencyConflictResultFilter>();
     });
+
+    // CORS: the policy is chosen per endpoint (AuthCenterCorsPolicyProvider).
+    builder.Services.AddCors();
+    builder.Services.Replace(ServiceDescriptor.Singleton<Microsoft.AspNetCore.Cors.Infrastructure.ICorsPolicyProvider, AuthCenterCorsPolicyProvider>());
 
     // Swagger / OpenAPI
     builder.Services.AddEndpointsApiExplorer();
@@ -296,7 +288,9 @@ try
     // container restarted; readiness is the one that reports whether SQL Server is reachable.
     var connStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
     builder.Services.AddHealthChecks()
-        .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"]);
+        .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"])
+        // Readiness also requires the schema this build expects (migrations run out of band).
+        .AddCheck<DatabaseSchemaHealthCheck>("database-schema", tags: ["ready", "db"]);
 
     var app = builder.Build();
     var publishedAdminFrontendRoot = Path.Combine(app.Environment.WebRootPath, "admin-v2");
@@ -333,6 +327,22 @@ try
         var lockAcquired = false;
         if (db.Database.IsRelational())
         {
+            // The bootstrap lock lives in the application's database, so a first start creates the
+            // (empty) database before taking it; the migrations then build the schema.
+            if (migrateOnStartup)
+            {
+                var creator = db.GetService<IRelationalDatabaseCreator>();
+                if (!await creator.ExistsAsync())
+                {
+                    try { await creator.CreateAsync(); }
+                    catch (DbException)
+                    {
+                        // Another instance may have created it first.
+                        if (!await creator.ExistsAsync()) throw;
+                    }
+                }
+            }
+
             await db.Database.OpenConnectionAsync();
             await using var acquireCommand = db.Database.GetDbConnection().CreateCommand();
             acquireCommand.CommandText = "DECLARE @result int; EXEC @result = sp_getapplock @Resource = 'AuthCenter.DatabaseBootstrap', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 60000; SELECT @result;";
@@ -381,16 +391,20 @@ try
 
     app.Use(async (ctx, next) =>
     {
+        // Emailed links carry single-use tokens in the query: they must never leak as a referrer.
+        var tokenPage = HostedPages.ActionPaths.Any(path => ctx.Request.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
         ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
         ctx.Response.Headers.Append("X-Frame-Options", "DENY");
-        ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+        ctx.Response.Headers.Append("Referrer-Policy", tokenPage ? "no-referrer" : "strict-origin-when-cross-origin");
         ctx.Response.Headers.Append("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
-        if (ctx.Request.Path.StartsWithSegments("/login") ||
+        if (tokenPage ||
+            ctx.Request.Path.StartsWithSegments("/login") ||
             ctx.Request.Path.Equals("/login.html") ||
+            ctx.Request.Path.Equals("/logout") ||
+            ctx.Request.Path.Equals("/logout.html") ||
             ctx.Request.Path.StartsWithSegments("/portal") ||
             ctx.Request.Path.Equals("/portal.html") ||
-            ctx.Request.Path.StartsWithSegments("/admin") ||
-            ctx.Request.Path.Equals("/admin.html") ||
+            ctx.Request.Path.StartsWithSegments("/admin-v2") ||
             ctx.Request.Path.StartsWithSegments("/ui"))
         {
             ctx.Response.Headers.Append("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
@@ -407,10 +421,7 @@ try
     app.UseSerilogRequestLogging();
 
     app.UseRouting();
-    if (distributedRateLimiting)
-        app.UseMiddleware<DistributedRateLimitMiddleware>();
-    else if (!app.Environment.IsEnvironment("Testing"))
-        app.UseRateLimiter();
+    app.UseMiddleware<RateLimitMiddleware>();
 
     if (app.Environment.IsDevelopment())
     {
@@ -464,7 +475,7 @@ try
             }
         });
     }
-    app.UseCors("Default");
+    app.UseCors();
     app.UseAuthentication();
     app.UseMiddleware<UiCsrfMiddleware>();
     app.UseAuthorization();
@@ -474,12 +485,25 @@ try
     app.MapGet("/login", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "login.html"),
         "text/html; charset=utf-8"));
+    app.MapGet("/logout", () => Results.File(
+        Path.Combine(app.Environment.WebRootPath, "logout.html"),
+        "text/html; charset=utf-8"));
     app.MapGet("/portal", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "portal.html"),
         "text/html; charset=utf-8"));
-    app.MapGet("/admin", () => Results.File(
-        Path.Combine(app.Environment.WebRootPath, "admin.html"),
-        "text/html; charset=utf-8"));
+    // Pages that emailed links open when ActionLinks points at AuthCenter itself.
+    foreach (var path in HostedPages.ActionPaths)
+    {
+        var page = path == HostedPages.MagicLinkPath ? "login.html" : "account.html";
+        app.MapGet(path, (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.File(Path.Combine(app.Environment.WebRootPath, page), "text/html; charset=utf-8");
+        });
+    }
+    // The first console was retired; its bookmarks open the current one.
+    app.MapGet("/admin", () => Results.Redirect("/admin-v2/"));
+    app.MapGet("/admin.html", () => Results.Redirect("/admin-v2/"));
     app.MapFallback("/admin-v2/{*path:nonfile}", () =>
     {
         IResult result = adminFrontendRoot is not null
@@ -491,7 +515,11 @@ try
     var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
     if (!string.IsNullOrWhiteSpace(readinessHost))
     {
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") })
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+            {
+                Predicate = check => check.Tags.Contains("ready"),
+                ResponseWriter = HealthCheckResponses.WriteReadinessAsync
+            })
             .RequireHost(readinessHost);
     }
 
@@ -531,6 +559,16 @@ public partial class Program
             throw new InvalidOperationException("Oidc:PublicOrigin must be a configured HTTPS URL outside Development.");
         }
 
+        // OpenID Connect Discovery 1.0 section 4.3: the issuer is the URL the discovery document is
+        // served from, and relying-party libraries that enforce it reject any mismatch.
+        if (!string.Equals(
+                issuerUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                publicOriginUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Jwt:Issuer must identify the same URL as Oidc:PublicOrigin outside Development.");
+        }
+
         if (string.IsNullOrWhiteSpace(jwtSettings.SigningKey) ||
             jwtSettings.SigningKey.Length < 64 ||
             jwtSettings.SigningKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
@@ -544,6 +582,9 @@ public partial class Program
         {
             throw new InvalidOperationException("Authentication:Google:ClientId must not use the placeholder value outside Development.");
         }
+
+        if (!string.IsNullOrWhiteSpace(configuration["Email:DevelopmentPickupDirectory"]))
+            throw new InvalidOperationException("Email:DevelopmentPickupDirectory is only allowed in Development and automated tests.");
 
         var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         if (allowedOrigins.Length == 0)

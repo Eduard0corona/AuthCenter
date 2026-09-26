@@ -1,6 +1,7 @@
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Common.Exceptions;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Requests.Applications;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Responses;
@@ -58,6 +59,31 @@ public class ApplicationService : IApplicationService
         _db.ApplicationSystems
             .AsNoTracking()
             .FirstOrDefaultAsync(a => a.Code == code, ct);
+
+    public async Task<LoginOptionsResponse?> GetLoginOptionsAsync(string code, CancellationToken ct = default)
+    {
+        var application = await _db.ApplicationSystems.AsNoTracking()
+            .Where(item => item.Code == code && item.IsActive)
+            .Select(item => new
+            {
+                item.Id,
+                item.Code,
+                item.Name,
+                AllowPasswordLogin = item.RegistrationSettings == null || item.RegistrationSettings.AllowPasswordLogin,
+                AllowMagicLink = item.RegistrationSettings != null && item.RegistrationSettings.AllowMagicLink
+            })
+            .FirstOrDefaultAsync(ct);
+        if (application is null)
+            return null;
+        return new LoginOptionsResponse
+        {
+            ApplicationCode = application.Code,
+            ApplicationName = application.Name,
+            AllowPasswordLogin = application.AllowPasswordLogin,
+            AllowMagicLink = application.AllowMagicLink,
+            FederationAvailable = await _db.FederationProviders.AnyAsync(provider => provider.ApplicationSystemId == application.Id && provider.IsActive, ct)
+        };
+    }
 
     public async Task<ApplicationBrandingDto?> GetBrandingAsync(string code, CancellationToken ct = default)
     {
@@ -192,6 +218,10 @@ public class ApplicationService : IApplicationService
                     role.IsActive, ct))
             return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_INVALID", "Default role must be active and belong to this application.");
 
+        // The registration settings live in their own row: the application's version covers both.
+        if (!app.TryAdvance(request.Version))
+            return OperationResult<ApplicationDto>.Failure(VersionedUpdates.ConflictCode, "The application changed after it was loaded.");
+
         app.Name = request.Name;
         app.Description = request.Description;
         app.UpdatedAt = _dateTimeProvider.UtcNow;
@@ -266,6 +296,7 @@ public class ApplicationService : IApplicationService
 
     private static ApplicationDto MapToDto(ApplicationSystem app) => new()
     {
+        Version = app.Version,
         Id = app.Id,
         Code = app.Code,
         Name = app.Name,

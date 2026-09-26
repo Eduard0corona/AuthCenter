@@ -1,7 +1,10 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
-public class ApplicationSystem
+public class ApplicationSystem : IVersionedEntity
 {
+    public long Version { get; set; }
+
     public Guid Id { get; set; }
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

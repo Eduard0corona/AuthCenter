@@ -1,4 +1,6 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Users;
 using AuthCenter.Contracts.Responses;
@@ -20,19 +22,22 @@ public class UsersController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly AuthCenterDbContext _db;
     private readonly IAuditService _audit;
+    private readonly IAccessGovernanceService _governance;
 
     public UsersController(
         IUserAccessService userAccessService,
         IReauthenticationService reauthentication,
         ICurrentUserService currentUser,
         AuthCenterDbContext db,
-        IAuditService audit)
+        IAuditService audit,
+        IAccessGovernanceService governance)
     {
         _userAccessService = userAccessService;
         _reauthentication = reauthentication;
         _currentUser = currentUser;
         _db = db;
         _audit = audit;
+        _governance = governance;
     }
 
     [HttpGet]
@@ -52,12 +57,13 @@ public class UsersController : ControllerBase
         return Ok(ApiResponse<object>.Ok(user));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken ct)
     {
         var result = await _userAccessService.CreateUserAsync(request, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
         return CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, ApiResponse<object>.Ok(result.Data));
     }
 
@@ -66,7 +72,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request, CancellationToken ct)
     {
         var result = await _userAccessService.UpdateUserAsync(id, request, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -79,15 +85,16 @@ public class UsersController : ControllerBase
         var result = await _userAccessService.SetDirectAccessAsync(id, request, ct);
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
     }
 
+    [Idempotent]
     [HttpPost("invitations")]
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> Invite([FromBody] InviteUserRequest request, CancellationToken ct)
     {
         var result = await _userAccessService.InviteUserAsync(request, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse<object>.Ok(result.Data!));
     }
 
@@ -96,7 +103,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> GrantAccess(Guid id, Guid applicationId, CancellationToken ct)
     {
         var result = await _userAccessService.GrantAccessAsync(id, applicationId, true, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -104,8 +111,11 @@ public class UsersController : ControllerBase
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> ApproveAccess(Guid id, Guid applicationId, CancellationToken ct)
     {
-        var result = await _userAccessService.ApproveApplicationAccessAsync(id, applicationId, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (_currentUser.UserId is not { } actor) return Unauthorized();
+        // The pending access and the request behind it are approved together, with the same checks
+        // (separation of duties, no self-approval) as in the access requests queue.
+        var result = await _governance.ApprovePendingAccessAsync(id, applicationId, new GovernanceActor(actor, IsAdministrator: true), ct);
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -116,7 +126,7 @@ public class UsersController : ControllerBase
         if (await RemovesEffectiveSuperAdminAsync(id, applicationId, null, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
             return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.RevokeAccessAsync(id, applicationId, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -125,7 +135,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> AssignRole(Guid id, Guid roleId, CancellationToken ct)
     {
         var result = await _userAccessService.AssignRoleAsync(id, roleId, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -136,7 +146,7 @@ public class UsersController : ControllerBase
         if (await RemovesEffectiveSuperAdminAsync(id, null, roleId, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
             return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.RemoveRoleAsync(id, roleId, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -145,7 +155,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> Activate(Guid id, CancellationToken ct)
     {
         var result = await _userAccessService.ActivateUserAsync(id, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -156,7 +166,7 @@ public class UsersController : ControllerBase
         if (await IsEffectiveSuperAdminAsync(id, ct) && !await HasReauthenticationProofAsync("admin.super-admin.remove", ct))
             return await ReauthenticationRejectedAsync(id, "admin.super-admin.remove", ct);
         var result = await _userAccessService.DeactivateUserAsync(id, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -165,7 +175,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> ForcePasswordChange(Guid id, CancellationToken ct)
     {
         var result = await _userAccessService.ForcePasswordChangeAsync(id, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -176,7 +186,7 @@ public class UsersController : ControllerBase
         if (!await HasReauthenticationProofAsync("admin.mfa.reset", ct))
             return ReauthenticationRequired("admin.mfa.reset");
         var result = await mfaService.AdminResetMfaAsync(id, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
@@ -187,7 +197,7 @@ public class UsersController : ControllerBase
         if (!await HasReauthenticationProofAsync("admin.user.delete", ct))
             return ReauthenticationRequired("admin.user.delete");
         var result = await _userAccessService.AdminDeleteUserAsync(id, ct);
-        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
+        if (!result.IsSuccess) return BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message, result.Details));
         return Ok(ApiResponse.Ok());
     }
 
