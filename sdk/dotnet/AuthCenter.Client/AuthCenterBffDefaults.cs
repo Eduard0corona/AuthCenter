@@ -8,4 +8,5 @@ public static class AuthCenterBffDefaults
     public const string PermissionClaim = "permissions";
     public const string ApplicationsClaim = "applications";
     public const string RoleClaim = "role";
+    public const string AccessTokenType = "at+jwt";
 }

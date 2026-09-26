@@ -43,7 +43,16 @@ public class WellKnownController : ControllerBase
             token_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
             revocation_endpoint_auth_methods_supported = new[] { "client_secret_basic", "client_secret_post", "none" },
             code_challenge_methods_supported = new[] { "S256" },
-            authorization_response_iss_parameter_supported = true
+            authorization_response_iss_parameter_supported = true,
+            response_modes_supported = new[] { "query" },
+            claims_supported = new[]
+            {
+                "sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "azp", "name", "email",
+                "email_verified", "client_id", "scope", "role", "permissions", "applications"
+            },
+            request_parameter_supported = false,
+            request_uri_parameter_supported = false,
+            claims_parameter_supported = false
         };
         return Ok(discovery);
     }

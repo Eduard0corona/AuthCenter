@@ -68,6 +68,21 @@ public class StartupConfigurationTests
         Assert.Contains("AzureMonitor:ConnectionString", exception.ToString());
     }
 
+    [Fact]
+    public void IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment()
+    {
+        // Relying-party libraries that enforce OpenID Connect Discovery reject a discovery document
+        // whose issuer differs from the URL it is served from.
+        using var factory = CreateProductionFactory(new Dictionary<string, string?>
+        {
+            ["Jwt:Issuer"] = "https://tokens.example.com"
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains("Oidc:PublicOrigin", exception.ToString());
+    }
+
     private static WebApplicationFactory<Program> CreateProductionFactory(
         IDictionary<string, string?>? overrides = null)
     {

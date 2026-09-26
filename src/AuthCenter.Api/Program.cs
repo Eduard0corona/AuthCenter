@@ -532,6 +532,16 @@ public partial class Program
             throw new InvalidOperationException("Oidc:PublicOrigin must be a configured HTTPS URL outside Development.");
         }
 
+        // OpenID Connect Discovery 1.0 section 4.3: the issuer is the URL the discovery document is
+        // served from, and relying-party libraries that enforce it reject any mismatch.
+        if (!string.Equals(
+                issuerUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                publicOriginUri.GetLeftPart(UriPartial.Path).TrimEnd('/'),
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Jwt:Issuer must identify the same URL as Oidc:PublicOrigin outside Development.");
+        }
+
         if (string.IsNullOrWhiteSpace(jwtSettings.SigningKey) ||
             jwtSettings.SigningKey.Length < 64 ||
             jwtSettings.SigningKey.StartsWith("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))

@@ -83,6 +83,12 @@ builder.Services.AddAuthorization(options =>
 También se acepta una colección explícita de audiences durante una migración controlada. No uses
 esa opción para compartir indiscriminadamente tokens entre APIs.
 
+La validación exige el tipo RFC 9068 `typ: at+jwt`, de modo que un ID token (mismo emisor,
+audiencia y algoritmo) no puede usarse como bearer. Los roles llegan en el claim `role` y funcionan
+con `[Authorize(Roles = "...")]`, `RequireRole` e `IsInRole`; los tokens anteriores con el claim URI
+de .NET se normalizan automáticamente. Sólo mientras un AuthCenter anterior a este contrato siga
+emitiendo tokens, pasa `requireAccessTokenType: false`.
+
 ## Requisitos de producción
 
 - Reemplaza `IDistributedCache` en memoria por Redis o SQL distribuido antes de escalar a más de

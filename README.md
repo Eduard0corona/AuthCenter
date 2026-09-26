@@ -581,7 +581,10 @@ curl -X POST https://localhost:7001/api/auth/google \
 
 - **Roles** are assigned to users via `/api/users/{id}/roles/{roleId}`.
 - **Permissions** are assigned to roles via `/api/roles/{roleId}/permissions/{permissionId}`.
-- The JWT includes `roles`, `permissions`, and `applications` claims scoped to the application used for login.
+- Access tokens include `role`, `permissions`, and `applications` claims scoped to the application
+  used for login, and carry the RFC 9068 header `typ: at+jwt` so resource servers can reject ID
+  tokens presented as bearer tokens. Tokens issued before this contract used the .NET URI
+  `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`; `AuthCenter.Client` accepts both.
 - Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`.
 - Refresh tokens are bound to the application they were issued for.
 - Effective application access and claims are the union of active direct assignments and active

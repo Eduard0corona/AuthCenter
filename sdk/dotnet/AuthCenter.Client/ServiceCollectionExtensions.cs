@@ -25,11 +25,18 @@ public static class ServiceCollectionExtensions
     public static AuthenticationBuilder AddAuthCenterJwtBearer(this AuthenticationBuilder builder, Uri authority, string audience, string scheme = JwtBearerDefaults.AuthenticationScheme) =>
         AddAuthCenterJwtBearer(builder, authority, [audience], scheme);
 
+    /// <summary>
+    /// Validates AuthCenter access tokens: RS256 signature from discovery/JWKS, exact issuer, one of
+    /// the accepted audiences, lifetime and the RFC 9068 <c>at+jwt</c> type, so an ID token cannot
+    /// be replayed as a bearer token. Set <paramref name="requireAccessTokenType"/> to false only
+    /// while an AuthCenter release older than the at+jwt contract is still issuing tokens.
+    /// </summary>
     public static AuthenticationBuilder AddAuthCenterJwtBearer(
         this AuthenticationBuilder builder,
         Uri authority,
         IEnumerable<string> audiences,
-        string scheme = JwtBearerDefaults.AuthenticationScheme)
+        string scheme = JwtBearerDefaults.AuthenticationScheme,
+        bool requireAccessTokenType = true)
     {
         if (!IsSecureAuthority(authority))
             throw new ArgumentException("AuthCenter authority must be an absolute HTTPS URI.", nameof(authority));
@@ -51,8 +58,17 @@ public static class ServiceCollectionExtensions
                 ValidAudiences = acceptedAudiences,
                 ClockSkew = TimeSpan.FromSeconds(30),
                 ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+                ValidTypes = requireAccessTokenType ? [AuthCenterBffDefaults.AccessTokenType] : null,
                 NameClaimType = "name",
                 RoleClaimType = AuthCenterBffDefaults.RoleClaim
+            };
+            options.Events ??= new JwtBearerEvents();
+            var validated = options.Events.OnTokenValidated;
+            options.Events.OnTokenValidated = async context =>
+            {
+                if (context.Principal?.Identity is System.Security.Claims.ClaimsIdentity identity)
+                    AuthCenterRoleClaims.NormalizeLegacyRoles(identity);
+                await validated(context);
             };
         });
     }

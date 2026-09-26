@@ -54,6 +54,16 @@ public static class DomainConstants
     {
         public const string Permissions = "permissions";
         public const string Applications = "applications";
+
+        /// <summary>
+        /// Short, interoperable role claim (RFC 9068 section 7.2 style) emitted in access tokens.
+        /// Tokens issued before this contract used the .NET URI
+        /// http://schemas.microsoft.com/ws/2008/06/identity/claims/role.
+        /// </summary>
+        public const string Role = "role";
+
+        /// <summary>JWT header type for access tokens (RFC 9068), distinct from ID tokens.</summary>
+        public const string AccessTokenType = "at+jwt";
     }
 
     public static class OAuthScopes

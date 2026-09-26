@@ -254,7 +254,8 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var accessJwt = new JwtSecurityTokenHandler().ReadJwtToken(tokenBody.AccessToken);
         Assert.Contains(accessJwt.Claims, claim =>
             claim.Type == DomainConstants.Claims.Applications && claim.Value == "AUTHCENTER");
-        Assert.Contains(accessJwt.Claims, claim => claim.Type == System.Security.Claims.ClaimTypes.Role);
+        Assert.Contains(accessJwt.Claims, claim => claim.Type == DomainConstants.Claims.Role);
+        Assert.Equal(DomainConstants.Claims.AccessTokenType, accessJwt.Header.Typ);
         Assert.Contains(accessJwt.Claims, claim => claim.Type == DomainConstants.Claims.Permissions);
         Assert.Contains(accessJwt.Claims, claim =>
             claim.Type == JwtRegisteredClaimNames.Email && claim.Value == AuthCenterWebApplicationFactory.AdminEmail);

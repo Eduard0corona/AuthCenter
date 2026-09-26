@@ -46,6 +46,7 @@ internal sealed class AuthCenterAccessTokenValidator(
         parameters.ValidateLifetime = true;
         parameters.ValidateIssuerSigningKey = true;
         parameters.ValidAlgorithms = [SecurityAlgorithms.RsaSha256];
+        parameters.ValidTypes = [AuthCenterBffDefaults.AccessTokenType];
 
         return _handler.ValidateTokenAsync(accessToken, parameters);
     }

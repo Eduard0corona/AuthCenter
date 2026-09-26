@@ -142,7 +142,10 @@ public sealed class UiSessionController : ControllerBase
     private async Task CreateSessionAsync(AuthResponse response)
     {
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(response.AccessToken);
-        var claims = jwt.Claims.Where(claim => claim.Type is not "exp" and not "nbf" and not "iat").ToList();
+        var claims = jwt.Claims
+            .Where(claim => claim.Type is not "exp" and not "nbf" and not "iat")
+            .Select(claim => claim.Type == DomainConstants.Claims.Role ? new Claim(ClaimTypes.Role, claim.Value) : claim)
+            .ToList();
         var identity = new ClaimsIdentity(claims, AuthenticationSchemes.UiCookie, JwtRegisteredClaimNames.Name, ClaimTypes.Role);
         await HttpContext.SignInAsync(AuthenticationSchemes.UiCookie, new ClaimsPrincipal(identity), new AuthenticationProperties
         {

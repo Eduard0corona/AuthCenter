@@ -45,19 +45,21 @@ public class TokenService : ITokenService
     {
         var creds = GetRsaSigningCredentials();
 
+        var now = _dateTimeProvider.UtcNow;
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email!),
             new(JwtRegisteredClaimNames.Name, user.FullName),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            IssuedAt(now)
         };
 
         if (sessionId.HasValue)
             claims.Add(new Claim(JwtRegisteredClaimNames.Sid, sessionId.Value.ToString()));
 
         foreach (var role in roles)
-            claims.Add(new Claim(ClaimTypes.Role, role));
+            claims.Add(new Claim(DomainConstants.Claims.Role, role));
 
         foreach (var permission in permissions)
             claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
@@ -65,14 +67,7 @@ public class TokenService : ITokenService
         foreach (var app in applications)
             claims.Add(new Claim(DomainConstants.Claims.Applications, app));
 
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: _jwtSettings.Audience,
-            claims: claims,
-            expires: _dateTimeProvider.UtcNow.AddMinutes(_jwtSettings.AccessTokenMinutes),
-            signingCredentials: creds);
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return WriteAccessToken(creds, _jwtSettings.Audience, claims, now.AddMinutes(_jwtSettings.AccessTokenMinutes));
     }
 
     public string GenerateOAuthAccessToken(
@@ -85,10 +80,12 @@ public class TokenService : ITokenService
         int lifetimeSeconds)
     {
         var creds = GetRsaSigningCredentials();
+        var now = _dateTimeProvider.UtcNow;
 
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            IssuedAt(now),
             new("client_id", clientId),
             new("scope", string.Join(" ", scopes)),
             new(DomainConstants.Claims.Applications, applicationCode)
@@ -105,20 +102,13 @@ public class TokenService : ITokenService
                 claims.Add(new Claim(JwtRegisteredClaimNames.Name, user.FullName));
 
             foreach (var role in roles)
-                claims.Add(new Claim(ClaimTypes.Role, role));
+                claims.Add(new Claim(DomainConstants.Claims.Role, role));
 
             foreach (var permission in permissions)
                 claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
         }
 
-        var token = new JwtSecurityToken(
-            issuer: _jwtSettings.Issuer,
-            audience: clientId,
-            claims: claims,
-            expires: _dateTimeProvider.UtcNow.AddSeconds(lifetimeSeconds),
-            signingCredentials: creds);
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return WriteAccessToken(creds, clientId, claims, now.AddSeconds(lifetimeSeconds));
     }
 
     public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes)
@@ -136,10 +126,12 @@ public class TokenService : ITokenService
         if (nonce is not null)
             claims.Add(new Claim("nonce", nonce));
 
+        claims.Add(new Claim(JwtRegisteredClaimNames.Azp, clientId));
+
         if (scopes.Contains(DomainConstants.OAuthScopes.Email))
         {
             claims.Add(new Claim(JwtRegisteredClaimNames.Email, user.Email!));
-            claims.Add(new Claim("email_verified", user.EmailConfirmed.ToString().ToLowerInvariant()));
+            claims.Add(new Claim("email_verified", user.EmailConfirmed ? "true" : "false", ClaimValueTypes.Boolean));
         }
 
         if (scopes.Contains(DomainConstants.OAuthScopes.Profile))
@@ -158,6 +150,18 @@ public class TokenService : ITokenService
     }
 
     public string GetJwks() => _keyRing.Jwks;
+
+    // Access tokens carry typ "at+jwt" (RFC 9068) so a resource server can refuse an ID token that
+    // shares the same issuer, audience and algorithm.
+    private string WriteAccessToken(SigningCredentials credentials, string audience, IEnumerable<Claim> claims, DateTime expires)
+    {
+        var header = new JwtHeader(credentials, null, DomainConstants.Claims.AccessTokenType);
+        var payload = new JwtPayload(_jwtSettings.Issuer, audience, claims, notBefore: null, expires: expires);
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
+    }
+
+    private static Claim IssuedAt(DateTime now) =>
+        new(JwtRegisteredClaimNames.Iat, new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64);
 
     private SigningCredentials GetRsaSigningCredentials() => _keyRing.RequireSigningCredentials();
 

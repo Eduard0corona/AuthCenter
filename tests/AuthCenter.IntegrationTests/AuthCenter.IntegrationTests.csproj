@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AuthCenter.Api\AuthCenter.Api.csproj" />
+    <ProjectReference Include="..\..\sdk\dotnet\AuthCenter.Client\AuthCenter.Client.csproj" />
   </ItemGroup>
 
 </Project>

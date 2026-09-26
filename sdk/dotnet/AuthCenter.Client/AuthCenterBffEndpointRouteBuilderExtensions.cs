@@ -43,7 +43,9 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
                     subject = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier),
                     name = user.FindFirstValue("name") ?? user.FindFirstValue(ClaimTypes.Name),
                     email = user.FindFirstValue("email") ?? user.FindFirstValue(ClaimTypes.Email),
-                    roles = user.FindAll(ClaimTypes.Role).Select(item => item.Value).Distinct(StringComparer.Ordinal).ToArray(),
+                    roles = user.Claims.Where(item => AuthCenterRoleClaims.IsRoleClaim(item.Type) ||
+                            user.Identities.Any(identity => identity.RoleClaimType == item.Type))
+                        .Select(item => item.Value).Distinct(StringComparer.Ordinal).ToArray(),
                     permissions = user.FindAll(AuthCenterBffDefaults.PermissionClaim).Select(item => item.Value).Distinct(StringComparer.Ordinal).ToArray(),
                     applications = user.FindAll(AuthCenterBffDefaults.ApplicationsClaim).Select(item => item.Value).Distinct(StringComparer.Ordinal).ToArray()
                 }

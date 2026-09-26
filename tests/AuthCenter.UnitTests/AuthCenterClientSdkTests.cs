@@ -106,6 +106,7 @@ public sealed class AuthCenterClientSdkTests
         Assert.Equal(["orders-api"], options.TokenValidationParameters.ValidAudiences);
         Assert.Equal([SecurityAlgorithms.RsaSha256], options.TokenValidationParameters.ValidAlgorithms);
         Assert.Equal(AuthCenterBffDefaults.RoleClaim, options.TokenValidationParameters.RoleClaimType);
+        Assert.Equal(["at+jwt"], options.TokenValidationParameters.ValidTypes);
         Assert.True(options.TokenValidationParameters.ValidateIssuerSigningKey);
     }
 
@@ -129,28 +130,43 @@ public sealed class AuthCenterClientSdkTests
         var validator = new AuthCenterAccessTokenValidator(
             new StaticOptionsMonitor<OpenIdConnectOptions>(oidcOptions),
             ValidOptions());
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: "shop-web",
-            claims: [new Claim("sub", "user-1")],
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256));
-
         var principal = await validator.ValidateAsync(
-            new JwtSecurityTokenHandler().WriteToken(token),
+            CreateToken(signingKey, issuer, "shop-web", "at+jwt"),
             CancellationToken.None);
 
         Assert.Equal("user-1", principal.FindFirstValue("sub"));
 
-        var wrongAudience = new JwtSecurityToken(
-            issuer: issuer,
-            audience: "another-client",
-            claims: [new Claim("sub", "user-1")],
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256));
         await Assert.ThrowsAsync<SecurityTokenException>(() => validator.ValidateAsync(
-            new JwtSecurityTokenHandler().WriteToken(wrongAudience),
+            CreateToken(signingKey, issuer, "another-client", "at+jwt"),
             CancellationToken.None));
+
+        // An ID token shares issuer, audience and algorithm; its "JWT" type must not pass as an access token.
+        await Assert.ThrowsAsync<SecurityTokenException>(() => validator.ValidateAsync(
+            CreateToken(signingKey, issuer, "shop-web", "JWT"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public void AccessTokenClaims_MapLegacyAndShortRoleClaimsToTheIdentityRoleType()
+    {
+        foreach (var roleClaimType in new[] { "role", ClaimTypes.Role })
+        {
+            var identity = new ClaimsIdentity([new Claim("sub", "user-1")], "oidc", "name", "role");
+            var principal = new ClaimsPrincipal(identity);
+            var accessTokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim("sub", "user-1"), new Claim(roleClaimType, "Operator")], "jwt"));
+
+            AuthCenterAccessTokenPrincipalFactory.Enrich(principal, accessTokenPrincipal);
+
+            Assert.True(principal.IsInRole("Operator"), roleClaimType);
+        }
+    }
+
+    private static string CreateToken(SecurityKey key, string issuer, string audience, string type)
+    {
+        var header = new JwtHeader(new SigningCredentials(key, SecurityAlgorithms.RsaSha256), null, type);
+        var payload = new JwtPayload(issuer, audience, [new Claim("sub", "user-1")], null, DateTime.UtcNow.AddMinutes(5));
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
     [Fact]

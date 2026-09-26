@@ -33,19 +33,22 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **SSO-03** La sesión SSO dura lo mismo que un access token (15 min, sin renovación); no hay
   `prompt`/`max_age`; `auth_time` es la hora de emisión; no se emiten `amr`/`acr`.
 - [ ] **SSO-04** El `interaction_id` no está ligado al navegador que inició la autorización.
-- [ ] **TOK-01** El claim de roles se emite como URI
+- [x] **TOK-01** El claim de roles se emite como URI
   `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`; el SDK espera `role`, por lo que
   `IsInRole`/`RequireRole` fallan en los sistemas integrados.
+  *Resuelto:* los access tokens emiten `role` (constante `DomainConstants.Claims.Role`); la cookie de la UI lo mapea a `ClaimTypes.Role` y el SDK guarda los roles bajo el `RoleClaimType` de la identidad aceptando también el URI legacy. Pruebas: `SdkContractTests` (`IsInRole` y `RequireRole` en BFF y API).
 - [ ] **TOK-02** El access token siempre tiene `aud = client_id`; no hay `resource` (RFC 8707) ni
   catálogo de APIs y scopes propios.
-- [ ] **TOK-03** Higiene de tokens: `email_verified` como string en el ID token, sin `sid`/`azp`,
+- [~] **TOK-03** Higiene de tokens: `email_verified` como string en el ID token, sin `sid`/`azp`,
   access token sin `typ: at+jwt` ni `iat`, respuesta de token con campos `null`.
+  *Avance:* access tokens con `typ: at+jwt` e `iat`; ID token con `azp` y `email_verified` booleano; token y userinfo omiten campos nulos. Pendiente para F3: `sid`, `auth_time` real, `amr`/`acr`.
 - [ ] **LOG-01** No hay logout global: faltan `end_session_endpoint`, `post_logout_redirect_uris`,
   `sid` y back-channel logout; el refresh de una aplicación sigue vivo tras cerrar sesión.
 - [ ] **RL-01** Límites de tasa sólo por IP (5 logins/min, 60 llamadas/min a `/oauth/token`).
 - [ ] **CORS-01** CORS global con credenciales; no hay orígenes por cliente OAuth.
-- [ ] **DISC-01** Discovery incompleto (`claims_supported`, logout, parámetros no soportados) y sin
+- [~] **DISC-01** Discovery incompleto (`claims_supported`, logout, parámetros no soportados) y sin
   validación `issuer` = origen público.
+  *Avance:* discovery publica `claims_supported`, `response_modes_supported` y declara no soportados `request`, `request_uri` y `claims`; fuera de desarrollo el arranque exige que `Jwt:Issuer` identifique la misma URL que `Oidc:PublicOrigin` (prueba `IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment`). **Requisito de despliegue:** ambos valores deben coincidir. Pendiente: endpoints de logout e introspección (F5/F6).
 - [ ] **OIDC-01** No hay endpoint de introspección (RFC 7662).
 - [ ] **OIDC-02** No hay token exchange (RFC 8693).
 - [ ] **SAML-01** AuthCenter no puede actuar como IdP SAML para aplicaciones que sólo hablan SAML.
@@ -62,8 +65,9 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **SDK-04** No se incluye un coordinador de refresh distribuido.
 - [x] **SDK-05** Un fallo de validación tras el refresh termina en HTTP 500.
   *Resuelto:* un token rotado que no valida cierra la sesión y responde `REFRESH_TOKEN_INVALID` (401).
-- [ ] **SDK-06** No hay prueba de contrato SDK↔servidor en CI (la prueba unitaria usa claims
+- [x] **SDK-06** No hay prueba de contrato SDK↔servidor en CI (la prueba unitaria usa claims
   sintéticos).
+  *Resuelto:* `SdkContractTests` (categoría Conformance) ejecuta el SDK real contra el servidor: discovery, login BFF con `return_url`, roles y permisos, refresh, logout, API con `at+jwt`/audiencia/roles/permisos/scopes, refresh y revocación de bajo nivel y `client_credentials`.
 - [ ] **SDK-07** El SDK TypeScript no valida ID token/nonce/`iss`, no procesa el callback y no tiene
   userinfo ni logout.
 - [ ] **SDK-08** El quickstart SPA sólo tiene el botón de login.
@@ -172,3 +176,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 |---|---|---|
 | 2026-09-26 | Documento de seguimiento creado a partir del análisis. | — |
 | 2026-09-26 | F1: validación en la frontera de la API, redirección abierta, contraseña temporal y bypass de MFA, `AllowPasswordLogin`, acceso JIT, Event Hooks, pruebas relacionales y defectos del SDK. | SEC-01/02/03/05/07/08, HOOK-01/02, OPS-09, SDK-01/02/05 |
+| 2026-09-26 | F2: contrato de claims `role`, `at+jwt`, higiene de ID token y respuestas, discovery e issuer, prueba de contrato SDK↔servidor. | TOK-01, TOK-03, DISC-01, SDK-06 |
