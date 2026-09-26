@@ -17,8 +17,8 @@ como **acción del propietario** con el procedimiento preparado.
 
 ## Estado verificado al cierre (2026-09-26, después de F15)
 
-- Puntos: 87 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-01,
-  OPS-02, OPS-03 en Azure, OPS-04, OPS-05, OPS-06, OPS-07, OPS-10 y OPS-14), cada uno con su
+- Puntos: 88 resueltos con evidencia (`[x]`) y 8 que dependen del propietario (`[P]`: OPS-02,
+  OPS-03 en Azure, OPS-04, OPS-05, OPS-06, OPS-07, OPS-10 y OPS-14), cada uno con su
   procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
   la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
 - Build .NET 10 Release: 0 errores, 0 advertencias; ningún cambio del modelo sin migración (35
@@ -32,6 +32,7 @@ como **acción del propietario** con el procedimiento preparado.
   escenarios end-to-end, axe incluido.
 - SDK TypeScript 11/11; quickstart SPA compila; `npm audit` sin vulnerabilidades en los cuatro
   paquetes; `dotnet list package --vulnerable --include-transitive` sin hallazgos; Gitleaks limpio.
+- GitHub Actions: el PR [Eduard0corona/AuthCenter#23](https://github.com/Eduard0corona/AuthCenter/pull/23) pasó el workflow `CI/CD` completo en 11 min 40 s.
 - Escala: con 100 000 usuarios y 1 000 grupos todas las lecturas administrativas responden en menos
   de 0,62 s ([`docs/operations/CAPACITY.md`](docs/operations/CAPACITY.md#directorio-grande)).
 
@@ -340,9 +341,9 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### H. Operación
 
-- [P] **OPS-01** El CI de `main` (run 69) no llegó a ejecutarse (sin runner ni logs): revisar
+- [x] **OPS-01** El CI de `main` (run 69) no llegó a ejecutarse (sin runner ni logs): revisar
   minutos/facturación de GitHub Actions.
-  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-01--github-actions-no-ejecuta).
+  *Verificado:* GitHub Actions vuelve a ejecutar. El run 36269781523 del PR [Eduard0corona/AuthCenter#23](https://github.com/Eduard0corona/AuthCenter/pull/23) (`build-and-test` sobre `c0ec0ad`) terminó en verde en 11 min 40 s con los pasos de F15, que publicaron `database-migrations` y `coverage-report`. El job `deploy` sólo corre en `main`: su primera ejecución tras fusionar validará los secretos de Azure y la verificación de salud (con las migraciones aplicadas, OPS-03).
 - [P] **OPS-02** `main` no tiene protección de rama.
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-02--protección-de-main).
 - [P] **OPS-03** Confirmar la migración 24 en Azure SQL; readiness que detecte migraciones
@@ -407,3 +408,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F13: AuthCenter como IdP SAML 2.0 — SSO por HTTP-Redirect/POST, aserciones firmadas y opcionalmente cifradas, NameID persistente por aplicación, atributos del directorio, step-up por `RequestedAuthnContext`, inicio desde AuthCenter y el portal, SLO iniciado por el SP; compuerta de acceso compartida con OAuth (`ISsoAccessGate`), login hospedado para interacciones SAML, API y consola de aplicaciones SAML, permisos `AUTHCENTER_SAML_APPS_*` y E2E contra la API real con un certificado generado por la prueba. | SAML-01, UI-11 (parcial) |
 | 2026-09-26 | F14: gobierno de accesos — owners por aplicación, solicitudes de acceso desde el portal con aprobación de owners o administradores (correo a ambos, expiración, cancelación, sin autoaprobación), revisiones periódicas con recurrencia, remediación por grupos y cierre automático, segregación de funciones preventiva y detectiva; portal (solicitar, mis solicitudes, aprobaciones) y consola (Gobierno, responsables, dashboard); hallazgo nuevo GOV-02 (defectos del acceso pendiente). | GOV-01, GOV-02, UI-11 |
 | 2026-09-26 | F15: operación y documentación — readiness del esquema (`database-schema`, 503 con migraciones pendientes), script idempotente de migraciones por commit y verificación del modelo en CI, cobertura con mínimos (.NET y consola), presupuesto de bundle, Dependabot, parches NuGet 10.0.12 y vitest 4.1.11; prueba de escala con 100 000 usuarios (encontró el snapshot cuadrático de las revisiones de acceso, ahora lineal, y el cierre de campañas renueva su reclamo); axe con la regla WCAG 2.2 AA en consola, login, portal y enlaces y reflow a 320 px (encontraron contraste insuficiente en el login, errores ocultos tras los diálogos de confirmación y desbordes en móvil); flujos E2E mínimos del plan; runbooks de consola, procedimientos del propietario y documentación al día. | OPS-03 (código), OPS-08, OPS-11, OPS-12, UI-07, UI-13, HL-09, DOC-01, DOC-04 |
+| 2026-09-26 | Verificación en GitHub: el PR #23 pasó el workflow `CI/CD` completo (11 min 40 s) con las compuertas de F15; GitHub Actions ejecuta de nuevo. | OPS-01 |

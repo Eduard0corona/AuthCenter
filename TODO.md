@@ -15,8 +15,9 @@ approval; each has a step-by-step procedure in
       the App Service managed identity and a least-privilege contained database principal.
 - [x] Consolidate CI and deployment so that only a successful validation run on `main` publishes
       the artifact, deploys it with OIDC, and verifies `/health/live`, `/health/ready` and branding.
-- [ ] Restore GitHub Actions execution: the last `main` run got no runner and no logs (billing or
-      spending limit, OPS-01), and protect `main` (OPS-02).
+- [x] Restore GitHub Actions execution (OPS-01): the pull request of the remediation passed the
+      whole `CI/CD` workflow on 2026-09-26.
+- [ ] Protect `main` (OPS-02).
 - [x] Configure the remaining required production settings: new RSA/HMAC/MFA secrets, encrypted
       Data Protection with a generated PKCS#12 certificate, exact host/issuer/origins, and SQL-backed
       distributed rate limiting. All sensitive values are versionless Key Vault references.

@@ -7,7 +7,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 
 | Punto | Acción | Requiere |
 |---|---|---|
-| OPS-01 | Reactivar la ejecución de GitHub Actions | Administrador de la organización / facturación |
+| OPS-01 | Reactivar la ejecución de GitHub Actions (hecho el 2026-09-26) | Administrador de la organización / facturación |
 | OPS-02 | Proteger `main` | Administrador del repositorio |
 | OPS-03 | Aplicar las migraciones pendientes en Azure SQL | Administrador Microsoft Entra de la base |
 | OPS-04 | Carga inicial productiva (primer administrador) | Operador con acceso a App Service y Key Vault |
@@ -20,8 +20,9 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 
 ## OPS-01 · GitHub Actions no ejecuta
 
-El run 69 de `main` quedó sin runner ni logs, síntoma de minutos agotados, límite de gasto en cero o
-Actions deshabilitado.
+**Hecho:** el 2026-09-26 el PR #23 pasó el workflow `CI/CD` completo. Si vuelve a ocurrir: el run 69
+de `main` quedó sin runner ni logs, síntoma de minutos agotados, límite de gasto en cero o Actions
+deshabilitado.
 
 1. *Settings → Billing and plans → Plans and usage* de la cuenta u organización dueña: revisa los
    minutos de Actions consumidos y el *spending limit* (un límite de 0 USD detiene los jobs de
