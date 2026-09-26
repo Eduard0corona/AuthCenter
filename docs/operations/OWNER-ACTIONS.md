@@ -60,8 +60,10 @@ Service no enruta tráfico a una instancia con el esquema atrasado.
      --startup-project src/AuthCenter.Api --output migrations.sql
    ```
 2. Revisa el script (sólo crea/alter/inserta lo de las migraciones nuevas) y ejecútalo con el
-   administrador Entra de la base (Azure Data Studio, `sqlcmd -G` o el editor de consultas del
-   portal) dentro de una ventana de cambio.
+   administrador Entra de la base (Azure Data Studio, SSMS o `sqlcmd -G -I`) dentro de una ventana
+   de cambio. `sqlcmd` sin `-I` empieza con `QUOTED_IDENTIFIER OFF` y SQL Server rechaza los
+   cambios en tablas con índices filtrados: el script del artefacto ya lo fija, uno generado a mano
+   no. Si se interrumpe, vuelve a ejecutarlo: sólo aplica lo que falte.
 3. Despliega el código.
 4. **Comprobación:** `SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId` termina en la
    última migración del repositorio y `GET /health/ready` (host configurado en

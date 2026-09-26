@@ -9,6 +9,9 @@
 -- The test DirectoryScaleRelationalTests edits the values below before running it.
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+-- sqlcmd starts with QUOTED_IDENTIFIER OFF; the users table has filtered indexes.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
 
 DECLARE @Users int = 100000;
 DECLARE @Groups int = 1000;

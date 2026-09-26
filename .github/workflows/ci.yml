@@ -100,8 +100,14 @@ jobs:
 
       # Production applies migrations out of band, before the deployment
       # (docs/operations/OWNER-ACTIONS.md, OPS-03): this is the idempotent script of this commit.
+      # sqlcmd starts with QUOTED_IDENTIFIER OFF, and SQL Server then rejects every change to a table
+      # with a filtered index (AspNetUsers has several): the script sets it first, for any client.
       - name: Generate the database migration script
-        run: dotnet ef migrations script --idempotent --no-build --configuration Release --project src/AuthCenter.Infrastructure --startup-project src/AuthCenter.Api --output "${{ runner.temp }}/database-migrations/migrations.sql"
+        shell: bash
+        run: |
+          dotnet ef migrations script --idempotent --no-build --configuration Release --project src/AuthCenter.Infrastructure --startup-project src/AuthCenter.Api --output "${{ runner.temp }}/ef-migrations.sql"
+          mkdir -p "${{ runner.temp }}/database-migrations"
+          { printf 'SET ANSI_NULLS ON;\nSET QUOTED_IDENTIFIER ON;\nGO\n\n'; sed '1s/^\xEF\xBB\xBF//' "${{ runner.temp }}/ef-migrations.sql"; } > "${{ runner.temp }}/database-migrations/migrations.sql"
 
       - name: Upload the database migration script
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
