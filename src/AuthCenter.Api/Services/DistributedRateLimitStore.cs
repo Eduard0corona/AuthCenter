@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AuthCenter.Api.Services;
 
-public sealed class DistributedRateLimitStore
+public sealed class DistributedRateLimitStore : IRateLimitStore
 {
     private readonly AuthCenterDbContext _db;
 

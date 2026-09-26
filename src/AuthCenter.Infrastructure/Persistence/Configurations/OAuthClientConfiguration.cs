@@ -17,6 +17,7 @@ public class OAuthClientConfiguration : IEntityTypeConfiguration<OAuthClient>
         builder.Property(c => c.GrantTypesJson).HasMaxLength(500).IsRequired();
         builder.Property(c => c.LoginUrl).HasMaxLength(500).IsRequired();
         builder.Property(c => c.PostLogoutRedirectUrisJson).HasMaxLength(4000).IsRequired().HasDefaultValue("[]");
+        builder.Property(c => c.AllowedCorsOriginsJson).HasMaxLength(2000).IsRequired().HasDefaultValue("[]");
         builder.Property(c => c.BackchannelLogoutUri).HasMaxLength(500);
         builder.Property(c => c.CreatedAt).IsRequired();
 

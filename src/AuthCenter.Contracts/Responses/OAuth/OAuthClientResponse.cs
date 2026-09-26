@@ -14,6 +14,7 @@ public class OAuthClientResponse
     public IList<string> GrantTypes { get; init; } = [];
     public string LoginUrl { get; init; } = string.Empty;
     public IList<string> PostLogoutRedirectUris { get; init; } = [];
+    public IList<string> AllowedCorsOrigins { get; init; } = [];
     public string? BackchannelLogoutUri { get; init; }
     public bool BackchannelLogoutSessionRequired { get; init; }
     public int AccessTokenLifetimeSeconds { get; init; }

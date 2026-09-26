@@ -11,23 +11,30 @@ using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace AuthCenter.Infrastructure.Services;
 
 public class OAuthClientService : IOAuthClientService
 {
+    /// <summary>Cache entry of every registered browser origin, read by the CORS policy provider.</summary>
+    public const string CorsOriginsCacheKey = "cors:oauth-client-origins";
+
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly ICurrentUserService _currentUser;
+    private readonly IMemoryCache _cache;
 
     public OAuthClientService(
         AuthCenterDbContext db,
         IDateTimeProvider dateTimeProvider,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IMemoryCache cache)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
         _currentUser = currentUser;
+        _cache = cache;
     }
 
     public async Task<OperationResult<OAuthClientCreatedResponse>> CreateAsync(CreateOAuthClientRequest request, CancellationToken ct = default)
@@ -70,6 +77,7 @@ public class OAuthClientService : IOAuthClientService
             ClientType = (OAuthClientType)request.ClientType,
             LoginUrl = request.LoginUrl,
             PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris),
+            AllowedCorsOriginsJson = JsonSerializer.Serialize(NormalizeOrigins(request.AllowedCorsOrigins)),
             BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri,
             BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired,
             AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds,
@@ -82,6 +90,7 @@ public class OAuthClientService : IOAuthClientService
         _db.OAuthClients.Add(client);
         AddAudit("OAUTH_CLIENT_CREATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
 
         return OperationResult<OAuthClientCreatedResponse>.Success(new OAuthClientCreatedResponse
         {
@@ -155,6 +164,7 @@ public class OAuthClientService : IOAuthClientService
         client.GrantTypesJson = JsonSerializer.Serialize(request.GrantTypes);
         client.LoginUrl = request.LoginUrl;
         client.PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris);
+        client.AllowedCorsOriginsJson = JsonSerializer.Serialize(NormalizeOrigins(request.AllowedCorsOrigins));
         client.BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri;
         client.BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired;
         client.AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds;
@@ -167,6 +177,7 @@ public class OAuthClientService : IOAuthClientService
             ? request.IsActive ? "OAUTH_CLIENT_ACTIVATED" : "OAUTH_CLIENT_DEACTIVATED"
             : "OAUTH_CLIENT_UPDATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
         return OperationResult<OAuthClientResponse>.Success(MapToResponse(client));
     }
 
@@ -182,6 +193,7 @@ public class OAuthClientService : IOAuthClientService
         client.UpdatedAt = _dateTimeProvider.UtcNow;
         AddAudit("OAUTH_CLIENT_DEACTIVATED", client);
         await _db.SaveChangesAsync(ct);
+        _cache.Remove(CorsOriginsCacheKey);
         return OperationResult.Success();
     }
 
@@ -220,6 +232,7 @@ public class OAuthClientService : IOAuthClientService
         GrantTypes = JsonSerializer.Deserialize<List<string>>(client.GrantTypesJson) ?? [],
         LoginUrl = client.LoginUrl,
         PostLogoutRedirectUris = JsonSerializer.Deserialize<List<string>>(client.PostLogoutRedirectUrisJson) ?? [],
+        AllowedCorsOrigins = JsonSerializer.Deserialize<List<string>>(client.AllowedCorsOriginsJson) ?? [],
         BackchannelLogoutUri = client.BackchannelLogoutUri,
         BackchannelLogoutSessionRequired = client.BackchannelLogoutSessionRequired,
         AccessTokenLifetimeSeconds = client.AccessTokenLifetimeSeconds,
@@ -260,4 +273,8 @@ public class OAuthClientService : IOAuthClientService
         var unknown = apiScopes.Except(known, StringComparer.Ordinal).ToList();
         return unknown.Count == 0 ? null : $"Unknown API scopes: {string.Join(", ", unknown)}. Register them in the API catalog first.";
     }
+
+    // Browsers send the Origin header as scheme://host[:port], lower-case and without a slash.
+    private static List<string> NormalizeOrigins(IEnumerable<string> origins) =>
+        origins.Select(origin => new Uri(origin).GetLeftPart(UriPartial.Authority).ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToList();
 }

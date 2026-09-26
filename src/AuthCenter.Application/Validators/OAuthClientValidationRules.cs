@@ -18,6 +18,12 @@ internal static class OAuthClientValidationRules
                (uri.IsLoopback || string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>An origin: scheme://host[:port] with nothing after it, HTTPS or HTTP loopback.</summary>
+    internal static bool IsSecureOrigin(string value) =>
+        IsSecureBrowserUri(value) &&
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+        string.Equals(value.TrimEnd('/'), uri.GetLeftPart(UriPartial.Authority), StringComparison.OrdinalIgnoreCase);
+
     internal static bool HasUniqueValues(IEnumerable<string> values) =>
         values.Distinct(StringComparer.Ordinal).Count() == values.Count();
 }

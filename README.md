@@ -166,7 +166,10 @@ git-ignored and its values are for local use only.
 | `Saml:AssertionConsumerServiceUrl` | Exact public HTTPS SAML POST callback |
 | `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata |
 | `Saml:SigningCertificatePassword` | Optional Key Vault password for the PKCS#12 certificate |
-| `Cors:AllowedOrigins` | Array of allowed CORS origins |
+| `Cors:AllowedOrigins` | Origins of first-party frontends allowed to call `/api/*` with credentials. OAuth clients register their own browser origins (`AllowedCorsOrigins`) for the token, revocation and UserInfo endpoints; discovery and JWKS are public; the hosted UI (`/ui-api/*`, `/oauth/authorize`, pages) never answers cross-origin |
+| `RateLimiting:Enabled` | Turns rate limiting on or off (default on, except in the `Testing` environment) |
+| `RateLimiting:DistributedEnabled` | Shares the counters of every instance in SQL Server instead of memory |
+| `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
 | `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |

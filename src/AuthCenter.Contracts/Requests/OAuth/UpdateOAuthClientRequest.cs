@@ -8,6 +8,9 @@ public class UpdateOAuthClientRequest
     public IList<string> GrantTypes { get; init; } = [];
     public string LoginUrl { get; init; } = string.Empty;
     public IList<string> PostLogoutRedirectUris { get; init; } = [];
+
+    /// <summary>Browser origins allowed to call the token, revocation and UserInfo endpoints (CORS).</summary>
+    public IList<string> AllowedCorsOrigins { get; init; } = [];
     public string? BackchannelLogoutUri { get; init; }
     public bool BackchannelLogoutSessionRequired { get; init; } = true;
     public int AccessTokenLifetimeSeconds { get; init; } = 900;

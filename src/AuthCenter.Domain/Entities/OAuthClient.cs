@@ -15,6 +15,12 @@ public class OAuthClient
     public OAuthClientType ClientType { get; set; }
     public string LoginUrl { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Browser origins (scheme://host[:port]) allowed to call the token, revocation and UserInfo
+    /// endpoints with CORS, without credentials: single-page applications using PKCE.
+    /// </summary>
+    public string AllowedCorsOriginsJson { get; set; } = "[]";
+
     /// <summary>Exact URIs the browser may return to after RP-initiated logout.</summary>
     public string PostLogoutRedirectUrisJson { get; set; } = "[]";
 

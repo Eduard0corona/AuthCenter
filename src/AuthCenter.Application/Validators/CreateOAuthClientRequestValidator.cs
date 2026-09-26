@@ -47,6 +47,16 @@ public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthCl
             .Must(uris => uris.Count <= 20)
             .WithMessage("At most 20 post-logout redirect URIs can be registered.");
 
+        RuleForEach(x => x.AllowedCorsOrigins)
+            .Must(OAuthClientValidationRules.IsSecureOrigin)
+            .WithMessage("CORS origins are scheme://host[:port] only, using HTTPS or HTTP loopback.");
+
+        RuleFor(x => x.AllowedCorsOrigins)
+            .Must(OAuthClientValidationRules.HasUniqueValues)
+            .WithMessage("CORS origins must be unique.")
+            .Must(origins => origins.Count <= 20)
+            .WithMessage("At most 20 CORS origins can be registered.");
+
         RuleFor(x => x.BackchannelLogoutUri)
             .MaximumLength(500)
             .Must(uri => OAuthClientValidationRules.IsSecureBrowserUri(uri!))

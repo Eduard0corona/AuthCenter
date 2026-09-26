@@ -19,6 +19,16 @@ const secureBrowserUrl = (value: string): boolean => {
   }
 };
 
+// An origin is scheme://host[:port] and nothing else.
+const isOrigin = (value: string): boolean => {
+  if (!secureBrowserUrl(value)) return false;
+  try {
+    return new URL(value).origin === value.replace(/\/$/, "").toLowerCase();
+  } catch {
+    return false;
+  }
+};
+
 const uriLines = z.string().transform((value) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean));
 
 export const oauthClientSchema = z.object({
@@ -32,6 +42,7 @@ export const oauthClientSchema = z.object({
   apiScopes: z.string(),
   grantTypes: z.array(z.enum(oauthGrants)).min(1, "Selecciona al menos un grant."),
   loginUrl: z.string().trim().refine(secureBrowserUrl, "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales."),
+  allowedCorsOrigins: z.string(),
   postLogoutRedirectUris: z.string(),
   backchannelLogoutUri: z.string().trim(),
   accessTokenLifetimeSeconds: z.coerce.number().int().min(60, "El mínimo es 60 segundos.").max(3600, "El máximo es 3600 segundos."),
@@ -61,6 +72,13 @@ export const oauthClientSchema = z.object({
   }
   if (new Set(redirects).size !== redirects.length) {
     context.addIssue({ code: "custom", path: ["redirectUris"], message: "No repitas redirect URIs." });
+  }
+  const corsOrigins = uriLines.parse(values.allowedCorsOrigins);
+  if (corsOrigins.some((origin) => !isOrigin(origin))) {
+    context.addIssue({ code: "custom", path: ["allowedCorsOrigins"], message: "Usa sólo esquema y host (https://app.example.com), con HTTPS o HTTP loopback." });
+  }
+  if (new Set(corsOrigins).size !== corsOrigins.length) {
+    context.addIssue({ code: "custom", path: ["allowedCorsOrigins"], message: "No repitas orígenes." });
   }
   const postLogout = uriLines.parse(values.postLogoutRedirectUris);
   if (postLogout.some((uri) => !secureBrowserUrl(uri))) {
@@ -105,6 +123,7 @@ export function oauthClientDefaults(client?: OAuthClientSummary): OAuthClientFor
     apiScopes: client?.allowedScopes.filter((scope) => !isOidcScope(scope)).join("\n") ?? "",
     grantTypes: client?.grantTypes as OAuthClientFormValues["grantTypes"] ?? ["authorization_code", "refresh_token"],
     loginUrl: client?.loginUrl ?? "",
+    allowedCorsOrigins: client?.allowedCorsOrigins?.join("\n") ?? "",
     postLogoutRedirectUris: client?.postLogoutRedirectUris?.join("\n") ?? "",
     backchannelLogoutUri: client?.backchannelLogoutUri ?? "",
     accessTokenLifetimeSeconds: client?.accessTokenLifetimeSeconds ?? 900,
@@ -127,6 +146,7 @@ export function oauthClientPayload(values: OAuthClientFormValues, create: boolea
     allowedScopes: [...parsed.allowedScopes, ...uriLines.parse(parsed.apiScopes)],
     grantTypes: parsed.grantTypes,
     loginUrl: parsed.loginUrl,
+    allowedCorsOrigins: uriLines.parse(parsed.allowedCorsOrigins),
     postLogoutRedirectUris: uriLines.parse(parsed.postLogoutRedirectUris),
     backchannelLogoutUri: parsed.backchannelLogoutUri || null,
     accessTokenLifetimeSeconds: parsed.accessTokenLifetimeSeconds,

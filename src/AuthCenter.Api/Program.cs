@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Api.Filters;
@@ -216,37 +217,14 @@ try
     var distributedRateLimiting = builder.Configuration.GetValue<bool>("RateLimiting:DistributedEnabled")
         && !builder.Environment.IsDevelopment()
         && !builder.Environment.IsEnvironment("Testing");
-    if (!distributedRateLimiting && !builder.Environment.IsEnvironment("Testing"))
-        builder.Services.AddAuthRateLimiting();
-    if (distributedRateLimiting)
-        builder.Services.AddScoped<DistributedRateLimitStore>();
+    builder.Services.AddAuthRateLimiting(distributedRateLimiting);
 
     // Controllers. Every bound request contract is validated before the action runs.
     builder.Services.AddControllers(options => options.Filters.Add<RequestValidationFilter>());
 
-    // CORS
-    var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy("Default", policy =>
-        {
-            if (allowedOrigins.Length > 0)
-            {
-                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
-            }
-            else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
-            {
-                // Wildcard is only intentional in local dev and automated test runs.
-                policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
-            }
-            else
-            {
-                // Non-dev/test with no origins should have been caught by ValidateStartupConfiguration.
-                // Fall back to localhost-only so a misconfigured staging is not wide open.
-                policy.WithOrigins("http://localhost", "https://localhost").AllowAnyHeader().AllowAnyMethod();
-            }
-        });
-    });
+    // CORS: the policy is chosen per endpoint (AuthCenterCorsPolicyProvider).
+    builder.Services.AddCors();
+    builder.Services.Replace(ServiceDescriptor.Singleton<Microsoft.AspNetCore.Cors.Infrastructure.ICorsPolicyProvider, AuthCenterCorsPolicyProvider>());
 
     // Swagger / OpenAPI
     builder.Services.AddEndpointsApiExplorer();
@@ -416,10 +394,7 @@ try
     app.UseSerilogRequestLogging();
 
     app.UseRouting();
-    if (distributedRateLimiting)
-        app.UseMiddleware<DistributedRateLimitMiddleware>();
-    else if (!app.Environment.IsEnvironment("Testing"))
-        app.UseRateLimiter();
+    app.UseMiddleware<RateLimitMiddleware>();
 
     if (app.Environment.IsDevelopment())
     {
@@ -473,7 +448,7 @@ try
             }
         });
     }
-    app.UseCors("Default");
+    app.UseCors();
     app.UseAuthentication();
     app.UseMiddleware<UiCsrfMiddleware>();
     app.UseAuthorization();

@@ -194,6 +194,7 @@ export interface OAuthClientSummary {
   allowedScopes: string[];
   grantTypes: string[];
   loginUrl: string;
+  allowedCorsOrigins?: string[];
   postLogoutRedirectUris?: string[];
   backchannelLogoutUri?: string | null;
   backchannelLogoutSessionRequired?: boolean;

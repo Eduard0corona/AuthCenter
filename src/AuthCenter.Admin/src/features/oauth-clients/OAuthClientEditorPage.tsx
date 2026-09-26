@@ -129,6 +129,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
             <Field label="Vida del access token (segundos)" error={form.formState.errors.accessTokenLifetimeSeconds?.message}><input {...form.register("accessTokenLifetimeSeconds", { valueAsNumber: true })} type="number" min={60} max={3600} /></Field>
           </div>
           <div className="checkbox-grid"><Checkbox label="Requerir PKCE" registration={form.register("requirePkce")} /><Checkbox label="Auto consent" registration={form.register("autoConsent")} /></div>
+          <Field label="Orígenes CORS del navegador" error={form.formState.errors.allowedCorsOrigins?.message} help="Sólo para aplicaciones de una página que canjean el código con PKCE desde el navegador. Uno por línea: https://app.example.com. Nunca incluye credenciales."><textarea {...form.register("allowedCorsOrigins")} rows={2} placeholder="https://app.example.com" /></Field>
         </section>
         <section className="settings-panel" aria-labelledby="oauth-logout">
           <div className="settings-panel__heading"><div><h2 id="oauth-logout">Cierre de sesión</h2><p>Registra a dónde puede volver el usuario tras cerrar sesión y dónde AuthCenter avisa a la aplicación cuando la sesión termina.</p></div></div>

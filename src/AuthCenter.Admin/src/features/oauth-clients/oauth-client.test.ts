@@ -11,6 +11,7 @@ const valid = {
   grantTypes: ["authorization_code", "refresh_token"] as const,
   loginUrl: "https://partner.example.com/login",
   apiScopes: "",
+  allowedCorsOrigins: "https://partner.example.com",
   postLogoutRedirectUris: "https://partner.example.com/signout-callback-authcenter",
   backchannelLogoutUri: "https://partner.example.com/auth/backchannel-logout",
   accessTokenLifetimeSeconds: 900,
@@ -58,6 +59,12 @@ describe("OAuth client form", () => {
     expect(oauthClientSchema.safeParse({
       ...valid, grantTypes: ["client_credentials"], allowedScopes: ["email"], redirectUris: "", postLogoutRedirectUris: "", requirePkce: false
     }).success).toBe(false);
+  });
+
+  it("accepts bare origins for CORS and rejects paths or insecure schemes", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false)).toMatchObject({ allowedCorsOrigins: ["https://partner.example.com"] });
+    for (const origin of ["https://partner.example.com/app", "http://partner.example.com", "https://partner.example.com?x=1"])
+      expect(oauthClientSchema.safeParse({ ...valid, allowedCorsOrigins: origin }).success).toBe(false);
   });
 
   it("merges API scopes into the allowed scopes and validates their names", () => {
