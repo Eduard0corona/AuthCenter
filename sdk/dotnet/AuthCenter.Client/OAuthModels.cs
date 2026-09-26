@@ -29,3 +29,16 @@ public sealed class AuthCenterIntrospectionResult
 }
 
 public sealed record PkcePair(string Verifier, string Challenge);
+
+/// <summary>The endpoints AuthCenter publishes in its OpenID Connect discovery document.</summary>
+public sealed class AuthCenterDiscoveryDocument
+{
+    [JsonPropertyName("issuer")] public string Issuer { get; init; } = string.Empty;
+    [JsonPropertyName("authorization_endpoint")] public string AuthorizationEndpoint { get; init; } = string.Empty;
+    [JsonPropertyName("token_endpoint")] public string TokenEndpoint { get; init; } = string.Empty;
+    [JsonPropertyName("jwks_uri")] public string JwksUri { get; init; } = string.Empty;
+    [JsonPropertyName("revocation_endpoint")] public string? RevocationEndpoint { get; init; }
+    [JsonPropertyName("introspection_endpoint")] public string? IntrospectionEndpoint { get; init; }
+    [JsonPropertyName("userinfo_endpoint")] public string? UserInfoEndpoint { get; init; }
+    [JsonPropertyName("end_session_endpoint")] public string? EndSessionEndpoint { get; init; }
+}

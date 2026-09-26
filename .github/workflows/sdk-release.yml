@@ -1,0 +1,93 @@
+name: SDK release
+
+# Publishes AuthCenter.Client (NuGet) and @authcenter/client (npm) from a tag sdk-vX.Y.Z whose
+# version matches both packages. Manual runs build and pack only unless publish is chosen.
+on:
+  push:
+    tags: [ "sdk-v*" ]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the packages (otherwise build, test and pack only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Protect this environment with required reviewers; it holds NUGET_API_KEY and NPM_TOKEN.
+    environment: sdk-release
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET 8 and 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check that the tag matches both package versions
+        shell: bash
+        run: |
+          dotnet_version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj)
+          npm_version=$(node -p "require('./sdk/typescript/package.json').version")
+          if [ "$dotnet_version" != "$npm_version" ]; then
+            echo "AuthCenter.Client is $dotnet_version but @authcenter/client is $npm_version." >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "sdk-v${dotnet_version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match version ${dotnet_version}." >&2
+            exit 1
+          fi
+
+      - name: Test the .NET SDK
+        run: dotnet test tests/AuthCenter.UnitTests/AuthCenter.UnitTests.csproj --configuration Release
+
+      - name: Pack AuthCenter.Client (net8.0 and net10.0)
+        run: dotnet pack sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj --configuration Release -p:ContinuousIntegrationBuild=true --output "${{ runner.temp }}/nuget"
+
+      - name: Build and test @authcenter/client
+        working-directory: sdk/typescript
+        run: npm ci && npm test
+
+      - name: Upload packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: authcenter-sdk-packages
+          path: ${{ runner.temp }}/nuget/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish to NuGet
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "${{ runner.temp }}/nuget/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Publish to npm
+        if: github.event_name == 'push' || inputs.publish
+        working-directory: sdk/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

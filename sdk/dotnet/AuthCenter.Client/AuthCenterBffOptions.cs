@@ -28,9 +28,16 @@ public sealed class AuthCenterBffOptions
     public TimeSpan SessionLifetime { get; init; } = TimeSpan.FromHours(8);
     public TimeSpan RefreshBeforeExpiration { get; init; } = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Coordinates refresh-token rotation across instances through the distributed cache (see
+    /// <see cref="DistributedAuthCenterRefreshCoordinator"/>). Turn it on when the BFF runs on more
+    /// than one instance with a shared <c>IDistributedCache</c> and Data Protection key ring.
+    /// </summary>
+    public bool UseDistributedRefreshCoordination { get; init; }
+
     internal void Validate()
     {
-        if (!Authority.IsAbsoluteUri || Authority.Scheme != Uri.UriSchemeHttps ||
+        if (Authority is null || !Authority.IsAbsoluteUri || Authority.Scheme != Uri.UriSchemeHttps ||
             !string.IsNullOrEmpty(Authority.UserInfo) || !string.IsNullOrEmpty(Authority.Query) ||
             !string.IsNullOrEmpty(Authority.Fragment))
             throw new ArgumentException("AuthCenter authority must be an absolute HTTPS URI.", nameof(Authority));

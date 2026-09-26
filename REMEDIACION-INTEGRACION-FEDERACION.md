@@ -64,8 +64,14 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [x] **OIDC-02** No hay token exchange (RFC 8693).
   *Resuelto:* grant `urn:ietf:params:oauth:grant-type:token-exchange` (sólo clientes confidenciales autorizados): el `subject_token` debe haberse emitido al cliente o a una API de su aplicación; el token nuevo conserva `sub`, agrega `act` (anidando cadenas previas), se limita a los scopes del cliente en la API destino, usa los permisos de la aplicación de esa API y nunca dura más que el original. SDK: `ExchangeTokenAsync`. Pruebas: `TokenExchange_LetsAnApiCallAnotherApiOnBehalfOfTheUser`, contrato SDK.
 - [ ] **SAML-01** AuthCenter no puede actuar como IdP SAML para aplicaciones que sólo hablan SAML.
-- [ ] **DIS-01** El SDK no se distribuye: NuGet sólo como artefacto de CI, npm `private`, sólo
+- [x] **DIS-01** El SDK no se distribuye: NuGet sólo como artefacto de CI, npm `private`, sólo
   `net10.0`.
+  *Resuelto:* `AuthCenter.Client` 1.1.0 compila para `net8.0` (LTS, paquetes 8.0.31) y `net10.0`, con símbolos (`snupkg`) y metadatos; `@authcenter/client` 1.1.0 deja de ser privado (`publishConfig` público con provenance). Workflow `SDK release` (`.github/workflows/sdk-release.yml`): en una etiqueta `sdk-vX.Y.Z` comprueba que ambas versiones coinciden con la etiqueta, prueba, empaqueta y publica en NuGet y npm desde el entorno protegido `sdk-release`; manualmente sólo empaqueta salvo que se pida publicar. Los nombres `AuthCenter.Client` y `@authcenter/client` estaban libres al 2026-09-26. **Acción del propietario (OPS-14):** credenciales y entorno de publicación.
+- [P] **OPS-14** *(nuevo)* Publicación de los SDK: crear el entorno `sdk-release` con revisores,
+  los secretos `NUGET_API_KEY` y `NPM_TOKEN` (o trusted publishing de npm), la organización npm
+  `authcenter`, reservar el ID NuGet y confirmar la licencia (`package.json` declara MIT; falta el
+  archivo `LICENSE` y `PackageLicenseExpression` en NuGet). Después, publicar con la etiqueta
+  `sdk-v1.1.0`.
 
 ### B. SDK de integración
 
@@ -73,18 +79,23 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   *Resuelto:* el login del BFF lee `return_url` (y acepta `returnUrl`).
 - [x] **SDK-02** `ClientCredentialsAsync()` falla con los scopes por defecto (`invalid_scope`).
   *Resuelto:* sin scopes explícitos no se envía `scope` y AuthCenter emite los scopes de máquina permitidos.
-- [ ] **SDK-03** Endpoints `/oauth/*` codificados: ignoran discovery y el path base.
-- [ ] **SDK-04** No se incluye un coordinador de refresh distribuido.
+- [x] **SDK-03** Endpoints `/oauth/*` codificados: ignoran discovery y el path base.
+  *Resuelto:* `AuthCenterClient` lee sus endpoints del discovery (`GetDiscoveryDocumentAsync`, caché de una hora compartida por authority; exige `issuer` = authority y endpoints HTTPS) para token, revocación, introspección, UserInfo y logout; nuevos `BuildAuthorizationUriAsync`, `GetUserInfoAsync` y `BuildEndSessionUriAsync`; el path base del authority se conserva. SDK TypeScript igual (discovery validado). Pruebas: `SdkContractTests.LowLevelClient_UsesDiscovery_ForUserInfoAndLogout`, pruebas del SDK TS.
+- [x] **SDK-04** No se incluye un coordinador de refresh distribuido.
+  *Resuelto:* `DistributedAuthCenterRefreshCoordinator` sobre el `IDistributedCache` de los tickets: una instancia renueva y las demás esperan su resultado (compartido 30 s, cifrado con Data Protection; un rechazo también se comparte para no reutilizar el token), lock confirmado por relectura y opción de implementación propia para locks atómicos. Se activa con `UseDistributedRefreshCoordination` o `AddAuthCenterDistributedRefreshCoordination()`. Pruebas: `DistributedRefreshCoordinator_RefreshesOnceAcrossInstances_AndSharesTheResult`, `DistributedRefreshCoordinator_SharesARejectionInsteadOfReplayingTheToken`.
 - [x] **SDK-05** Un fallo de validación tras el refresh termina en HTTP 500.
   *Resuelto:* un token rotado que no valida cierra la sesión y responde `REFRESH_TOKEN_INVALID` (401).
 - [x] **SDK-06** No hay prueba de contrato SDK↔servidor en CI (la prueba unitaria usa claims
   sintéticos).
   *Resuelto:* `SdkContractTests` (categoría Conformance) ejecuta el SDK real contra el servidor: discovery, login BFF con `return_url`, roles y permisos, refresh, logout, API con `at+jwt`/audiencia/roles/permisos/scopes, refresh y revocación de bajo nivel y `client_credentials`.
-- [ ] **SDK-07** El SDK TypeScript no valida ID token/nonce/`iss`, no procesa el callback y no tiene
+- [x] **SDK-07** El SDK TypeScript no valida ID token/nonce/`iss`, no procesa el callback y no tiene
   userinfo ni logout.
-- [ ] **SDK-08** El quickstart SPA sólo tiene el botón de login.
-- [ ] **SDK-09** Falta sobrecarga basada en `IConfiguration` y documentación de `LoginUrl`,
+  *Resuelto:* `@authcenter/client` 1.1.0: `createSignInUrl`/`signInRedirect` (state, nonce y PKCE de un solo uso en `sessionStorage`, `prompt`, `max_age`, `login_hint`, `acr_values`, `idp`, `domain_hint`, `resource`, `returnTo` local), `handleCallback` (errores OAuth como `AuthCenterError`, canje PKCE, validación del ID token: firma RS256 con JWKS y rotación de llave, `iss`, `aud`/`azp`, `exp`/`iat`/`nbf`, `nonce`, `max_age`), `refresh` con `resource`, `revoke`, `userInfo`, `endSessionUrl`/`signOutRedirect`; endpoints por discovery. Pruebas: 11 (`sdk/typescript/test`), incluidos firma alterada, nonce, audiencia, issuer, expiración, reuso de state y rutas de retorno inseguras.
+- [x] **SDK-08** El quickstart SPA sólo tiene el botón de login.
+  *Resuelto:* `samples/spa` completo: login, callback validado, SSO silencioso (`prompt=none` con manejo de `login_required`), claims, UserInfo, llamada a una API con el access token (`VITE_API_URL`/`VITE_API_RESOURCE`) y logout global; tokens sólo en memoria; README con el registro del cliente (redirect, post-logout y CORS). El build compila TypeScript antes de Vite.
+- [x] **SDK-09** Falta sobrecarga basada en `IConfiguration` y documentación de `LoginUrl`,
   recursos y logout.
+  *Resuelto:* `AddAuthCenterBff(IConfiguration)`, `AddAuthCenterClient(IConfiguration)` y `AddAuthCenterJwtBearer(IConfiguration)` (errores con la ruta exacta de la clave faltante); samples .NET los usan. README del SDK y `docs/integration-quickstarts.md` documentan `LoginUrl`, registro del cliente, recursos, logout, federación y varias instancias. Prueba: `Configuration_BindsTheBffAndTheResourceServer`.
 - [x] **SDK-10** *(nuevo)* El BFF no permitía pedir `prompt`, `max_age`, `login_hint` ni
   `acr_values`, y un `prompt=none` sin sesión terminaba en un error genérico.
   *Resuelto:* `/auth/login` reenvía esos parámetros si están bien formados y `/auth/error` informa
@@ -218,7 +229,8 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **DOC-01** Conteos y estados desactualizados (plan admin, roadmap "Fase 5 lista",
   REMEDIACION, TODO).
 - [ ] **DOC-02** README: `traceId`, descripción del rol Admin, forma legacy de entregas.
-- [ ] **DOC-03** Guía de integración: `LoginUrl`, recursos de API, logout, federación y SDK.
+- [x] **DOC-03** Guía de integración: `LoginUrl`, recursos de API, logout, federación y SDK.
+  *Resuelto:* `docs/integration-quickstarts.md` reescrita: elección de flujo, paquetes, registro del cliente por tipo (redirects, `LoginUrl`, post-logout, back-channel, CORS, scopes), BFF, API protegida, SPA, parámetros SSO, logout, federación y despliegue con varias instancias.
 - [ ] **DOC-04** Runbooks de operador y soporte para la consola.
 
 ## Bitácora de avance
@@ -234,3 +246,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F6: catálogo de APIs (RFC 8707) con audiencia y permisos de la aplicación dueña, token exchange (RFC 8693), introspección (RFC 7662), SDK y samples alineados; la consola acepta scopes de API y el grant de token exchange (el editor del catálogo queda en UI-11). | TOK-02, OIDC-01, OIDC-02, DISC-01 |
 | 2026-09-26 | F7: límites de tasa por IP, cuenta y cliente OAuth con reglas configurables; CORS por endpoint con orígenes por cliente y sin CORS para la sesión hospedada. | RL-01, CORS-01 |
 | 2026-09-26 | F8: federación empresarial conectada al login hospedado y a `/oauth/authorize` (descubrimiento por dominio, `idp`/`domain_hint`, callback OIDC y ACS con resultado ligado al navegador, compuerta de política y MFA), interoperabilidad OIDC/SAML (issuer, `email_verified`, firmas de aserción, cifrado), mapeo de grupos y MFA del IdP, prueba de conexión, consola y SDK; hallazgos nuevos SEC-10 (federación sin MFA/política) y ACS con sesión existente. | FED-01, FED-02, SEC-03, SEC-04, SEC-06, SEC-10, ADM-04, ADM-08, UI-10 |
+| 2026-09-26 | F9: SDK TypeScript completo (callback, validación del ID token, UserInfo, logout), quickstart SPA, SDK .NET con discovery, coordinador de refresh distribuido y configuración por `IConfiguration`, multi-target net8/net10, paquetes publicables y workflow de publicación; guía de integración. | DIS-01, SDK-03/04/07/08/09, DOC-03, OPS-14 |

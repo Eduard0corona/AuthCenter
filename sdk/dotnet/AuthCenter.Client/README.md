@@ -1,7 +1,8 @@
 # AuthCenter.Client
 
-SDK para integrar aplicaciones ASP.NET Core con AuthCenter como proveedor OAuth 2.0/OpenID
-Connect. Incluye dos perfiles:
+SDK para integrar aplicaciones ASP.NET Core (.NET 8 LTS y .NET 10) con AuthCenter como proveedor
+OAuth 2.0/OpenID Connect. Se instala con `dotnet add package AuthCenter.Client`. Incluye dos
+perfiles:
 
 - BFF web confidencial: Authorization Code + PKCE, sesión opaca y tokens cifrados sólo en el
   servidor.
@@ -15,16 +16,27 @@ scopes `openid profile email offline_access` y la URI exacta
 `https://app.example.com/signin-authcenter`. Guarda el secreto en Key Vault o en el secret store
 del entorno; nunca en `appsettings.json`.
 
+En AuthCenter, el `LoginUrl` del cliente es el login hospedado (`https://<host-de-AuthCenter>/login`);
+registra también la URI de post-logout `https://app.example.com/signout-callback-authcenter` y la
+URI de back-channel logout `https://app.example.com/auth/backchannel-logout` (ver "Logout").
+
+```json
+{
+  "AuthCenter": {
+    "Authority": "https://identity.example.com",
+    "ClientId": "shop-web",
+    "Scopes": [ "openid", "profile", "email", "offline_access" ]
+  }
+}
+```
+
 ```csharp
 using AuthCenter.Client;
 
-var authCenter = builder.Configuration.GetRequiredSection("AuthCenter");
-builder.Services.AddAuthCenterBff(new AuthCenterBffOptions
-{
-    Authority = new Uri(authCenter["Authority"]!),
-    ClientId = authCenter["ClientId"]!,
-    ClientSecret = authCenter["ClientSecret"]!
-});
+// Authority, ClientId y ClientSecret (desde el secret store) son obligatorios; el resto de
+// propiedades de AuthCenterBffOptions (Scopes, Resource, rutas, SessionLifetime,
+// UseDistributedRefreshCoordination…) son opcionales y conservan su valor por defecto.
+builder.Services.AddAuthCenterBff(builder.Configuration.GetRequiredSection("AuthCenter"));
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Orders.Read", policy => policy
@@ -118,9 +130,9 @@ La audiencia es el identificador de la API en el catálogo de AuthCenter; los pe
 en la aplicación dueña de la API:
 
 ```csharp
-var authority = new Uri(builder.Configuration["AuthCenter:Authority"]!);
+// appsettings: "AuthCenter": { "Authority": "https://identity.example.com", "Audience": "https://orders.example.com/api" }
 builder.Services.AddAuthentication()
-    .AddAuthCenterJwtBearer(authority, "https://orders.example.com/api");
+    .AddAuthCenterJwtBearer(builder.Configuration.GetRequiredSection("AuthCenter"));
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Orders.Read", policy => policy
@@ -157,21 +169,33 @@ var machine = await client.ClientCredentialsForResourceAsync("https://shipping.e
 var state = await client.IntrospectAsync(userAccessToken);
 ```
 
+`AuthCenterClient` lee sus endpoints del documento de discovery (`GetDiscoveryDocumentAsync`,
+en caché una hora; el `issuer` debe ser el `Authority` y todos los endpoints HTTPS), por lo que
+funciona con un `Authority` con path base. También ofrece `BuildAuthorizationUriAsync`,
+`GetUserInfoAsync` y `BuildEndSessionUriAsync` para aplicaciones que no usan el BFF. La sobrecarga
+`AddAuthCenterClient(IConfiguration)` lee `Authority`, `ClientId`, `ClientSecret` y `Scopes`.
+
 ## Requisitos de producción
 
 - Reemplaza `IDistributedCache` en memoria por Redis o SQL distribuido antes de escalar a más de
   una instancia.
 - Persiste las claves de ASP.NET Core Data Protection en almacenamiento compartido y protégelas
   con Key Vault. Sin un key ring común, otra instancia no podrá abrir el ticket.
-- Sustituye `IAuthCenterRefreshCoordinator` por un coordinador distribuido si hay múltiples
-  instancias. Debe deduplicar la rotación y compartir brevemente el resultado; un lock sin replay
-  no basta porque una request que ya cargó el ticket anterior intentaría reutilizar el token.
+- Con varias instancias activa `UseDistributedRefreshCoordination` (o llama
+  `services.AddAuthCenterDistributedRefreshCoordination()`): AuthCenter rota los refresh tokens y
+  trata un segundo uso como robo (revoca la sesión), así que dos instancias no deben renovar la
+  misma sesión a la vez. El coordinador usa el mismo `IDistributedCache` que los tickets: una
+  instancia renueva y las demás esperan su resultado, que se comparte 30 s cifrado con Data
+  Protection (el key ring debe ser común). `IDistributedCache` no tiene un "agregar si no existe"
+  atómico: el lock se confirma releyéndolo tras una espera corta; si necesitas garantía estricta,
+  implementa `IAuthCenterRefreshCoordinator` sobre un almacén con locks atómicos.
 - Configura correctamente los forwarded headers del proxy de confianza para que el callback se
   genere con el host y esquema HTTPS públicos. No confíes proxies arbitrarios.
 - Usa HTTPS extremo a extremo, allow-list de hosts, CSP y límites de tasa en el BFF.
 - Mantén `ClientSecret` en Key Vault; `Authority` y `ClientId` no son secretos.
-- El logout del SDK revoca la sesión de esta aplicación. AuthCenter todavía no publica
-  `end_session_endpoint`, por lo que no cierra automáticamente la sesión SSO hospedada.
+- `/auth/logout` revoca la sesión de esta aplicación; `GET /auth/logout?sid=` cierra también la
+  sesión SSO de AuthCenter (`end_session_endpoint`), y el back-channel logout cierra esta sesión
+  cuando el usuario sale desde otra aplicación.
 
 El paquete no registra logging de tokens y las respuestas de sesión/refresh/logout se marcan
 `no-store`.

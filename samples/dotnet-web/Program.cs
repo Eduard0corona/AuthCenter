@@ -2,17 +2,11 @@ using AuthCenter.Client;
 using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
-var section = builder.Configuration.GetRequiredSection("AuthCenter");
 
-builder.Services.AddAuthCenterBff(new AuthCenterBffOptions
-{
-    Authority = new Uri(section["Authority"] ?? throw new InvalidOperationException("Set AuthCenter:Authority.")),
-    ClientId = section["ClientId"] ?? throw new InvalidOperationException("Set AuthCenter:ClientId."),
-    ClientSecret = section["ClientSecret"] ?? throw new InvalidOperationException("Set AuthCenter:ClientSecret in a secret store."),
-    // Optional: the API this BFF calls (see samples/dotnet-api). Its scopes must be requested too.
-    Resource = section["Resource"],
-    Scopes = section.GetSection("Scopes").Get<string[]>() ?? ["openid", "profile", "email", "offline_access"]
-});
+// Authority, ClientId and ClientSecret (from a secret store) are required. Resource names the API
+// this BFF calls (see samples/dotnet-api); its scopes must be in Scopes too. With several
+// instances, set UseDistributedRefreshCoordination and a shared IDistributedCache.
+builder.Services.AddAuthCenterBff(builder.Configuration.GetRequiredSection("AuthCenter"));
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("Orders.Read", policy => policy

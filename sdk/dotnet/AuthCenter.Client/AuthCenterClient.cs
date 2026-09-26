@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -9,6 +10,102 @@ namespace AuthCenter.Client;
 public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOptions options)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan DiscoveryLifetime = TimeSpan.FromHours(1);
+
+    // Discovery is public metadata of an authority, shared by every client instance of the process.
+    private static readonly ConcurrentDictionary<string, (Task<AuthCenterDiscoveryDocument> Document, DateTimeOffset ExpiresAt)> Discovery = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Reads AuthCenter's OpenID Connect discovery document (cached for an hour). Its issuer must be
+    /// the configured authority and every endpoint must use HTTPS; the token, revocation,
+    /// introspection, UserInfo and logout calls of this client use its endpoints.
+    /// </summary>
+    public async Task<AuthCenterDiscoveryDocument> GetDiscoveryDocumentAsync(CancellationToken ct = default)
+    {
+        var key = options.Authority.AbsoluteUri.TrimEnd('/');
+        var entry = Discovery.GetOrAdd(key, _ => (LoadDiscoveryAsync(), DateTimeOffset.UtcNow.Add(DiscoveryLifetime)));
+        if (entry.ExpiresAt <= DateTimeOffset.UtcNow || entry.Document.IsFaulted || entry.Document.IsCanceled)
+        {
+            var fresh = (LoadDiscoveryAsync(), DateTimeOffset.UtcNow.Add(DiscoveryLifetime));
+            entry = Discovery.TryUpdate(key, fresh, entry) ? fresh : Discovery[key];
+        }
+        try
+        {
+            return await entry.Document.WaitAsync(ct);
+        }
+        catch when (entry.Document.IsFaulted)
+        {
+            Discovery.TryRemove(new KeyValuePair<string, (Task<AuthCenterDiscoveryDocument>, DateTimeOffset)>(key, entry));
+            throw;
+        }
+    }
+
+    private async Task<AuthCenterDiscoveryDocument> LoadDiscoveryAsync()
+    {
+        using var response = await httpClient.GetAsync(Endpoint(".well-known/openid-configuration"), CancellationToken.None);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"AuthCenter discovery failed with status {(int)response.StatusCode}.", null, response.StatusCode);
+        var document = await response.Content.ReadFromJsonAsync<AuthCenterDiscoveryDocument>(Json)
+            ?? throw new InvalidOperationException("AuthCenter returned an empty discovery document.");
+        if (!string.Equals(document.Issuer.TrimEnd('/'), options.Authority.AbsoluteUri.TrimEnd('/'), StringComparison.Ordinal))
+            throw new InvalidOperationException("The AuthCenter discovery document belongs to another issuer.");
+        foreach (var endpoint in new[] { document.AuthorizationEndpoint, document.TokenEndpoint, document.JwksUri })
+            if (!IsHttps(endpoint)) throw new InvalidOperationException("The AuthCenter discovery document has an endpoint that is not HTTPS.");
+        foreach (var endpoint in new[] { document.RevocationEndpoint, document.IntrospectionEndpoint, document.UserInfoEndpoint, document.EndSessionEndpoint })
+            if (endpoint is not null && !IsHttps(endpoint)) throw new InvalidOperationException("The AuthCenter discovery document has an endpoint that is not HTTPS.");
+        return document;
+    }
+
+    /// <summary>
+    /// Builds the authorization request against the discovered authorization endpoint; same
+    /// parameters as <see cref="BuildAuthorizationUri"/>.
+    /// </summary>
+    public async Task<Uri> BuildAuthorizationUriAsync(
+        Uri redirectUri,
+        string state,
+        string nonce,
+        PkcePair pkce,
+        IEnumerable<string>? scopes = null,
+        IEnumerable<string>? resources = null,
+        string? identityProvider = null,
+        string? domainHint = null,
+        CancellationToken ct = default)
+    {
+        var conventional = BuildAuthorizationUri(redirectUri, state, nonce, pkce, scopes, resources, identityProvider, domainHint);
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        return new UriBuilder(discovery.AuthorizationEndpoint) { Query = conventional.Query.TrimStart('?') }.Uri;
+    }
+
+    /// <summary>OpenID Connect UserInfo claims for an access token issued with <c>openid</c>.</summary>
+    public async Task<JsonElement> GetUserInfoAsync(string accessToken, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, discovery.UserInfoEndpoint ?? Endpoint("oauth/userinfo").AbsoluteUri);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        using var response = await httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(await response.Content.ReadAsStringAsync(ct), null, response.StatusCode);
+        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// RP-initiated logout URL (<c>end_session_endpoint</c>): ends the AuthCenter single sign-on
+    /// session and returns to <paramref name="postLogoutRedirectUri"/>, which must be registered.
+    /// </summary>
+    public async Task<Uri> BuildEndSessionUriAsync(string? idTokenHint = null, Uri? postLogoutRedirectUri = null, string? state = null, CancellationToken ct = default)
+    {
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        var query = new List<KeyValuePair<string, string>> { new("client_id", options.ClientId) };
+        if (!string.IsNullOrWhiteSpace(idTokenHint)) query.Add(new("id_token_hint", idTokenHint));
+        if (postLogoutRedirectUri is not null) query.Add(new("post_logout_redirect_uri", postLogoutRedirectUri.AbsoluteUri));
+        if (!string.IsNullOrWhiteSpace(state)) query.Add(new("state", state));
+        return new UriBuilder(discovery.EndSessionEndpoint ?? Endpoint("oauth/logout").AbsoluteUri)
+        {
+            Query = string.Join('&', query.Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value)}"))
+        }.Uri;
+    }
 
     /// <summary>
     /// Builds the authorization request. <paramref name="resources"/> are RFC 8707 resource
@@ -143,7 +240,8 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
         var values = new Dictionary<string, string> { ["token"] = token, ["client_id"] = options.ClientId };
         if (!string.IsNullOrWhiteSpace(tokenTypeHint))
             values["token_type_hint"] = tokenTypeHint;
-        using var request = CreateFormRequest("oauth/introspect", values);
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        using var request = CreateFormRequest(discovery.IntrospectionEndpoint ?? Endpoint("oauth/introspect").AbsoluteUri, values);
         using var response = await httpClient.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException(await response.Content.ReadAsStringAsync(ct), null, response.StatusCode);
@@ -153,7 +251,8 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
 
     public async Task RevokeAsync(string token, CancellationToken ct = default)
     {
-        using var request = CreateFormRequest("oauth/revoke", new Dictionary<string, string> { ["token"] = token, ["client_id"] = options.ClientId });
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        using var request = CreateFormRequest(discovery.RevocationEndpoint ?? Endpoint("oauth/revoke").AbsoluteUri, new Dictionary<string, string> { ["token"] = token, ["client_id"] = options.ClientId });
         using var response = await httpClient.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
     }
@@ -169,7 +268,8 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
 
     private async Task<OAuthTokenSet> RequestTokenAsync(Dictionary<string, string> values, CancellationToken ct)
     {
-        using var request = CreateFormRequest("oauth/token", values);
+        var discovery = await GetDiscoveryDocumentAsync(ct);
+        using var request = CreateFormRequest(discovery.TokenEndpoint, values);
         using var response = await httpClient.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException(await response.Content.ReadAsStringAsync(ct), null, response.StatusCode);
@@ -181,9 +281,9 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
     private Uri Endpoint(string relativePath) =>
         new(new Uri(options.Authority.AbsoluteUri.TrimEnd('/') + "/"), relativePath);
 
-    private HttpRequestMessage CreateFormRequest(string path, Dictionary<string, string> values)
+    private HttpRequestMessage CreateFormRequest(string endpoint, Dictionary<string, string> values)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, Endpoint(path)) { Content = new FormUrlEncodedContent(values) };
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new FormUrlEncodedContent(values) };
         if (!string.IsNullOrEmpty(options.ClientSecret))
         {
             var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(options.ClientId)}:{Uri.EscapeDataString(options.ClientSecret)}"));
@@ -195,4 +295,6 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
     }
 
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static bool IsHttps(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 }

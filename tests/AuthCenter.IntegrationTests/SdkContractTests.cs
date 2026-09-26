@@ -335,6 +335,32 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
     }
 
     [Fact]
+    public async Task LowLevelClient_UsesDiscovery_ForUserInfoAndLogout()
+    {
+        using var admin = await CreateAdminClientAsync();
+        const string redirect = "https://discovery.test/callback";
+        var (clientId, secret) = await RegisterClientAsync(admin, redirect, ["openid", "profile", "email"], ["authorization_code"]);
+        var sdk = CreateSdkClient(clientId, secret, ["openid", "profile", "email"]);
+
+        var discovery = await sdk.GetDiscoveryDocumentAsync();
+        Assert.Equal(HttpsAuthCenterFactory.Authority, discovery.Issuer.TrimEnd('/'));
+        Assert.Equal($"{HttpsAuthCenterFactory.Authority}/oauth/userinfo", discovery.UserInfoEndpoint);
+        var authorize = await sdk.BuildAuthorizationUriAsync(new Uri(redirect), "state-value", "nonce-value", AuthCenterClient.CreatePkce(), domainHint: "contoso.com");
+        Assert.Equal($"{HttpsAuthCenterFactory.Authority}/oauth/authorize", authorize.GetLeftPart(UriPartial.Path));
+        Assert.Equal("contoso.com", QueryHelpers.ParseQuery(authorize.Query)["domain_hint"].ToString());
+
+        var tokens = await AuthorizeWithSdkAsync(sdk, admin, redirect);
+        var userInfo = await sdk.GetUserInfoAsync(tokens.AccessToken);
+        Assert.Equal(AuthCenterWebApplicationFactory.AdminEmail, userInfo.GetProperty("email").GetString());
+
+        var logout = await sdk.BuildEndSessionUriAsync(tokens.IdToken, state: "after-logout");
+        Assert.Equal($"{HttpsAuthCenterFactory.Authority}/oauth/logout", logout.GetLeftPart(UriPartial.Path));
+        var query = QueryHelpers.ParseQuery(logout.Query);
+        Assert.Equal(tokens.IdToken, query["id_token_hint"].ToString());
+        Assert.Equal(clientId, query["client_id"].ToString());
+    }
+
+    [Fact]
     public async Task ClientCredentials_WithoutExplicitScopes_ReceivesTheClientsMachineScopes()
     {
         using var admin = await CreateAdminClientAsync();

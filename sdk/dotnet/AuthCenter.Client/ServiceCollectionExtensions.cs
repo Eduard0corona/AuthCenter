@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +14,23 @@ namespace AuthCenter.Client;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Low-level client from configuration, for example the <c>AuthCenter</c> section:
+    /// <c>Authority</c>, <c>ClientId</c>, optional <c>ClientSecret</c> and <c>Scopes</c>.
+    /// </summary>
+    public static IServiceCollection AddAuthCenterClient(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var defaults = new AuthCenterClientOptions { Authority = new Uri("https://authcenter.invalid"), ClientId = "defaults" };
+        return services.AddAuthCenterClient(new AuthCenterClientOptions
+        {
+            Authority = RequiredUri(configuration, "Authority"),
+            ClientId = Required(configuration, "ClientId"),
+            ClientSecret = Optional(configuration, "ClientSecret"),
+            Scopes = configuration.GetSection("Scopes").Get<string[]>() ?? defaults.Scopes
+        });
+    }
+
     public static IServiceCollection AddAuthCenterClient(this IServiceCollection services, AuthCenterClientOptions options)
     {
         if (!IsSecureAuthority(options.Authority))
@@ -24,6 +44,22 @@ public static class ServiceCollectionExtensions
 
     public static AuthenticationBuilder AddAuthCenterJwtBearer(this AuthenticationBuilder builder, Uri authority, string audience, string scheme = JwtBearerDefaults.AuthenticationScheme) =>
         AddAuthCenterJwtBearer(builder, authority, [audience], scheme);
+
+    /// <summary>
+    /// Resource-server validation from configuration: <c>Authority</c> and <c>Audience</c> (or an
+    /// <c>Audiences</c> array), plus <c>RequireAccessTokenType</c> (default true).
+    /// </summary>
+    public static AuthenticationBuilder AddAuthCenterJwtBearer(this AuthenticationBuilder builder, IConfiguration configuration, string scheme = JwtBearerDefaults.AuthenticationScheme)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var audiences = configuration.GetSection("Audiences").Get<string[]>() ?? [];
+        if (Optional(configuration, "Audience") is { } audience)
+            audiences = [audience, .. audiences];
+        if (audiences.Length == 0)
+            throw new InvalidOperationException($"Set {Path(configuration, "Audience")} (or {Path(configuration, "Audiences")}) to the API identifier registered in AuthCenter.");
+        return AddAuthCenterJwtBearer(builder, RequiredUri(configuration, "Authority"), audiences, scheme,
+            configuration.GetValue("RequireAccessTokenType", true));
+    }
 
     /// <summary>
     /// Validates AuthCenter access tokens: RS256 signature from discovery/JWKS, exact issuer, one of
@@ -73,6 +109,51 @@ public static class ServiceCollectionExtensions
         });
     }
 
+    /// <summary>
+    /// BFF from configuration, for example the <c>AuthCenter</c> section. <c>Authority</c>,
+    /// <c>ClientId</c> and <c>ClientSecret</c> are required (keep the secret in a secret store);
+    /// every other <see cref="AuthCenterBffOptions"/> property is optional and keeps its default.
+    /// </summary>
+    public static IServiceCollection AddAuthCenterBff(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var defaults = new AuthCenterBffOptions { Authority = new Uri("https://authcenter.invalid"), ClientId = "defaults", ClientSecret = "defaults" };
+        return services.AddAuthCenterBff(new AuthCenterBffOptions
+        {
+            Authority = RequiredUri(configuration, "Authority"),
+            ClientId = Required(configuration, "ClientId"),
+            ClientSecret = Required(configuration, "ClientSecret"),
+            Scopes = configuration.GetSection("Scopes").Get<string[]>() ?? defaults.Scopes,
+            Resource = Optional(configuration, "Resource"),
+            CookieName = Optional(configuration, "CookieName") ?? defaults.CookieName,
+            CallbackPath = Optional(configuration, "CallbackPath") ?? defaults.CallbackPath,
+            LoginPath = Optional(configuration, "LoginPath") ?? defaults.LoginPath,
+            LogoutPath = Optional(configuration, "LogoutPath") ?? defaults.LogoutPath,
+            SessionPath = Optional(configuration, "SessionPath") ?? defaults.SessionPath,
+            RefreshPath = Optional(configuration, "RefreshPath") ?? defaults.RefreshPath,
+            RemoteFailurePath = Optional(configuration, "RemoteFailurePath") ?? defaults.RemoteFailurePath,
+            SignedOutCallbackPath = Optional(configuration, "SignedOutCallbackPath") ?? defaults.SignedOutCallbackPath,
+            BackchannelLogoutPath = Optional(configuration, "BackchannelLogoutPath") ?? defaults.BackchannelLogoutPath,
+            SessionLifetime = configuration.GetValue("SessionLifetime", defaults.SessionLifetime),
+            RefreshBeforeExpiration = configuration.GetValue("RefreshBeforeExpiration", defaults.RefreshBeforeExpiration),
+            UseDistributedRefreshCoordination = configuration.GetValue("UseDistributedRefreshCoordination", false)
+        });
+    }
+
+    /// <summary>
+    /// Replaces the per-instance refresh coordinator with <see cref="DistributedAuthCenterRefreshCoordinator"/>
+    /// (the BFF runs on several instances with a shared distributed cache and Data Protection key ring).
+    /// </summary>
+    public static IServiceCollection AddAuthCenterDistributedRefreshCoordination(this IServiceCollection services, DistributedRefreshCoordinationOptions? options = null)
+    {
+        services.RemoveAll<IAuthCenterRefreshCoordinator>();
+        services.AddSingleton<IAuthCenterRefreshCoordinator>(provider => new DistributedAuthCenterRefreshCoordinator(
+            provider.GetRequiredService<IDistributedCache>(),
+            provider.GetRequiredService<IDataProtectionProvider>(),
+            options));
+        return services;
+    }
+
     public static IServiceCollection AddAuthCenterBff(
         this IServiceCollection services,
         AuthCenterBffOptions options)
@@ -104,7 +185,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ProtectedDistributedTicketStore>();
         services.AddSingleton<AuthCenterBackchannelLogout>();
         services.AddSingleton<AuthCenterAccessTokenValidator>();
-        services.TryAddSingleton<IAuthCenterRefreshCoordinator, InMemoryAuthCenterRefreshCoordinator>();
+        if (options.UseDistributedRefreshCoordination)
+            services.AddAuthCenterDistributedRefreshCoordination();
+        else
+            services.TryAddSingleton<IAuthCenterRefreshCoordinator, InMemoryAuthCenterRefreshCoordinator>();
         services.AddScoped<IAuthCenterBffSessionManager, AuthCenterBffSessionManager>();
         services.AddScoped<AuthCenterOpenIdConnectEvents>();
         services.AddHttpContextAccessor();
@@ -183,6 +267,20 @@ public static class ServiceCollectionExtensions
         context.Response.Redirect(context.RedirectUri);
         return Task.CompletedTask;
     }
+
+    private static string Required(IConfiguration configuration, string key) =>
+        Optional(configuration, key) ?? throw new InvalidOperationException($"Set {Path(configuration, key)} in the application configuration.");
+
+    private static string? Optional(IConfiguration configuration, string key) =>
+        string.IsNullOrWhiteSpace(configuration[key]) ? null : configuration[key]!.Trim();
+
+    private static Uri RequiredUri(IConfiguration configuration, string key) =>
+        Uri.TryCreate(Required(configuration, key), UriKind.Absolute, out var uri)
+            ? uri
+            : throw new InvalidOperationException($"{Path(configuration, key)} must be an absolute URI.");
+
+    private static string Path(IConfiguration configuration, string key) =>
+        configuration is IConfigurationSection section ? $"{section.Path}:{key}" : key;
 
     private static bool IsSecureAuthority(Uri authority) =>
         authority.IsAbsoluteUri &&
