@@ -206,6 +206,43 @@ public sealed class AuthCenterClientSdkTests
         Assert.All(results, result => Assert.Equal("new-refresh-token", result.RefreshToken));
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(new[] { "orders.read", "orders.read" }, "orders.read")]
+    public async Task ClientCredentials_SendsOnlyExplicitMachineScopes(string[]? scopes, string? expectedScope)
+    {
+        var handler = new CapturingHandler();
+        var client = new AuthCenterClient(new HttpClient(handler), new AuthCenterClientOptions
+        {
+            Authority = new Uri("https://identity.example.test"),
+            ClientId = "orders-worker",
+            ClientSecret = "test-only-secret-with-32-characters"
+        });
+
+        await client.ClientCredentialsAsync(scopes);
+
+        var form = System.Web.HttpUtility.ParseQueryString(handler.Body!);
+        Assert.Equal("client_credentials", form["grant_type"]);
+        Assert.Equal(expectedScope, form["scope"]);
+        Assert.Equal("Basic", handler.Authorization?.Scheme);
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+        public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Authorization = request.Headers.Authorization;
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"access_token\":\"token\",\"token_type\":\"Bearer\",\"expires_in\":900}", System.Text.Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
     private static AuthCenterBffOptions ValidOptions() => new()
     {
         Authority = new Uri("https://identity.example.test"),

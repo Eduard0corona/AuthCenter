@@ -54,11 +54,14 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### B. SDK de integración
 
-- [ ] **SDK-01** El parámetro documentado `?return_url=` se ignora (se enlaza como `returnUrl`).
-- [ ] **SDK-02** `ClientCredentialsAsync()` falla con los scopes por defecto (`invalid_scope`).
+- [x] **SDK-01** El parámetro documentado `?return_url=` se ignora (se enlaza como `returnUrl`).
+  *Resuelto:* el login del BFF lee `return_url` (y acepta `returnUrl`).
+- [x] **SDK-02** `ClientCredentialsAsync()` falla con los scopes por defecto (`invalid_scope`).
+  *Resuelto:* sin scopes explícitos no se envía `scope` y AuthCenter emite los scopes de máquina permitidos.
 - [ ] **SDK-03** Endpoints `/oauth/*` codificados: ignoran discovery y el path base.
 - [ ] **SDK-04** No se incluye un coordinador de refresh distribuido.
-- [ ] **SDK-05** Un fallo de validación tras el refresh termina en HTTP 500.
+- [x] **SDK-05** Un fallo de validación tras el refresh termina en HTTP 500.
+  *Resuelto:* un token rotado que no valida cierra la sesión y responde `REFRESH_TOKEN_INVALID` (401).
 - [ ] **SDK-06** No hay prueba de contrato SDK↔servidor en CI (la prueba unitaria usa claims
   sintéticos).
 - [ ] **SDK-07** El SDK TypeScript no valida ID token/nonce/`iss`, no procesa el callback y no tiene
@@ -69,20 +72,32 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### C. Seguridad
 
-- [ ] **SEC-01** Los 39 validadores FluentValidation están registrados pero nunca se ejecutan (la API
+- [x] **SEC-01** Los 39 validadores FluentValidation están registrados pero nunca se ejecutan (la API
   aceptó un cliente con redirect `http://`, grant `password` y tokens de un año).
-- [ ] **SEC-02** Redirección abierta en el login hospedado (`return_url=/\evil.example`).
-- [ ] **SEC-03** La federación reactiva accesos revocados por un administrador.
+  *Resuelto:* filtro global `RequestValidationFilter` que ejecuta el validador de cada argumento; los códigos estables se conservan con `WithErrorCode`. Pruebas: `RequestValidationTests`.
+- [x] **SEC-02** Redirección abierta en el login hospedado (`return_url=/\evil.example`).
+  *Resuelto:* `safeLocalPath` resuelve la ruta contra el origen y rechaza barras invertidas y caracteres de control. Pruebas: `tests/AuthCenter.HostedUi.Tests`.
+- [~] **SEC-03** La federación reactiva accesos revocados por un administrador.
+  *Código corregido:* sólo se concede acceso JIT si nunca hubo asignación; un registro revocado o pendiente se rechaza con `ACCESS_DENIED` y auditoría. La prueba de extremo a extremo llega con el IdP de pruebas de FED-01.
 - [ ] **SEC-04** `/api/federation/route` es anónimo y permite sondear grupos/atributos por email.
-- [ ] **SEC-05** Los usuarios con contraseña temporal no pueden entrar por el login hospedado.
+- [x] **SEC-05** Los usuarios con contraseña temporal no pueden entrar por el login hospedado.
+  *Resuelto:* el login hospedado recibe `requiresPasswordChange` y completa el cambio en `POST /ui-api/session/forced-change`. Pruebas: `ForcedPasswordChangeTests`.
 - [ ] **SEC-06** Interoperabilidad con IdPs: issuer con `/` final, `email_verified` obligatorio,
   firma SAML sólo a nivel Response, entity IDs no HTTPS, aserciones cifradas.
-- [ ] **SEC-07** `AllowPasswordLogin` no se aplica en el login (no hay aplicaciones sólo federadas).
+- [x] **SEC-07** `AllowPasswordLogin` no se aplica en el login (no hay aplicaciones sólo federadas).
+  *Resuelto:* `AllowPasswordLogin=false` rechaza con `PASSWORD_LOGIN_DISABLED` antes de verificar la contraseña. Prueba: `PasswordLogin_DisabledForApplication_IsRejectedWithoutRevealingPasswordValidity`.
+- [x] **SEC-08** *(nuevo, hallado durante la remediación)* El cambio de contraseña forzado emitía
+  tokens sin pasar por la política de acceso ni por el MFA: con la contraseña de un usuario con MFA
+  y cambio pendiente se evitaba el segundo factor.
+  *Resuelto:* el cambio forzado ejecuta la misma compuerta que el login (`MFA_REQUIRED` cuando
+  corresponde). Prueba: `ForcedChange_WithEnabledMfa_StillRequiresTheSecondFactor`.
 
 ### D. Backend administrativo y Event Hooks
 
-- [ ] **HOOK-01** Reenviar dos veces la misma entrega fallida no la vuelve a encolar.
-- [ ] **HOOK-02** El listado de entregas se corta en 20 elementos.
+- [x] **HOOK-01** Reenviar dos veces la misma entrega fallida no la vuelve a encolar.
+  *Resuelto:* al volver a dead-letter se limpia la clave del replay anterior y la consola envía un `Idempotency-Key` nuevo por acción. Prueba relacional: `EventHookReplayRelationalTests`.
+- [x] **HOOK-02** El listado de entregas se corta en 20 elementos.
+  *Resuelto:* la consola usa el contrato paginado con filtros; la forma legacy devuelve hasta 100 elementos y `X-Total-Count`.
 - [ ] **HOOK-03** Faltan catálogo de tipos de evento, rotación de secreto y `CreatedAt` en entregas.
 - [ ] **ADM-01** Filtro de auditoría por entidad (`EntityName`/`EntityId`).
 - [ ] **ADM-02** Concurrencia optimista en usuarios, aplicaciones, roles, grupos, permisos,
@@ -137,7 +152,8 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [P] **OPS-06** Purgar del historial la llave RSA retirada (requiere reescritura autorizada).
 - [P] **OPS-07** Origen real del frontend en CORS y ActionLinks.
 - [ ] **OPS-08** Vulnerabilidades moderadas npm (vitest) y parches NuGet 10.0.12.
-- [ ] **OPS-09** Las pruebas relacionales "pasan" sin ejecutarse cuando no hay SQL Server.
+- [x] **OPS-09** Las pruebas relacionales "pasan" sin ejecutarse cuando no hay SQL Server.
+  *Resuelto:* atributo `[RelationalFact]`: sin SQL Server las pruebas se reportan como omitidas.
 - [P] **OPS-10** Ramas remotas ya integradas.
 - [ ] **OPS-11** Dependabot, presupuesto de bundle y cobertura en CI.
 - [ ] **OPS-12** Pruebas de carga con directorios grandes.
@@ -155,3 +171,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | Fecha | Cambio | Puntos |
 |---|---|---|
 | 2026-09-26 | Documento de seguimiento creado a partir del análisis. | — |
+| 2026-09-26 | F1: validación en la frontera de la API, redirección abierta, contraseña temporal y bypass de MFA, `AllowPasswordLogin`, acceso JIT, Event Hooks, pruebas relacionales y defectos del SDK. | SEC-01/02/03/05/07/08, HOOK-01/02, OPS-09, SDK-01/02/05 |

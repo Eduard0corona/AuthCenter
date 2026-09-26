@@ -18,6 +18,16 @@ export async function api(path, options = {}) {
   return payload?.data ?? payload;
 }
 
+// Resolves a caller-supplied return path and accepts it only when it stays on this origin.
+// Backslashes and control characters are rejected because browsers normalize "/\\host" to
+// "//host", which would otherwise turn a local-looking path into an open redirect.
+export function safeLocalPath(value, origin, fallback) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || /[\u0000-\u001f\\]/.test(value)) return fallback;
+  let resolved;
+  try { resolved = new URL(value, origin); } catch { return fallback; }
+  return resolved.origin === new URL(origin).origin ? `${resolved.pathname}${resolved.search}${resolved.hash}` : fallback;
+}
+
 export async function requireSession() {
   try {
     const session = await api("/ui-api/session");

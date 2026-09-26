@@ -1,7 +1,8 @@
-import { api, appendTheme, normalizeRequestOptions, serializeCredential, setCsrf, status } from "./shared.js";
+import { api, appendTheme, normalizeRequestOptions, safeLocalPath, serializeCredential, setCsrf, status } from "./shared.js";
 
 const loginForm = document.querySelector("#login-form");
 const mfaForm = document.querySelector("#mfa-form");
+const passwordChangeForm = document.querySelector("#password-change-form");
 const message = document.querySelector("#status");
 const application = document.querySelector("#application");
 const email = document.querySelector("#email");
@@ -9,6 +10,7 @@ const password = document.querySelector("#password");
 const params = new URLSearchParams(location.search);
 const interactionId = params.get("interaction_id");
 let mfaPendingToken = "";
+let passwordChangeToken = "";
 let themeCode = "";
 
 application.value = params.get("application") || application.value;
@@ -24,18 +26,59 @@ loginForm.addEventListener("submit", async event => {
       method: "POST",
       body: JSON.stringify({ email: email.value, password: password.value, applicationCode: application.value })
     });
-    if (result.requiresMfa) {
-      mfaPendingToken = result.mfaPendingToken;
-      loginForm.hidden = true;
-      mfaForm.hidden = false;
-      document.querySelector("#mfa-code").focus();
-      status(message, "Completa la verificación adicional.");
-      return;
-    }
-    setCsrf(result.csrfToken);
-    await finishLogin();
+    await continueSignIn(result);
   } catch (error) { status(message, error.message, "error"); }
 });
+
+passwordChangeForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const newPassword = document.querySelector("#new-password").value;
+  if (newPassword !== document.querySelector("#confirm-password").value)
+    return status(message, "Las contraseñas no coinciden.", "error");
+  status(message, "Guardando tu nueva contraseña…");
+  try {
+    const result = await api("/ui-api/session/forced-change", {
+      method: "POST",
+      body: JSON.stringify({ forcedChangePendingToken: passwordChangeToken, newPassword })
+    });
+    passwordChangeToken = "";
+    passwordChangeForm.reset();
+    await continueSignIn(result);
+  } catch (error) { status(message, error.message, "error"); }
+});
+
+document.querySelector("#password-change-cancel").addEventListener("click", () => {
+  passwordChangeToken = "";
+  passwordChangeForm.reset();
+  passwordChangeForm.hidden = true;
+  loginForm.hidden = false;
+  password.value = "";
+});
+
+// Each interactive step either finishes the sign-in or asks for the next one (MFA or a
+// mandatory password change); pending tokens only live in this page's memory.
+async function continueSignIn(result) {
+  if (result.requiresPasswordChange) {
+    passwordChangeToken = result.passwordChangeToken;
+    loginForm.hidden = true;
+    mfaForm.hidden = true;
+    passwordChangeForm.hidden = false;
+    document.querySelector("#new-password").focus();
+    status(message, "Debes reemplazar tu contraseña temporal antes de continuar.");
+    return;
+  }
+  if (result.requiresMfa) {
+    mfaPendingToken = result.mfaPendingToken;
+    loginForm.hidden = true;
+    passwordChangeForm.hidden = true;
+    mfaForm.hidden = false;
+    document.querySelector("#mfa-code").focus();
+    status(message, "Completa la verificación adicional.");
+    return;
+  }
+  setCsrf(result.csrfToken);
+  await finishLogin();
+}
 
 mfaForm.addEventListener("submit", async event => {
   event.preventDefault();
@@ -86,8 +129,7 @@ async function resumeExistingSession() {
 
 async function finishLogin() {
   if (interactionId) return showConsent();
-  const requested = params.get("return_url");
-  location.replace(requested?.startsWith("/") && !requested.startsWith("//") ? requested : "/portal");
+  location.replace(safeLocalPath(params.get("return_url"), location.origin, "/portal"));
 }
 
 async function showConsent() {

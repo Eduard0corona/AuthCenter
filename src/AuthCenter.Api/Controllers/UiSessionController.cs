@@ -3,6 +3,7 @@ using System.Security.Claims;
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Api.Middleware;
+using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses;
@@ -63,8 +64,30 @@ public sealed class UiSessionController : ControllerBase
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         var result = await _auth.LoginAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        return await CompleteInteractiveStepAsync(result);
+    }
+
+    /// <summary>
+    /// Completes a sign-in that stopped because the account must replace its temporary password.
+    /// The new password is set first and the application's access-policy and MFA gate still runs.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.ForcedChangePassword)]
+    [HttpPost("forced-change")]
+    public async Task<IActionResult> ForcedChange([FromBody] ForcedChangePasswordRequest request, CancellationToken ct)
+    {
+        var result = await _auth.ForcedChangePasswordAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        if (!result.IsSuccess && result.ErrorCode is "WEAK_PASSWORD")
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message, result.Details));
+        return await CompleteInteractiveStepAsync(result);
+    }
+
+    private async Task<IActionResult> CompleteInteractiveStepAsync(OperationResult<AuthResponse> result)
+    {
         if (!result.IsSuccess && result.ErrorCode == "MFA_REQUIRED")
             return Ok(ApiResponse<object>.Ok(new { requiresMfa = true, mfaPendingToken = result.Message, expiresIn = _mfa.MfaTokenExpirySeconds }));
+        if (!result.IsSuccess && result.ErrorCode == "PASSWORD_CHANGE_REQUIRED")
+            return Ok(ApiResponse<object>.Ok(new { requiresPasswordChange = true, passwordChangeToken = result.Message, expiresIn = _mfa.MfaTokenExpirySeconds }));
         if (!result.IsSuccess)
             return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         await CreateSessionAsync(result.Data!);

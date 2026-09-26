@@ -38,6 +38,13 @@
         <label>Código <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" required></label>
         <div class="actions"><button type="submit">Verificar</button><button id="mfa-cancel" class="secondary" type="button">Cancelar</button></div>
       </form>
+      <form id="password-change-form" class="stack" hidden novalidate>
+        <h2>Cambia tu contraseña temporal</h2>
+        <p class="muted">Tu cuenta usa una contraseña temporal. Define una nueva para continuar.</p>
+        <label>Nueva contraseña <input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label>Confirmar contraseña <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <div class="actions"><button type="submit">Guardar y continuar</button><button id="password-change-cancel" class="secondary" type="button">Cancelar</button></div>
+      </form>
       <section id="consent" class="card" hidden aria-labelledby="consent-title">
         <h2 id="consent-title">Autorizar aplicación</h2>
         <p id="consent-description"></p>

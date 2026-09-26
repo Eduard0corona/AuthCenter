@@ -274,7 +274,19 @@ public sealed partial class FederationService : IFederationService
         else link!.LastUsedAt = _clock.UtcNow;
 
         if (!user.IsActive || user.DeletedAt is not null) return OperationResult<ApplicationUser>.Failure("USER_INACTIVE", "Linked user is inactive.");
-        if (!await _access.HasActiveAccessAsync(user.Id, provider.ApplicationSystemId, ct)) await _access.GrantAccessAsync(user.Id, provider.ApplicationSystemId, true, ct);
+        if (!await _access.HasActiveAccessAsync(user.Id, provider.ApplicationSystemId, ct))
+        {
+            // Just-in-time access is only for identities that never had an assignment. A revoked or
+            // pending-approval record is an administrative decision that federation must not undo.
+            var hasAccessRecord = await _db.UserApplicationAccesses.AnyAsync(
+                item => item.UserId == user.Id && item.ApplicationSystemId == provider.ApplicationSystemId, ct);
+            if (hasAccessRecord)
+            {
+                await _audit.LogAsync("FEDERATION_ACCESS_DENIED", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), metadata: new { reason = "AccessRevokedOrPending" }, ct: ct);
+                return OperationResult<ApplicationUser>.Failure("ACCESS_DENIED", "Access to this application was revoked or is pending approval.");
+            }
+            await _access.GrantAccessAsync(user.Id, provider.ApplicationSystemId, true, ct);
+        }
         await _db.SaveChangesAsync(ct);
         return OperationResult<ApplicationUser>.Success(user);
     }

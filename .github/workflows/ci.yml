@@ -99,6 +99,9 @@ jobs:
         working-directory: sdk/typescript
         run: npm ci && npm test
 
+      - name: Hosted UI unit tests
+        run: node --test tests/AuthCenter.HostedUi.Tests/*.test.mjs
+
       - name: Pack .NET integration SDK
         run: dotnet pack sdk/dotnet/AuthCenter.Client/AuthCenter.Client.csproj --configuration Release --no-build --output "${{ runner.temp }}/sdk-packages"
 

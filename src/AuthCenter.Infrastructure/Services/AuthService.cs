@@ -194,6 +194,15 @@ public class AuthService : IAuthService
 
     public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
+        // Resolved before the password is checked so that an application restricted to federated or
+        // passwordless sign-in never reveals whether a submitted password was correct.
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(request.ApplicationCode, ct);
+        if (appSystem?.RegistrationSettings is { AllowPasswordLogin: false })
+        {
+            await _auditService.LogAsync("LOGIN_FAILED", null, request.ApplicationCode, null, null, ipAddress, userAgent, new { reason = "PasswordLoginDisabled" }, ct);
+            return OperationResult<AuthResponse>.Failure("PASSWORD_LOGIN_DISABLED", "Password sign-in is not allowed for this application.");
+        }
+
         var user = await _userManager.FindByEmailAsync(request.Email);
 
         if (user is null || !user.IsActive)
@@ -219,7 +228,6 @@ public class AuthService : IAuthService
             return OperationResult<AuthResponse>.Failure("INVALID_CREDENTIALS", "Invalid email or password.");
         }
 
-        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(request.ApplicationCode, ct);
         if (appSystem is null || !appSystem.IsActive)
         {
             await _auditService.LogAsync("LOGIN_FAILED", user.Id, request.ApplicationCode, null, null, ipAddress, userAgent, new { reason = "AppNotFound" }, ct);
@@ -626,7 +634,7 @@ public class AuthService : IAuthService
         if (!user.HasLocalPassword)
             return OperationResult<AuthResponse>.Failure("NO_LOCAL_PASSWORD", "Account uses external login; password cannot be changed.");
 
-        var appSystem = await _applicationService.GetByCodeAsync(pending.ApplicationCode, ct);
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(pending.ApplicationCode, ct);
         if (appSystem is null || !appSystem.IsActive)
             return OperationResult<AuthResponse>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
 
@@ -648,6 +656,12 @@ public class AuthService : IAuthService
 
         await _refreshTokenService.RevokeAllForUserAsync(user.Id, ct);
         await _auditService.LogAsync("FORCED_PASSWORD_CHANGED", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
+
+        // The password step of the original sign-in ended before its access-policy and MFA gate, so
+        // the same gate runs here; changing a password must never become a way around MFA.
+        var gate = await RequireMfaIfNeededAsync(user.Id, appSystem, null, ipAddress, userAgent, ct);
+        if (gate is not null)
+            return gate;
 
         return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }

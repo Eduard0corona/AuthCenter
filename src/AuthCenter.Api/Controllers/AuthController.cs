@@ -200,6 +200,12 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ForcedChangePassword([FromBody] ForcedChangePasswordRequest request, CancellationToken ct)
     {
         var result = await _authService.ForcedChangePasswordAsync(request, GetIpAddress(), GetUserAgent(), ct);
+        if (!result.IsSuccess && result.ErrorCode == "MFA_REQUIRED")
+            return Ok(ApiResponse<object>.Ok(new MfaPendingResponse
+            {
+                MfaPendingToken = result.Message,
+                ExpiresIn = _mfaSettings.MfaTokenExpirySeconds
+            }));
         if (!result.IsSuccess)
             return result.ErrorCode is "INVALID_FORCED_CHANGE_TOKEN" or "TOKEN_ALREADY_USED"
                 ? Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message))

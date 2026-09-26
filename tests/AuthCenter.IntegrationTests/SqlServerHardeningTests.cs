@@ -17,12 +17,9 @@ namespace AuthCenter.IntegrationTests;
 
 public sealed class SqlServerHardeningTests
 {
-    [Fact]
+    [RelationalFact]
     public async Task IdempotentDeploymentScript_UpgradesProductionBaseline()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
         try
@@ -83,12 +80,9 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
     public async Task Phase1Migration_PreservesExistingRulesAsPublishedVersion()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
         try
@@ -133,12 +127,9 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION")))
-            return;
-
         var connectionString = BuildIsolatedConnectionString();
         var options = CreateOptions(connectionString);
 
@@ -276,10 +267,9 @@ public sealed class SqlServerHardeningTests
         }
     }
 
-    [Fact]
+    [RelationalFact]
     public async Task SuperAdminApplicationLock_SerializesConcurrentRemovalAttempts()
     {
-        if (!OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AUTHCENTER_RELATIONAL_TEST_CONNECTION"))) return;
         var connectionString = BuildIsolatedConnectionString(); var options = CreateOptions(connectionString);
         try
         {
@@ -311,7 +301,7 @@ public sealed class SqlServerHardeningTests
         finally { await using var cleanup = new AuthCenterDbContext(options); await cleanup.Database.EnsureDeletedAsync(); }
     }
 
-    private static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
+    internal static DbContextOptions<AuthCenterDbContext> CreateOptions(string connectionString)
     {
         var services = new ServiceCollection();
         services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(identity =>

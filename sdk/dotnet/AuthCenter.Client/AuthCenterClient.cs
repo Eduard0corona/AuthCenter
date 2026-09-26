@@ -38,13 +38,22 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
             ["code_verifier"] = verifier
         }, ct);
 
-    public Task<OAuthTokenSet> ClientCredentialsAsync(IEnumerable<string>? scopes = null, CancellationToken ct = default) =>
-        RequestTokenAsync(new Dictionary<string, string>
+    /// <summary>
+    /// Requests a machine token. Without explicit scopes no scope parameter is sent and AuthCenter
+    /// issues every machine scope the client is allowed; user scopes such as openid never apply.
+    /// </summary>
+    public Task<OAuthTokenSet> ClientCredentialsAsync(IEnumerable<string>? scopes = null, CancellationToken ct = default)
+    {
+        var values = new Dictionary<string, string>
         {
             ["grant_type"] = "client_credentials",
-            ["client_id"] = options.ClientId,
-            ["scope"] = string.Join(' ', scopes ?? options.Scopes)
-        }, ct);
+            ["client_id"] = options.ClientId
+        };
+        var requested = scopes?.Where(scope => !string.IsNullOrWhiteSpace(scope)).Distinct(StringComparer.Ordinal).ToArray();
+        if (requested is { Length: > 0 })
+            values["scope"] = string.Join(' ', requested);
+        return RequestTokenAsync(values, ct);
+    }
 
     public Task<OAuthTokenSet> RefreshAsync(string refreshToken, CancellationToken ct = default) =>
         RequestTokenAsync(new Dictionary<string, string>

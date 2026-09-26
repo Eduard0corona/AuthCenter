@@ -16,8 +16,11 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
         var options = endpoints.ServiceProvider.GetRequiredService<AuthCenterBffOptions>();
 
-        Func<HttpContext, string?, Task> loginHandler = async (context, returnUrl) =>
+        // The documented query parameter is return_url; returnUrl is accepted for callers that
+        // relied on minimal-API name binding. Only local paths are honoured.
+        Func<HttpContext, Task> loginHandler = async context =>
         {
+            var returnUrl = context.Request.Query["return_url"].FirstOrDefault() ?? context.Request.Query["returnUrl"].FirstOrDefault();
             var destination = IsLocalReturnUrl(returnUrl) ? returnUrl! : "/";
             await context.ChallengeAsync(
                 AuthCenterBffDefaults.OpenIdConnectScheme,

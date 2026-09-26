@@ -38,7 +38,7 @@ public sealed class EventHookDispatcherService : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                delivery.AttemptCount++; delivery.LockedUntil = null; delivery.LastError = ex.Message.Length <= 2000 ? ex.Message : ex.Message[..2000]; if (delivery.AttemptCount >= 10) delivery.DeadLetteredAt = DateTime.UtcNow; else delivery.NextAttemptAt = DateTime.UtcNow.AddMinutes(Math.Min(60, Math.Pow(2, Math.Min(delivery.AttemptCount, 5)))); outcome = delivery.DeadLetteredAt.HasValue ? "dead_letter" : "retry"; activity?.SetStatus(ActivityStatusCode.Error, outcome); _logger.LogWarning(ex, "Event hook delivery {DeliveryId} failed on attempt {Attempt}", id, delivery.AttemptCount);
+                delivery.AttemptCount++; delivery.LockedUntil = null; delivery.LastError = ex.Message.Length <= 2000 ? ex.Message : ex.Message[..2000]; if (delivery.AttemptCount >= 10) { delivery.DeadLetteredAt = DateTime.UtcNow; delivery.LastReplayIdempotencyKey = null; } else delivery.NextAttemptAt = DateTime.UtcNow.AddMinutes(Math.Min(60, Math.Pow(2, Math.Min(delivery.AttemptCount, 5)))); outcome = delivery.DeadLetteredAt.HasValue ? "dead_letter" : "retry"; activity?.SetStatus(ActivityStatusCode.Error, outcome); _logger.LogWarning(ex, "Event hook delivery {DeliveryId} failed on attempt {Attempt}", id, delivery.AttemptCount);
             }
             await db.SaveChangesAsync(ct);
             PlatformTelemetry.EventHookCompleted(outcome, delivery.AttemptCount, Stopwatch.GetElapsedTime(started).TotalMilliseconds);

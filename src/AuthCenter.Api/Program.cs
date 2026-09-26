@@ -1,5 +1,6 @@
 using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
+using AuthCenter.Api.Filters;
 using AuthCenter.Api.Middleware;
 using AuthCenter.Api.Services;
 using AuthCenter.Application.Extensions;
@@ -214,8 +215,8 @@ try
     if (distributedRateLimiting)
         builder.Services.AddScoped<DistributedRateLimitStore>();
 
-    // Controllers
-    builder.Services.AddControllers();
+    // Controllers. Every bound request contract is validated before the action runs.
+    builder.Services.AddControllers(options => options.Filters.Add<RequestValidationFilter>());
 
     // CORS
     var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];

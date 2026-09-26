@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.IdentityModel.Tokens;
 
 namespace AuthCenter.Client;
 
@@ -48,8 +49,17 @@ internal sealed class AuthCenterBffSessionManager(
             return new(false, "REFRESH_REJECTED");
         }
 
-        var accessTokenPrincipal = await accessTokenValidator.ValidateAsync(tokens.AccessToken, cancellationToken);
-        AuthCenterAccessTokenPrincipalFactory.Enrich(authentication.Principal, accessTokenPrincipal);
+        try
+        {
+            var accessTokenPrincipal = await accessTokenValidator.ValidateAsync(tokens.AccessToken, cancellationToken);
+            AuthCenterAccessTokenPrincipalFactory.Enrich(authentication.Principal, accessTokenPrincipal);
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or InvalidOperationException or ArgumentException)
+        {
+            // A rotated token that cannot be validated must end the session instead of failing the request.
+            await context.SignOutAsync(AuthCenterBffDefaults.CookieScheme);
+            return new(false, "REFRESH_TOKEN_INVALID");
+        }
         var storedTokens = authentication.Properties.GetTokens()
             .Where(item => item.Name is not "access_token" and not "refresh_token" and not "expires_at")
             .ToList();
