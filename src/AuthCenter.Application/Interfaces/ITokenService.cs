@@ -45,6 +45,15 @@ public interface ITokenService
     /// it has expired (OIDC id_token_hint), or null when the token was not issued by this server.
     /// </summary>
     string? ReadIdTokenHintSubject(string idToken, string clientId);
+
+    /// <summary>
+    /// Reads an ID token this server issued, even if it has expired (RP-initiated logout), or
+    /// returns null when it was not issued by this server or is not an ID token.
+    /// </summary>
+    IdTokenHint? ReadIdTokenHint(string idToken);
+
+    /// <summary>An OpenID Connect back-channel logout token (typ logout+jwt) for one client.</summary>
+    string GenerateLogoutToken(string clientId, Guid userId, Guid? sessionId);
     string GetJwks();
 
     int AccessTokenExpiryMinutes { get; }

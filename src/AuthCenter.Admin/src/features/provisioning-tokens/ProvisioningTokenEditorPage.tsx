@@ -17,7 +17,14 @@ import { TokenStatus } from "./ProvisioningTokensPage";
 
 type SensitiveAction = "rotate" | "revoke" | null;
 
-export default function ProvisioningTokenEditorPage({ create = false }: { create?: boolean }) {
+// One page instance per token: after a rotation navigates to the replacement, no dialog or
+// pending action of the previous credential can survive into the next one.
+export default function ProvisioningTokenEditorRoute({ create = false }: { create?: boolean }) {
+  const { tokenId = "" } = useParams();
+  return <ProvisioningTokenEditorPage key={create ? "new" : tokenId} create={create} />;
+}
+
+function ProvisioningTokenEditorPage({ create }: { create: boolean }) {
   const { permissions } = useSession();
   const canWrite = permissions.has("AUTHCENTER_APPLICATIONS_WRITE");
   const canReadApplications = permissions.has("AUTHCENTER_APPLICATIONS_READ");

@@ -13,6 +13,9 @@ public class OAuthClientResponse
     public IList<string> AllowedScopes { get; init; } = [];
     public IList<string> GrantTypes { get; init; } = [];
     public string LoginUrl { get; init; } = string.Empty;
+    public IList<string> PostLogoutRedirectUris { get; init; } = [];
+    public string? BackchannelLogoutUri { get; init; }
+    public bool BackchannelLogoutSessionRequired { get; init; }
     public int AccessTokenLifetimeSeconds { get; init; }
     public bool RequirePkce { get; init; }
     public bool AutoConsent { get; init; }

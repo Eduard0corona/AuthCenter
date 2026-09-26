@@ -210,8 +210,8 @@ public sealed class SqlServerHardeningTests
             var firstToken = await firstDb.RefreshTokens.SingleAsync(token => token.Id == refreshId);
             var secondToken = await secondDb.RefreshTokens.SingleAsync(token => token.Id == refreshId);
             var jwt = Options.Create(new JwtSettings { RefreshTokenDays = 30 });
-            var firstService = new RefreshTokenService(firstDb, new DateTimeProvider(), jwt);
-            var secondService = new RefreshTokenService(secondDb, new DateTimeProvider(), jwt);
+            var firstService = new RefreshTokenService(firstDb, new DateTimeProvider(), new BackchannelLogoutQueue(firstDb, new EphemeralDataProtectionProvider(), new DateTimeProvider()), jwt);
+            var secondService = new RefreshTokenService(secondDb, new DateTimeProvider(), new BackchannelLogoutQueue(secondDb, new EphemeralDataProtectionProvider(), new DateTimeProvider()), jwt);
 
             var rotations = await Task.WhenAll(
                 firstService.TryRotateAsync(firstToken, Guid.NewGuid(), "replacement-a", null, null),

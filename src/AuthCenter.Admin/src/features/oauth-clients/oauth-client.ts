@@ -27,6 +27,8 @@ export const oauthClientSchema = z.object({
   allowedScopes: z.array(z.enum(oauthScopes)).min(1, "Selecciona al menos un scope."),
   grantTypes: z.array(z.enum(oauthGrants)).min(1, "Selecciona al menos un grant."),
   loginUrl: z.string().trim().refine(secureBrowserUrl, "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales."),
+  postLogoutRedirectUris: z.string(),
+  backchannelLogoutUri: z.string().trim(),
   accessTokenLifetimeSeconds: z.coerce.number().int().min(60, "El mínimo es 60 segundos.").max(3600, "El máximo es 3600 segundos."),
   requirePkce: z.boolean(),
   autoConsent: z.boolean(),
@@ -41,6 +43,19 @@ export const oauthClientSchema = z.object({
   }
   if (new Set(redirects).size !== redirects.length) {
     context.addIssue({ code: "custom", path: ["redirectUris"], message: "No repitas redirect URIs." });
+  }
+  const postLogout = uriLines.parse(values.postLogoutRedirectUris);
+  if (postLogout.some((uri) => !secureBrowserUrl(uri))) {
+    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "Cada URI debe usar HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
+  }
+  if (new Set(postLogout).size !== postLogout.length) {
+    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "No repitas URIs de cierre de sesión." });
+  }
+  if (values.backchannelLogoutUri && !secureBrowserUrl(values.backchannelLogoutUri)) {
+    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
+  }
+  if (values.backchannelLogoutUri && !values.grantTypes.includes("authorization_code")) {
+    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "El back-channel logout sólo aplica a clientes con authorization code." });
   }
   if (values.grantTypes.includes("authorization_code") && !values.requirePkce) {
     context.addIssue({ code: "custom", path: ["requirePkce"], message: "Authorization code requiere PKCE." });
@@ -71,6 +86,8 @@ export function oauthClientDefaults(client?: OAuthClientSummary): OAuthClientFor
     allowedScopes: client?.allowedScopes as OAuthClientFormValues["allowedScopes"] ?? ["openid", "profile", "email"],
     grantTypes: client?.grantTypes as OAuthClientFormValues["grantTypes"] ?? ["authorization_code", "refresh_token"],
     loginUrl: client?.loginUrl ?? "",
+    postLogoutRedirectUris: client?.postLogoutRedirectUris?.join("\n") ?? "",
+    backchannelLogoutUri: client?.backchannelLogoutUri ?? "",
     accessTokenLifetimeSeconds: client?.accessTokenLifetimeSeconds ?? 900,
     requirePkce: client?.requirePkce ?? true,
     autoConsent: client?.autoConsent ?? false,
@@ -91,6 +108,8 @@ export function oauthClientPayload(values: OAuthClientFormValues, create: boolea
     allowedScopes: parsed.allowedScopes,
     grantTypes: parsed.grantTypes,
     loginUrl: parsed.loginUrl,
+    postLogoutRedirectUris: uriLines.parse(parsed.postLogoutRedirectUris),
+    backchannelLogoutUri: parsed.backchannelLogoutUri || null,
     accessTokenLifetimeSeconds: parsed.accessTokenLifetimeSeconds,
     requirePkce: parsed.requirePkce,
     autoConsent: parsed.autoConsent,

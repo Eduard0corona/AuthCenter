@@ -568,8 +568,45 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         });
         AddAudit("OAUTH_AUTHORIZATION_GRANTED", existing.UserId, client, metadata: new { scopes = session.Scopes, sessionId = existing.SessionId });
         await _db.SaveChangesAsync(ct);
+        await RecordSessionClientAsync(existing, client, now, ct);
 
         return SuccessResponse(session.RedirectUri, session.State, session.ResponseMode, rawCode);
+    }
+
+    /// <summary>
+    /// Remembers that the client received tokens through this session, so ending the session can
+    /// send it a back-channel logout even after the authorization code is purged.
+    /// </summary>
+    private async Task RecordSessionClientAsync(SsoSession existing, OAuthClient client, DateTime now, CancellationToken ct)
+    {
+        var participation = await _db.SingleSignOnSessionClients
+            .FirstOrDefaultAsync(item => item.SessionId == existing.SessionId && item.OAuthClientId == client.Id, ct);
+        if (participation is null)
+        {
+            participation = new SingleSignOnSessionClient
+            {
+                SessionId = existing.SessionId,
+                OAuthClientId = client.Id,
+                UserId = existing.UserId,
+                CreatedAt = now,
+                LastIssuedAt = now
+            };
+            _db.SingleSignOnSessionClients.Add(participation);
+        }
+        else
+        {
+            participation.LastIssuedAt = now;
+        }
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent authorization for the same session and client recorded it first.
+            _db.Entry(participation).State = EntityState.Detached;
+        }
     }
 
     private async Task<OAuthAuthorizationSession?> ReadInteractionAsync(string interactionId, CancellationToken ct) =>

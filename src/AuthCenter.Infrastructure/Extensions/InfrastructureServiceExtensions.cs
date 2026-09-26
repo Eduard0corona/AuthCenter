@@ -72,6 +72,9 @@ public static class InfrastructureServiceExtensions
         });
         services.AddHttpClient("Federation", client => client.Timeout = TimeSpan.FromSeconds(15));
         services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10));
+        // Logout tokens are posted to the exact registered URI; a redirect is a failed delivery.
+        services.AddHttpClient(BackchannelLogoutQueue.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
         {
@@ -112,6 +115,9 @@ public static class InfrastructureServiceExtensions
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddScoped<BackchannelLogoutQueue>();
+        services.AddScoped<ISingleSignOnSessionService, SingleSignOnSessionService>();
+        services.AddScoped<IEndSessionService, EndSessionService>();
         services.AddScoped<IAuthenticationSessionIssuer, AuthenticationSessionIssuer>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<ITransientStateStore, TransientStateStore>();

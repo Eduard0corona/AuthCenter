@@ -474,12 +474,20 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
   await page.getByLabel("Client ID").fill(oauthClient.clientId);
   await page.getByLabel("Redirect URIs exactos").fill(oauthClient.redirectUris[0]);
   await page.getByLabel("Login URL").fill(oauthClient.loginUrl);
+  await page.getByLabel("Post-logout redirect URIs").fill("https://partner.example.test/signout-callback-authcenter");
+  await page.getByLabel("Back-channel logout URI").fill("https://partner.example.test/auth/backchannel-logout");
   await page.getByRole("button", { name: "Crear OAuth client" }).click();
 
   const createdDialog = page.getByRole("dialog");
   await expect(createdDialog).toContainText(createdCredential);
   await expect(createdDialog).toContainText(/no podr. volver a mostrar/i);
-  expect(createPayload).toMatchObject({ clientId: oauthClient.clientId, clientType: 0, redirectUris: oauthClient.redirectUris });
+  expect(createPayload).toMatchObject({
+    clientId: oauthClient.clientId,
+    clientType: 0,
+    redirectUris: oauthClient.redirectUris,
+    postLogoutRedirectUris: ["https://partner.example.test/signout-callback-authcenter"],
+    backchannelLogoutUri: "https://partner.example.test/auth/backchannel-logout"
+  });
   await createdDialog.getByRole("button", { name: "Ya guardé el secreto" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin-v2/oauth-clients/${oauthClient.clientId}$`));
 
@@ -519,7 +527,7 @@ test("creates, rotates and revokes a scoped provisioning token with step-up", as
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...provisioningToken, id: rotatedProvisioningTokenId, status: replacementRevoked ? "revoked" : "active", revokedAt: replacementRevoked ? "2026-08-13T02:00:00Z" : null } }) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...provisioningToken, id: rotatedProvisioningTokenId, name: `${provisioningToken.name} (rotado)`, status: replacementRevoked ? "revoked" : "active", revokedAt: replacementRevoked ? "2026-08-13T02:00:00Z" : null } }) });
   });
   await page.route("**/api/auth/reauth/password", async (route) => {
     proofPurposes.push((route.request().postDataJSON() as { purpose: string }).purpose);
@@ -549,6 +557,8 @@ test("creates, rotates and revokes a scoped provisioning token with step-up", as
   await expect(page.getByRole("dialog")).toContainText(rotatedCredential);
   await page.getByRole("dialog").getByRole("button", { name: "Ya guardé el secreto" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin-v2/provisioning-tokens/${rotatedProvisioningTokenId}$`));
+  // Act only once the replacement credential is on screen, not the page of the rotated one.
+  await expect(page.getByRole("heading", { level: 1, name: `${provisioningToken.name} (rotado)` })).toBeVisible();
 
   const revokeButton = page.getByRole("button", { name: "Revocar token" });
   await revokeButton.focus();

@@ -38,6 +38,27 @@ public class CreateOAuthClientRequestValidator : AbstractValidator<CreateOAuthCl
             .Must(OAuthClientValidationRules.HasUniqueValues)
             .WithMessage("Redirect URIs must be unique.");
 
+        RuleForEach(x => x.PostLogoutRedirectUris)
+            .Must(OAuthClientValidationRules.IsSecureBrowserUri)
+            .WithMessage("Post-logout redirect URIs must use HTTPS, or HTTP loopback for local development, and cannot contain user info or fragments.");
+
+        RuleFor(x => x.PostLogoutRedirectUris)
+            .Must(OAuthClientValidationRules.HasUniqueValues)
+            .WithMessage("Post-logout redirect URIs must be unique.")
+            .Must(uris => uris.Count <= 20)
+            .WithMessage("At most 20 post-logout redirect URIs can be registered.");
+
+        RuleFor(x => x.BackchannelLogoutUri)
+            .MaximumLength(500)
+            .Must(uri => OAuthClientValidationRules.IsSecureBrowserUri(uri!))
+            .When(x => !string.IsNullOrWhiteSpace(x.BackchannelLogoutUri))
+            .WithMessage("The back-channel logout URI must use HTTPS, or HTTP loopback for local development, and cannot contain user info or fragments.");
+
+        RuleFor(x => x.BackchannelLogoutUri)
+            .Empty()
+            .When(x => !x.GrantTypes.Contains("authorization_code"))
+            .WithMessage("Back-channel logout only applies to clients that sign users in (authorization_code).");
+
         RuleFor(x => x.AllowedScopes)
             .NotEmpty().WithMessage("At least one scope must be allowed.")
             .Must(scopes => scopes.All(s => DomainConstants.OAuthScopes.All.Contains(s)))

@@ -46,8 +46,24 @@ El SDK publica:
 | GET | `/auth/login?return_url=/ruta-local` | Inicia OIDC; rechaza redirecciones externas. Acepta `prompt`, `max_age`, `login_hint` y `acr_values` |
 | GET | `/auth/session` | Devuelve usuario autorizado y token CSRF, nunca tokens OAuth |
 | POST | `/auth/refresh` | Rota el refresh token; requiere `X-AuthCenter-CSRF` |
-| POST | `/auth/logout` | Revoca la familia de refresh y elimina la sesión; requiere CSRF |
+| POST | `/auth/logout` | Cierre local: revoca la familia de refresh y elimina la sesión de la aplicación; requiere CSRF |
+| GET | `/auth/logout?sid=…` | Cierre global: además termina la sesión SSO en AuthCenter y vuelve por `/signout-callback-authcenter`. Usa el `logoutUrl` de `/auth/session` |
+| POST | `/auth/backchannel-logout` | Recibe el logout token de AuthCenter y cierra las sesiones locales de ese `sid` |
 | GET | `/auth/error` | Error genérico sin datos del proveedor; incluye `error` sólo para códigos OIDC accionables |
+
+### Cierre de sesión
+
+Registra en el cliente OAuth de AuthCenter:
+
+- **Post-logout redirect URI:** `https://tu-app/signout-callback-authcenter` (`SignedOutCallbackPath`).
+- **Back-channel logout URI:** `https://tu-app/auth/backchannel-logout` (`BackchannelLogoutPath`).
+
+Para cerrar sesión en todas partes navega (GET) al `logoutUrl` que entrega `/auth/session`; incluye
+el `sid` de la sesión, por lo que otro sitio no puede forzar el cierre con un enlace. Cuando la
+sesión de AuthCenter termina por cualquier motivo, el logout token back-channel marca ese `sid` en
+`IDistributedCache` y cada instancia rechaza la cookie en la siguiente petición. Con más de una
+instancia registra una caché distribuida compartida (por ejemplo Redis) en lugar de la caché en
+memoria que el SDK agrega por defecto.
 
 ### Inicio de sesión único (SSO)
 

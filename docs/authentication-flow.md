@@ -144,6 +144,30 @@ The client must compare returned `state`, validate the ID token signature/issuer
 and compare `nonce`. Never log authorization codes, client secrets, access tokens, refresh tokens,
 PKCE verifiers or ID tokens.
 
+## OpenID Connect logout
+
+```
+Client -> GET /oauth/logout
+          ?id_token_hint=<id token from this client>
+          &post_logout_redirect_uri=<exact registered post-logout URI>
+          &state=<client state>
+
+1. AuthCenter validates the ID token (issuer, signature, typ; it may be expired), takes the client
+   from its audience (or from client_id) and checks the exact post_logout_redirect_uri.
+2. If the ID token belongs to the signed-in user and, when it carries sid, to this session, the
+   session ends immediately. Otherwise the browser goes to /logout?logout_id=... and the user
+   confirms there (POST /oauth/logout/{logoutId}/confirm with the hosted CSRF token).
+3. Ending the session revokes it, revokes every OAuth refresh token it authorized and queues a
+   back-channel logout for each client that received tokens through it.
+4. The browser returns to post_logout_redirect_uri?state=..., or to /login?signed_out=1.
+```
+
+Back-channel logout tokens are posted as `logout_token` to the client's `BackchannelLogoutUri`.
+They are JWTs with `typ: logout+jwt`, `iss`, `aud` (client ID), `iat`, `exp` (2 minutes), `jti`,
+`sub`, `sid` and `events: {"http://schemas.openid.net/event/backchannel-logout": {}}`, and never a
+nonce. Clients must validate them like ID tokens, reject replays by `jti` and end every local
+session created from that `sid`. AuthCenter.Client does this at `/auth/backchannel-logout`.
+
 ## OAuth client credentials
 
 This grant is only for confidential service identities and does not represent a user. Register a

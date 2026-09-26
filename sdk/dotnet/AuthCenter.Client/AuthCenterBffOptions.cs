@@ -13,6 +13,12 @@ public sealed class AuthCenterBffOptions
     public string SessionPath { get; init; } = "/auth/session";
     public string RefreshPath { get; init; } = "/auth/refresh";
     public string RemoteFailurePath { get; init; } = "/auth/error";
+
+    /// <summary>Where AuthCenter returns after RP-initiated logout; register it as a post-logout redirect URI.</summary>
+    public string SignedOutCallbackPath { get; init; } = "/signout-callback-authcenter";
+
+    /// <summary>Receives OpenID Connect back-channel logout tokens; register it as the client's back-channel logout URI.</summary>
+    public string BackchannelLogoutPath { get; init; } = "/auth/backchannel-logout";
     public TimeSpan SessionLifetime { get; init; } = TimeSpan.FromHours(8);
     public TimeSpan RefreshBeforeExpiration { get; init; } = TimeSpan.FromMinutes(1);
 
@@ -44,8 +50,10 @@ public sealed class AuthCenterBffOptions
         ValidatePath(SessionPath, nameof(SessionPath));
         ValidatePath(RefreshPath, nameof(RefreshPath));
         ValidatePath(RemoteFailurePath, nameof(RemoteFailurePath));
+        ValidatePath(SignedOutCallbackPath, nameof(SignedOutCallbackPath));
+        ValidatePath(BackchannelLogoutPath, nameof(BackchannelLogoutPath));
 
-        string[] paths = [CallbackPath, LoginPath, LogoutPath, SessionPath, RefreshPath, RemoteFailurePath];
+        string[] paths = [CallbackPath, LoginPath, LogoutPath, SessionPath, RefreshPath, RemoteFailurePath, SignedOutCallbackPath, BackchannelLogoutPath];
         if (paths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != paths.Length)
             throw new ArgumentException("Every BFF endpoint and callback path must be unique.");
     }

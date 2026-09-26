@@ -129,6 +129,11 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
           </div>
           <div className="checkbox-grid"><Checkbox label="Requerir PKCE" registration={form.register("requirePkce")} /><Checkbox label="Auto consent" registration={form.register("autoConsent")} /></div>
         </section>
+        <section className="settings-panel" aria-labelledby="oauth-logout">
+          <div className="settings-panel__heading"><div><h2 id="oauth-logout">Cierre de sesión</h2><p>Registra a dónde puede volver el usuario tras cerrar sesión y dónde AuthCenter avisa a la aplicación cuando la sesión termina.</p></div></div>
+          <Field label="Post-logout redirect URIs" error={form.formState.errors.postLogoutRedirectUris?.message} help="Uno por línea. Con AuthCenter.Client registra https://tu-app/signout-callback-authcenter."><textarea {...form.register("postLogoutRedirectUris")} rows={3} disabled={!hasAuthorizationCode && !form.getValues("postLogoutRedirectUris")} placeholder="https://app.example.com/signout-callback-authcenter" /></Field>
+          <Field label="Back-channel logout URI" error={form.formState.errors.backchannelLogoutUri?.message} help="AuthCenter publica aquí un logout token firmado cuando termina la sesión. Con AuthCenter.Client: https://tu-app/auth/backchannel-logout."><input {...form.register("backchannelLogoutUri")} type="url" disabled={!hasAuthorizationCode && !form.getValues("backchannelLogoutUri")} placeholder="https://app.example.com/auth/backchannel-logout" /></Field>
+        </section>
       </fieldset>
       {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/oauth-clients">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear OAuth client" : "Guardar configuración"}</button></div> : <p className="muted">Solicita AUTHCENTER_OAUTH_CLIENTS_WRITE para modificar esta configuración.</p>}
     </form>

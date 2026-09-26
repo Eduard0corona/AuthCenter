@@ -35,6 +35,7 @@ public class WellKnownController : ControllerBase
             token_endpoint = $"{baseUrl}/oauth/token",
             revocation_endpoint = $"{baseUrl}/oauth/revoke",
             userinfo_endpoint = $"{baseUrl}/oauth/userinfo",
+            end_session_endpoint = $"{baseUrl}/oauth/logout",
             jwks_uri = $"{baseUrl}/.well-known/jwks.json",
             scopes_supported = new[] { "openid", "profile", "email", "offline_access" },
             response_types_supported = new[] { "code" },
@@ -53,6 +54,9 @@ public class WellKnownController : ControllerBase
                 "sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "azp", "sid", "amr", "acr", "name",
                 "email", "email_verified", "client_id", "scope", "role", "permissions", "applications"
             },
+            backchannel_logout_supported = true,
+            backchannel_logout_session_supported = true,
+            frontchannel_logout_supported = false,
             request_parameter_supported = false,
             request_uri_parameter_supported = false,
             claims_parameter_supported = false

@@ -10,6 +10,8 @@ const valid = {
   allowedScopes: ["openid", "profile", "email", "offline_access"] as const,
   grantTypes: ["authorization_code", "refresh_token"] as const,
   loginUrl: "https://partner.example.com/login",
+  postLogoutRedirectUris: "https://partner.example.com/signout-callback-authcenter",
+  backchannelLogoutUri: "https://partner.example.com/auth/backchannel-logout",
   accessTokenLifetimeSeconds: 900,
   requirePkce: true,
   autoConsent: false,
@@ -39,6 +41,22 @@ describe("OAuth client form", () => {
   it("requires refresh token when offline access is selected", () => {
     const result = oauthClientSchema.safeParse({ ...valid, grantTypes: ["authorization_code"] });
     expect(result.success).toBe(false);
+  });
+
+  it("sends logout registration and clears an empty back-channel URI", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false)).toMatchObject({
+      postLogoutRedirectUris: ["https://partner.example.com/signout-callback-authcenter"],
+      backchannelLogoutUri: "https://partner.example.com/auth/backchannel-logout"
+    });
+    expect(oauthClientPayload(oauthClientSchema.parse({ ...valid, backchannelLogoutUri: "" }), false)).toMatchObject({ backchannelLogoutUri: null });
+  });
+
+  it("rejects insecure logout URIs and back-channel logout without authorization code", () => {
+    expect(oauthClientSchema.safeParse({ ...valid, postLogoutRedirectUris: "http://partner.example.com/bye" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({ ...valid, backchannelLogoutUri: "https://partner.example.com/logout#x" }).success).toBe(false);
+    expect(oauthClientSchema.safeParse({
+      ...valid, grantTypes: ["client_credentials"], allowedScopes: ["email"], redirectUris: "", postLogoutRedirectUris: "", requirePkce: false
+    }).success).toBe(false);
   });
 
   it("rejects identity scopes for a machine-only client", () => {

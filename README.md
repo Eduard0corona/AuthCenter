@@ -365,6 +365,9 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 | POST | `/oauth/authorize/complete` | Grant consent and issue the code |
 | GET | `/oauth/authorize/response/{responseId}` | One-time `form_post` delivery page for the browser that completed the interaction |
 | POST | `/oauth/interactions/{interactionId}/step-up` | Hosted login only: start the MFA or passkey step-up the client's application requires |
+| GET/POST | `/oauth/logout` | OpenID Connect RP-initiated logout (`end_session_endpoint`) |
+| GET | `/oauth/logout/{logoutId}` | Hosted logout page context, only for the browser that started the request |
+| POST | `/oauth/logout/{logoutId}/confirm` | The user confirms a sign-out AuthCenter could not verify on its own |
 | POST | `/oauth/token` | Exchange code / refresh token / client credentials |
 | POST | `/oauth/revoke` | Revoke a refresh token and its complete rotation family |
 | GET | `/oauth/userinfo` | OIDC claims for the access token's subject |
@@ -398,6 +401,17 @@ setting, the user's own MFA and the least demanding supported `acr_values`. A de
 to the client as `access_denied`; a weaker session is stepped up in the hosted login (second
 factor or passkey) without signing in again, and `prompt=none` reports `login_required` instead.
 OAuth refresh re-checks access and the published policy and revokes the grant family on denial.
+
+**Logout.** Register each client's exact `PostLogoutRedirectUris` and, optionally, a
+`BackchannelLogoutUri`. `/oauth/logout` accepts `id_token_hint`, `client_id`,
+`post_logout_redirect_uri` and `state`: an ID token of the browser's current session signs out at
+once; any other request is confirmed by the user on the hosted `/logout` page (a cross-site form
+post continues as a top-level GET so the session cookie is available). Ending a single sign-on
+session, from any path (RP-initiated logout, the hosted logout, revoking a session or signing out
+everywhere, deactivation, access removal), also revokes the OAuth grants it authorized and queues
+an OpenID Connect back-channel logout token (`typ: logout+jwt`, with `sid` and `sub`) for every
+client that received tokens through it. The outbox mints a fresh token on each delivery attempt
+and retries up to 10 times. Access tokens already issued remain valid until they expire.
 
 Every OAuth client belongs to exactly one active `ApplicationSystem`. Authorization-code clients
 must use an exact registered redirect URI, `state`, PKCE `S256` and `nonce` when requesting

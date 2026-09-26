@@ -14,6 +14,15 @@ public class OAuthClient
     public string GrantTypesJson { get; set; } = "[]";
     public OAuthClientType ClientType { get; set; }
     public string LoginUrl { get; set; } = string.Empty;
+
+    /// <summary>Exact URIs the browser may return to after RP-initiated logout.</summary>
+    public string PostLogoutRedirectUrisJson { get; set; } = "[]";
+
+    /// <summary>Where AuthCenter posts OpenID Connect back-channel logout tokens, if anywhere.</summary>
+    public string? BackchannelLogoutUri { get; set; }
+
+    /// <summary>Whether the client needs the sid claim in logout tokens (always sent by AuthCenter).</summary>
+    public bool BackchannelLogoutSessionRequired { get; set; } = true;
     public int AccessTokenLifetimeSeconds { get; set; } = 900;
     public bool RequirePkce { get; set; } = true;
     public bool AutoConsent { get; set; }

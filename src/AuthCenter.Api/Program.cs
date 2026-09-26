@@ -391,6 +391,8 @@ try
         ctx.Response.Headers.Append("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
         if (ctx.Request.Path.StartsWithSegments("/login") ||
             ctx.Request.Path.Equals("/login.html") ||
+            ctx.Request.Path.Equals("/logout") ||
+            ctx.Request.Path.Equals("/logout.html") ||
             ctx.Request.Path.StartsWithSegments("/portal") ||
             ctx.Request.Path.Equals("/portal.html") ||
             ctx.Request.Path.StartsWithSegments("/admin") ||
@@ -477,6 +479,9 @@ try
     app.MapGet("/", () => Results.Redirect("/login"));
     app.MapGet("/login", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "login.html"),
+        "text/html; charset=utf-8"));
+    app.MapGet("/logout", () => Results.File(
+        Path.Combine(app.Environment.WebRootPath, "logout.html"),
         "text/html; charset=utf-8"));
     app.MapGet("/portal", () => Results.File(
         Path.Combine(app.Environment.WebRootPath, "portal.html"),

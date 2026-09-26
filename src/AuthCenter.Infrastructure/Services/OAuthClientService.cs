@@ -66,6 +66,9 @@ public class OAuthClientService : IOAuthClientService
             GrantTypesJson = JsonSerializer.Serialize(request.GrantTypes),
             ClientType = (OAuthClientType)request.ClientType,
             LoginUrl = request.LoginUrl,
+            PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris),
+            BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri,
+            BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired,
             AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds,
             RequirePkce = request.RequirePkce,
             AutoConsent = request.AutoConsent,
@@ -144,6 +147,9 @@ public class OAuthClientService : IOAuthClientService
         client.AllowedScopesJson = JsonSerializer.Serialize(request.AllowedScopes);
         client.GrantTypesJson = JsonSerializer.Serialize(request.GrantTypes);
         client.LoginUrl = request.LoginUrl;
+        client.PostLogoutRedirectUrisJson = JsonSerializer.Serialize(request.PostLogoutRedirectUris);
+        client.BackchannelLogoutUri = string.IsNullOrWhiteSpace(request.BackchannelLogoutUri) ? null : request.BackchannelLogoutUri;
+        client.BackchannelLogoutSessionRequired = request.BackchannelLogoutSessionRequired;
         client.AccessTokenLifetimeSeconds = request.AccessTokenLifetimeSeconds;
         client.RequirePkce = request.RequirePkce;
         client.AutoConsent = request.AutoConsent;
@@ -206,6 +212,9 @@ public class OAuthClientService : IOAuthClientService
         AllowedScopes = JsonSerializer.Deserialize<List<string>>(client.AllowedScopesJson) ?? [],
         GrantTypes = JsonSerializer.Deserialize<List<string>>(client.GrantTypesJson) ?? [],
         LoginUrl = client.LoginUrl,
+        PostLogoutRedirectUris = JsonSerializer.Deserialize<List<string>>(client.PostLogoutRedirectUrisJson) ?? [],
+        BackchannelLogoutUri = client.BackchannelLogoutUri,
+        BackchannelLogoutSessionRequired = client.BackchannelLogoutSessionRequired,
         AccessTokenLifetimeSeconds = client.AccessTokenLifetimeSeconds,
         RequirePkce = client.RequirePkce,
         AutoConsent = client.AutoConsent,

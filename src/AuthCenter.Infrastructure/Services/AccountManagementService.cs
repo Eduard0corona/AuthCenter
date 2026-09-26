@@ -19,6 +19,7 @@ public class AccountManagementService : IAccountManagementService
     private readonly IActionLinkService _actionLinkService;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IAuditService _auditService;
+    private readonly ISingleSignOnSessionService _sessions;
 
     public AccountManagementService(
         AuthCenterDbContext db,
@@ -27,7 +28,8 @@ public class AccountManagementService : IAccountManagementService
         IEmailService emailService,
         IActionLinkService actionLinkService,
         IDateTimeProvider dateTimeProvider,
-        IAuditService auditService)
+        IAuditService auditService,
+        ISingleSignOnSessionService sessions)
     {
         _db = db;
         _userManager = userManager;
@@ -36,6 +38,7 @@ public class AccountManagementService : IAccountManagementService
         _actionLinkService = actionLinkService;
         _dateTimeProvider = dateTimeProvider;
         _auditService = auditService;
+        _sessions = sessions;
     }
 
     public async Task<OperationResult> ChangePasswordAsync(Guid userId, ChangePasswordRequest request, CancellationToken ct = default)
@@ -82,7 +85,18 @@ public class AccountManagementService : IAccountManagementService
         if (token.RevokedAt is not null)
             return OperationResult.Failure("SESSION_ALREADY_REVOKED", "Session is already revoked.");
 
-        await _refreshTokenService.RevokeAsync(token, null, ct);
+        // A hosted-login session also ends the application grants it authorized and notifies the
+        // clients signed in through it; an application grant is revoked on its own.
+        if (token.OAuthClientId is null)
+        {
+            var ended = await _sessions.EndSessionAsync(userId, tokenId, "user_revoked", ct);
+            if (!ended.IsSuccess)
+                return ended;
+        }
+        else
+        {
+            await _refreshTokenService.RevokeAsync(token, null, ct);
+        }
         await _auditService.LogAsync("REVOKE_SESSION", userId: userId, entityId: tokenId.ToString(), ct: ct);
         return OperationResult.Success();
     }

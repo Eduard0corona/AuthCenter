@@ -194,6 +194,9 @@ export interface OAuthClientSummary {
   allowedScopes: string[];
   grantTypes: string[];
   loginUrl: string;
+  postLogoutRedirectUris?: string[];
+  backchannelLogoutUri?: string | null;
+  backchannelLogoutSessionRequired?: boolean;
   accessTokenLifetimeSeconds: number;
   requirePkce: boolean;
   autoConsent: boolean;

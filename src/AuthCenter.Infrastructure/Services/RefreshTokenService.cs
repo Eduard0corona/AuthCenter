@@ -12,15 +12,18 @@ public class RefreshTokenService : IRefreshTokenService
 {
     private readonly AuthCenterDbContext _db;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly BackchannelLogoutQueue _backchannel;
     private readonly JwtSettings _jwtSettings;
 
     public RefreshTokenService(
         AuthCenterDbContext db,
         IDateTimeProvider dateTimeProvider,
+        BackchannelLogoutQueue backchannel,
         IOptions<JwtSettings> jwtSettings)
     {
         _db = db;
         _dateTimeProvider = dateTimeProvider;
+        _backchannel = backchannel;
         _jwtSettings = jwtSettings.Value;
     }
 
@@ -149,6 +152,11 @@ public class RefreshTokenService : IRefreshTokenService
 
     public async Task RevokeAllForUserAsync(Guid userId, CancellationToken ct = default)
     {
+        // Every single sign-on session ends, so every client signed in through one is told.
+        var sessions = await ActiveSessionsAsync(userId, ct);
+        if (await _backchannel.EnqueueAsync(userId, sessions.Select(session => session.Id).ToList(), null, ct) > 0)
+            await _db.SaveChangesAsync(ct);
+
         var now = _dateTimeProvider.UtcNow;
         if (_db.Database.IsRelational())
         {
@@ -170,6 +178,23 @@ public class RefreshTokenService : IRefreshTokenService
 
     public async Task RevokeAllForUserAsync(Guid userId, string applicationCode, CancellationToken ct = default)
     {
+        // Sessions last used for this application end completely; the user's other sessions only
+        // lose this application's grants, so only its clients are told about those.
+        var sessions = await ActiveSessionsAsync(userId, ct);
+        var applicationId = await _db.ApplicationSystems.AsNoTracking()
+            .Where(application => application.Code == applicationCode)
+            .Select(application => (Guid?)application.Id)
+            .FirstOrDefaultAsync(ct);
+        var queued = await _backchannel.EnqueueAsync(
+            userId, sessions.Where(session => session.ApplicationCode == applicationCode).Select(session => session.Id).ToList(), null, ct);
+        if (applicationId.HasValue)
+        {
+            queued += await _backchannel.EnqueueAsync(
+                userId, sessions.Where(session => session.ApplicationCode != applicationCode).Select(session => session.Id).ToList(), applicationId, ct);
+        }
+        if (queued > 0)
+            await _db.SaveChangesAsync(ct);
+
         var now = _dateTimeProvider.UtcNow;
         if (_db.Database.IsRelational())
         {
@@ -187,5 +212,15 @@ public class RefreshTokenService : IRefreshTokenService
             token.RevokedAt = now;
 
         await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task<List<(Guid Id, string ApplicationCode)>> ActiveSessionsAsync(Guid userId, CancellationToken ct)
+    {
+        var now = _dateTimeProvider.UtcNow;
+        var rows = await _db.RefreshTokens.AsNoTracking()
+            .Where(token => token.UserId == userId && token.OAuthClientId == null && token.RevokedAt == null && token.ExpiresAt > now)
+            .Select(token => new { token.Id, token.ApplicationCode })
+            .ToListAsync(ct);
+        return rows.Select(row => (row.Id, row.ApplicationCode)).ToList();
     }
 }

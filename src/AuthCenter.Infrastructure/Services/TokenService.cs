@@ -187,6 +187,12 @@ public class TokenService : ITokenService
 
     public string? ReadIdTokenHintSubject(string idToken, string clientId)
     {
+        var hint = ReadIdTokenHint(idToken);
+        return hint is not null && string.Equals(hint.ClientId, clientId, StringComparison.Ordinal) ? hint.Subject : null;
+    }
+
+    public IdTokenHint? ReadIdTokenHint(string idToken)
+    {
         if (string.IsNullOrWhiteSpace(idToken) || !_keyRing.IsConfigured)
             return null;
 
@@ -197,20 +203,57 @@ public class TokenService : ITokenService
             {
                 ValidateIssuer = true,
                 ValidIssuer = _jwtSettings.Issuer,
-                ValidateAudience = true,
-                ValidAudience = clientId,
+                // The audience names the client; callers check it against the client they expect.
+                ValidateAudience = false,
                 // An id_token_hint may be expired; only its origin and subject matter.
                 ValidateLifetime = false,
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKeys = _keyRing.ValidationKeys,
                 ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
-            }, out _);
-            return principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+            }, out var validated);
+
+            // Access and logout tokens share issuer and keys but are not ID tokens.
+            var type = ((JwtSecurityToken)validated).Header.Typ;
+            if (string.Equals(type, DomainConstants.Claims.AccessTokenType, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, DomainConstants.Claims.LogoutTokenType, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+            var audiences = principal.FindAll(JwtRegisteredClaimNames.Aud).Select(claim => claim.Value).ToList();
+            if (string.IsNullOrEmpty(subject) || audiences.Count != 1)
+                return null;
+            return new IdTokenHint(
+                subject,
+                audiences[0],
+                Guid.TryParse(principal.FindFirst(JwtRegisteredClaimNames.Sid)?.Value, out var sessionId) ? sessionId : null);
         }
         catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
         {
             return null;
         }
+    }
+
+    public string GenerateLogoutToken(string clientId, Guid userId, Guid? sessionId)
+    {
+        var credentials = GetRsaSigningCredentials();
+        var now = _dateTimeProvider.UtcNow;
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, userId.ToString()),
+            IssuedAt(now),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("events", JsonSerializer.Serialize(new Dictionary<string, object> { [DomainConstants.Claims.BackchannelLogoutEvent] = new { } }), JsonClaimValueTypes.Json)
+        };
+        if (sessionId.HasValue)
+            claims.Add(new Claim(JwtRegisteredClaimNames.Sid, sessionId.Value.ToString()));
+
+        // Logout tokens never carry a nonce and use their own type, so they cannot be replayed as
+        // ID or access tokens (OpenID Connect Back-Channel Logout 1.0, section 2.4).
+        var header = new JwtHeader(credentials, null, DomainConstants.Claims.LogoutTokenType);
+        var payload = new JwtPayload(_jwtSettings.Issuer, clientId, claims, notBefore: null, expires: now.AddMinutes(2));
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
     private SigningCredentials GetRsaSigningCredentials() => _keyRing.RequireSigningCredentials();

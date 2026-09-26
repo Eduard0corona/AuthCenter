@@ -185,6 +185,72 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
     }
 
     [Fact]
+    public async Task Bff_GlobalLogout_SignsOutAtAuthCenterAndComesBack()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access"], ["authorization_code", "refresh_token"]);
+        await using var bff = await StartBffAsync(clientId, secret, []);
+        using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
+        {
+            BaseAddress = new Uri(BffOrigin)
+        };
+        await SignInThroughBffAsync(browser, admin, "/auth/login");
+        using var session = JsonDocument.Parse(await browser.GetStringAsync("/auth/session"));
+        var logoutUrl = session.RootElement.GetProperty("logoutUrl").GetString()!;
+        Assert.StartsWith("/auth/logout?sid=", logoutUrl, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.BadRequest, (await browser.GetAsync("/auth/logout?sid=another-session")).StatusCode);
+
+        var logout = await browser.GetAsync(logoutUrl);
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        var endSession = logout.Headers.Location!;
+        Assert.Equal($"{HttpsAuthCenterFactory.Authority}/oauth/logout", endSession.GetLeftPart(UriPartial.Path));
+        var parameters = QueryHelpers.ParseQuery(endSession.Query);
+        Assert.False(string.IsNullOrEmpty(parameters["id_token_hint"].ToString()));
+        Assert.Equal($"{BffOrigin}/signout-callback-authcenter", parameters["post_logout_redirect_uri"].ToString());
+
+        using var authCenter = _factory.CreateAuthCenterClient();
+        var endSessionResponse = await authCenter.GetAsync(endSession);
+        Assert.Equal(HttpStatusCode.Redirect, endSessionResponse.StatusCode);
+        Assert.StartsWith($"{BffOrigin}/signout-callback-authcenter?state=", endSessionResponse.Headers.Location!.OriginalString, StringComparison.Ordinal);
+        var signedOut = await browser.GetAsync(endSessionResponse.Headers.Location);
+
+        Assert.Equal(HttpStatusCode.Redirect, signedOut.StatusCode);
+        Assert.Equal("/", signedOut.Headers.Location!.OriginalString);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/auth/session")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Bff_BackchannelLogout_EndsTheLocalSession_AndRejectsReplaysAndOtherTokens()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access"], ["authorization_code", "refresh_token"]);
+        await using var bff = await StartBffAsync(clientId, secret, []);
+        using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
+        {
+            BaseAddress = new Uri(BffOrigin)
+        };
+        await SignInThroughBffAsync(browser, admin, "/auth/login");
+        using var session = JsonDocument.Parse(await browser.GetStringAsync("/auth/session"));
+        var sessionId = Guid.Parse(QueryHelpers.ParseQuery(new Uri(new Uri(BffOrigin), session.RootElement.GetProperty("logoutUrl").GetString()).Query)["sid"].ToString());
+        var userId = Guid.Parse(session.RootElement.GetProperty("user").GetProperty("subject").GetString()!);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var tokens = scope.ServiceProvider.GetRequiredService<AuthCenter.Application.Interfaces.ITokenService>();
+        using var backchannel = bff.GetTestServer().CreateClient();
+
+        Task<HttpResponseMessage> PostAsync(string token) =>
+            backchannel.PostAsync("/auth/backchannel-logout", new FormUrlEncodedContent(new Dictionary<string, string> { ["logout_token"] = token }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync(tokens.GenerateLogoutToken("another-client", userId, sessionId))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync("not-a-token")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/auth/session")).StatusCode);
+
+        var logoutToken = tokens.GenerateLogoutToken(clientId, userId, sessionId);
+        Assert.Equal(HttpStatusCode.OK, (await PostAsync(logoutToken)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/auth/session")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync(logoutToken)).StatusCode);
+    }
+
+    [Fact]
     public async Task ResourceApi_ValidatesTypeAudienceRolesPermissionsAndScopes()
     {
         using var admin = await CreateAdminClientAsync();
@@ -299,6 +365,7 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
     private async Task<(string ClientId, string Secret)> RegisterClientAsync(HttpClient admin, string? redirectUri, string[] scopes, string[] grants)
     {
         var clientId = $"sdk-{Guid.NewGuid():N}"[..24];
+        var bff = redirectUri?.StartsWith(BffOrigin, StringComparison.Ordinal) == true;
         var response = await admin.PostAsJsonAsync("/api/oauth/clients", new
         {
             ApplicationSystemId = await AuthCenterApplicationIdAsync(),
@@ -306,6 +373,9 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
             DisplayName = "SDK contract client",
             ClientType = 0,
             RedirectUris = redirectUri is null ? Array.Empty<string>() : [redirectUri],
+            // What a BFF registers for global logout: its signed-out callback and back-channel endpoint.
+            PostLogoutRedirectUris = bff ? new[] { $"{BffOrigin}/signout-callback-authcenter" } : Array.Empty<string>(),
+            BackchannelLogoutUri = bff ? $"{BffOrigin}/auth/backchannel-logout" : null,
             AllowedScopes = scopes,
             GrantTypes = grants,
             LoginUrl = $"{HttpsAuthCenterFactory.Authority}/login",

@@ -44,10 +44,13 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
             context.Response.Headers.Pragma = "no-cache";
             var csrf = antiforgery.GetAndStoreTokens(context);
             var user = context.User;
+            var sessionId = user.FindFirstValue("sid");
             return Results.Ok(new
             {
                 authenticated = true,
                 csrfToken = csrf.RequestToken,
+                // Navigating here signs out of AuthCenter too; the sid keeps other sites from doing it.
+                logoutUrl = sessionId is null ? null : $"{options.LogoutPath}?sid={Uri.EscapeDataString(sessionId)}",
                 user = new
                 {
                     subject = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier),
@@ -90,6 +93,51 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
             return Results.NoContent();
         };
         endpoints.MapPost(options.LogoutPath, logoutHandler).RequireAuthorization(CookieAuthorization());
+
+        // Global sign-out (OpenID Connect RP-Initiated Logout): revokes the refresh token, ends the
+        // AuthCenter single sign-on session and returns through the signed-out callback. The sid
+        // from /auth/session is required, so another site cannot sign the user out with a link.
+        Func<HttpContext, AuthCenterClient, CancellationToken, Task> globalLogoutHandler = async (context, client, cancellationToken) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            var sessionId = context.User.FindFirstValue("sid");
+            var presented = context.Request.Query["sid"].FirstOrDefault();
+            if (sessionId is null || presented is null || !string.Equals(sessionId, presented, StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
+            }
+
+            var authentication = await context.AuthenticateAsync(AuthCenterBffDefaults.CookieScheme);
+            var refreshToken = authentication.Properties?.GetTokenValue("refresh_token");
+            if (!string.IsNullOrWhiteSpace(refreshToken))
+            {
+                try { await client.RevokeAsync(refreshToken, cancellationToken); }
+                catch (HttpRequestException) { /* AuthCenter ends the session's grants on logout anyway. */ }
+            }
+
+            var returnUrl = context.Request.Query["return_url"].FirstOrDefault();
+            // The OpenID Connect handler reads the ID token hint from the cookie session, so it signs
+            // out first; the local session ends right after.
+            await context.SignOutAsync(
+                AuthCenterBffDefaults.OpenIdConnectScheme,
+                new AuthenticationProperties { RedirectUri = IsLocalReturnUrl(returnUrl) ? returnUrl! : "/" });
+            await context.SignOutAsync(AuthCenterBffDefaults.CookieScheme);
+        };
+        endpoints.MapGet(options.LogoutPath, globalLogoutHandler).RequireAuthorization(CookieAuthorization());
+
+        Func<HttpContext, CancellationToken, Task<IResult>> backchannelLogoutHandler = async (context, cancellationToken) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            if (!context.Request.HasFormContentType)
+                return Results.Json(new { error = "invalid_request" }, statusCode: StatusCodes.Status400BadRequest);
+            var form = await context.Request.ReadFormAsync(cancellationToken);
+            var logout = context.RequestServices.GetRequiredService<AuthCenterBackchannelLogout>();
+            return await logout.ProcessAsync(form["logout_token"].FirstOrDefault(), cancellationToken)
+                ? Results.Ok()
+                : Results.Json(new { error = "invalid_request" }, statusCode: StatusCodes.Status400BadRequest);
+        };
+        endpoints.MapPost(options.BackchannelLogoutPath, backchannelLogoutHandler).AllowAnonymous().DisableAntiforgery();
 
         // error carries a standard OpenID Connect code (for example login_required after a
         // prompt=none attempt) so the application can decide what to show next.

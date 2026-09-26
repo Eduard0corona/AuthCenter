@@ -21,12 +21,18 @@ public class OAuthController : ControllerBase
     private readonly IOAuthAuthorizationService _oAuthService;
     private readonly ICurrentUserService _currentUserService;
     private readonly IAuthService _authService;
+    private readonly IEndSessionService _endSession;
 
-    public OAuthController(IOAuthAuthorizationService oAuthService, ICurrentUserService currentUserService, IAuthService authService)
+    public OAuthController(
+        IOAuthAuthorizationService oAuthService,
+        ICurrentUserService currentUserService,
+        IAuthService authService,
+        IEndSessionService endSession)
     {
         _oAuthService = oAuthService;
         _currentUserService = currentUserService;
         _authService = authService;
+        _endSession = endSession;
     }
 
     [HttpGet("authorize")]
@@ -185,6 +191,87 @@ public class OAuthController : ControllerBase
         return response is null
             ? NotFound(ApiResponse<object>.Fail("INVALID_RESPONSE", "The authorization response expired or was already delivered."))
             : AuthorizationResponseResult.Create(response);
+    }
+
+    /// <summary>
+    /// OpenID Connect RP-Initiated Logout (end_session_endpoint). An ID token of the current
+    /// session signs out at once; otherwise the hosted logout page asks the user to confirm.
+    /// </summary>
+    [HttpGet("logout")]
+    public async Task<IActionResult> EndSession(CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        string? Value(string name) => Request.Query.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value.ToString() : null;
+        var sso = await HttpContext.AuthenticateAsync(AuthenticationSchemes.UiCookie);
+        var caller = new EndSessionCaller
+        {
+            UserId = sso.Succeeded ? SessionClaims.UserId(sso.Principal!) : null,
+            SessionId = sso.Succeeded ? SessionClaims.SessionId(sso.Principal!) : null,
+            BrowserBinding = BrowserBinding.Ensure(HttpContext)
+        };
+        var result = await _endSession.BeginAsync(new EndSessionRequest
+        {
+            IdTokenHint = Value("id_token_hint"),
+            ClientId = Value("client_id"),
+            PostLogoutRedirectUri = Value("post_logout_redirect_uri"),
+            State = Value("state")
+        }, caller, ct);
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (result.Data!.SessionEnded)
+            await SignOutHostedLoginAsync();
+        return Redirect(result.Data.RedirectUrl);
+    }
+
+    // A cross-site form post does not carry the SameSite=Lax session cookie, so the parameters move
+    // to a top-level GET, which does.
+    [HttpPost("logout")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> EndSessionPost(CancellationToken ct)
+    {
+        var form = await Request.ReadFormAsync(ct);
+        var query = QueryString.Create(form
+            .Where(item => item.Key is "id_token_hint" or "client_id" or "post_logout_redirect_uri" or "state" or "ui_locales" or "logout_hint")
+            .Select(item => new KeyValuePair<string, string?>(item.Key, item.Value.ToString())));
+        Response.Headers.Location = $"/oauth/logout{query}";
+        return StatusCode(StatusCodes.Status303SeeOther);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("logout/{logoutId}")]
+    public async Task<IActionResult> GetPendingLogout(string logoutId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _endSession.GetPendingAsync(logoutId, BrowserBinding.Read(HttpContext), ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    /// <summary>The user confirmed the sign-out on the hosted logout page.</summary>
+    [AllowAnonymous]
+    [HttpPost("logout/{logoutId}/confirm")]
+    public async Task<IActionResult> ConfirmLogout(string logoutId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var cookie = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal);
+        var result = await _endSession.ConfirmAsync(logoutId, new EndSessionCaller
+        {
+            UserId = cookie ? SessionClaims.UserId(User) : null,
+            SessionId = cookie ? SessionClaims.SessionId(User) : null,
+            BrowserBinding = BrowserBinding.Read(HttpContext)
+        }, ct);
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+        if (result.Data!.SessionEnded)
+            await SignOutHostedLoginAsync();
+        return Ok(ApiResponse<object>.Ok(new { redirectUrl = result.Data.RedirectUrl }));
+    }
+
+    private async Task SignOutHostedLoginAsync()
+    {
+        await HttpContext.SignOutAsync(AuthenticationSchemes.UiCookie);
+        Response.Cookies.Delete(Middleware.UiCsrfMiddleware.CookieName, new CookieOptions { Secure = true, SameSite = SameSiteMode.Strict, Path = "/" });
     }
 
     [HttpPost("token")]

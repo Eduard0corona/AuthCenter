@@ -47,13 +47,14 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [x] **TOK-03** Higiene de tokens: `email_verified` como string en el ID token, sin `sid`/`azp`,
   access token sin `typ: at+jwt` ni `iat`, respuesta de token con campos `null`.
   *Resuelto:* access tokens con `typ: at+jwt` e `iat`; ID token con `azp`, `email_verified` booleano, `sid`, `auth_time` real, `amr` (arreglo JSON) y `acr`; token y userinfo omiten campos nulos. Pruebas: `OAuthFlowTests`, `SingleSignOnTests.ExistingSession_*`, `SecondFactorSignIn_IsReportedAsMultiFactorInTheIdToken`.
-- [ ] **LOG-01** No hay logout global: faltan `end_session_endpoint`, `post_logout_redirect_uris`,
+- [x] **LOG-01** No hay logout global: faltan `end_session_endpoint`, `post_logout_redirect_uris`,
   `sid` y back-channel logout; el refresh de una aplicación sigue vivo tras cerrar sesión.
+  *Resuelto:* `end_session_endpoint` (`/oauth/logout`, GET y POST→303) con `id_token_hint`/`client_id`, `post_logout_redirect_uri` exacto y `state`; sin un ID token de la sesión actual el usuario confirma en la página hospedada `/logout` (ligada al navegador). Fin de sesión SSO único (`ISingleSignOnSessionService`) usado por logout hospedado, RP-initiated, revocación desde el portal, "cerrar todas" y revocaciones administrativas: revoca la sesión y los refresh OAuth con su `sid`, y encola back-channel logout (`logout+jwt`, `sid`, `sub`, `events`) para cada cliente que recibió tokens con esa sesión (tabla `SingleSignOnSessionClients`); el outbox firma un token nuevo en cada intento (hasta 10). Clientes: `PostLogoutRedirectUris`, `BackchannelLogoutUri`, `BackchannelLogoutSessionRequired` (API, validación y consola). Discovery: `end_session_endpoint`, `backchannel_logout_supported`, `backchannel_logout_session_supported`. SDK: `GET /auth/logout?sid=` (cierre global con `id_token_hint`), `/auth/backchannel-logout` (validación completa, anti-replay por `jti`, marca de `sid` en caché distribuida) y rechazo de la cookie en cada instancia. **Requisito de despliegue:** migración `20260926101304_AddSingleSignOnLogout`; registrar las URIs de logout de cada cliente. Pruebas: `LogoutTests` (14), `BackchannelLogoutRelationalTests` (SQL Server), `SdkContractTests.Bff_GlobalLogout_*`, `Bff_BackchannelLogout_*`, e2e del editor de clientes.
 - [ ] **RL-01** Límites de tasa sólo por IP (5 logins/min, 60 llamadas/min a `/oauth/token`).
 - [ ] **CORS-01** CORS global con credenciales; no hay orígenes por cliente OAuth.
 - [~] **DISC-01** Discovery incompleto (`claims_supported`, logout, parámetros no soportados) y sin
   validación `issuer` = origen público.
-  *Avance:* discovery publica `claims_supported` (incl. `sid`, `auth_time`, `amr`, `acr`), `response_modes_supported` (`query`, `form_post`), `prompt_values_supported`, `acr_values_supported` y declara no soportados `request`, `request_uri` y `claims`; fuera de desarrollo el arranque exige que `Jwt:Issuer` identifique la misma URL que `Oidc:PublicOrigin` (prueba `IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment`). **Requisito de despliegue:** ambos valores deben coincidir. Pendiente: endpoints de logout e introspección (F5/F6).
+  *Avance:* discovery publica `claims_supported` (incl. `sid`, `auth_time`, `amr`, `acr`), `response_modes_supported` (`query`, `form_post`), `prompt_values_supported`, `acr_values_supported` y declara no soportados `request`, `request_uri` y `claims`; fuera de desarrollo el arranque exige que `Jwt:Issuer` identifique la misma URL que `Oidc:PublicOrigin` (prueba `IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment`). **Requisito de despliegue:** ambos valores deben coincidir. `end_session_endpoint` y soporte back-channel publicados (F5). Pendiente: introspección (F6).
 - [ ] **OIDC-01** No hay endpoint de introspección (RFC 7662).
 - [ ] **OIDC-02** No hay token exchange (RFC 8693).
 - [ ] **SAML-01** AuthCenter no puede actuar como IdP SAML para aplicaciones que sólo hablan SAML.
@@ -150,6 +151,11 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **UI-10** Advertencia de React "uncontrolled → controlled" en reglas de enrutamiento.
 - [ ] **UI-11** Pantallas para recursos de API, proveedores de servicio SAML, nuevos campos de
   clientes OAuth y gobierno.
+- [x] **UI-12** *(nuevo)* E2E intermitente "creates, rotates and revokes a scoped provisioning
+  token": tras rotar, la página reutilizaba la instancia del token anterior y el diálogo de
+  reautenticación se desmontaba al cargar el nuevo token.
+  *Resuelto:* una instancia de página por token (`key`) y la prueba espera al token rotado antes de
+  actuar. Verificado con ejecuciones repetidas.
 
 ### F. Login hospedado y portal
 
@@ -205,3 +211,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F2: contrato de claims `role`, `at+jwt`, higiene de ID token y respuestas, discovery e issuer, prueba de contrato SDK↔servidor. | TOK-01, TOK-03, DISC-01, SDK-06 |
 | 2026-09-26 | F3: sesión SSO real en `/oauth/authorize` (`prompt`, `max_age`, `id_token_hint`, `form_post`), login hospedado guiado por la interacción, interacciones ligadas al navegador, `sid`/`auth_time`/`amr`/`acr`, continuidad de sesión, parámetros SSO en el SDK; hallazgos nuevos SEC-09 (permisos entre aplicaciones) y OPS-13 (prueba intermitente). | SSO-01/03/04, TOK-03, FED-02, DISC-01, SEC-09, SDK-10, OPS-13 |
 | 2026-09-26 | F4: políticas, MFA y `acr_values` de la aplicación destino en el atajo SSO, al completar y al renovar; step-up en el login hospedado conservando la sesión. | SSO-02 |
+| 2026-09-26 | F5: logout global — `end_session_endpoint` con confirmación hospedada, fin de sesión SSO en cascada (grants OAuth y back-channel logout por outbox), configuración de logout por cliente (API y consola), cierre global y receptor back-channel en el SDK; E2E intermitente corregido. | LOG-01, DISC-01, UI-12 |

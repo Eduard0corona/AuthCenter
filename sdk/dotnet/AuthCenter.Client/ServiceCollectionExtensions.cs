@@ -102,6 +102,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddSingleton<ProtectedDistributedTicketStore>();
+        services.AddSingleton<AuthCenterBackchannelLogout>();
         services.AddSingleton<AuthCenterAccessTokenValidator>();
         services.TryAddSingleton<IAuthCenterRefreshCoordinator, InMemoryAuthCenterRefreshCoordinator>();
         services.AddScoped<IAuthCenterBffSessionManager, AuthCenterBffSessionManager>();
@@ -128,6 +129,7 @@ public static class ServiceCollectionExtensions
             cookie.SlidingExpiration = false;
             cookie.Events.OnRedirectToLogin = context => WriteStatusOrRedirect(context, StatusCodes.Status401Unauthorized);
             cookie.Events.OnRedirectToAccessDenied = context => WriteStatusOrRedirect(context, StatusCodes.Status403Forbidden);
+            cookie.Events.OnValidatePrincipal = AuthCenterBackchannelLogout.ValidatePrincipalAsync;
         })
         .AddOpenIdConnect(AuthCenterBffDefaults.OpenIdConnectScheme, oidc =>
         {
@@ -142,6 +144,8 @@ public static class ServiceCollectionExtensions
             oidc.SaveTokens = true;
             oidc.GetClaimsFromUserInfoEndpoint = true;
             oidc.CallbackPath = options.CallbackPath;
+            oidc.SignedOutCallbackPath = options.SignedOutCallbackPath;
+            oidc.SignedOutRedirectUri = "/";
             oidc.EventsType = typeof(AuthCenterOpenIdConnectEvents);
             oidc.Scope.Clear();
             foreach (var scope in options.Scopes.Distinct(StringComparer.Ordinal)) oidc.Scope.Add(scope);

@@ -70,6 +70,12 @@ public static class DomainConstants
 
         /// <summary>JWT header type for access tokens (RFC 9068), distinct from ID tokens.</summary>
         public const string AccessTokenType = "at+jwt";
+
+        /// <summary>JWT header type for OpenID Connect back-channel logout tokens.</summary>
+        public const string LogoutTokenType = "logout+jwt";
+
+        /// <summary>Member of the logout token's events claim (OpenID Connect Back-Channel Logout 1.0).</summary>
+        public const string BackchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout";
     }
 
     /// <summary>RFC 8176 authentication method reference values emitted in the OIDC amr claim.</summary>
