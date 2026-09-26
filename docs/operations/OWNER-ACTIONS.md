@@ -9,7 +9,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 |---|---|---|
 | OPS-01 | Reactivar la ejecución de GitHub Actions (hecho el 2026-09-26) | Administrador de la organización / facturación |
 | OPS-02 | Proteger `main` | Administrador del repositorio |
-| OPS-03 | Aplicar las migraciones pendientes en Azure SQL | Administrador Microsoft Entra de la base |
+| OPS-03 | Aplicar las migraciones pendientes en Azure SQL (hecho el 2026-09-26: 35 migraciones) | Administrador Microsoft Entra de la base |
 | OPS-04 | Carga inicial productiva (primer administrador) | Operador con acceso a App Service y Key Vault |
 | OPS-05 | Primera rotación de la llave de firma | Operador con acceso a Key Vault |
 | OPS-06 | Purgar del historial la llave RSA retirada | Autorización expresa: reescribe el historial |

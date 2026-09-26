@@ -716,7 +716,7 @@ La Fase 5 solo debe volver a marcarse completamente lista cuando:
 6. el artefacto desplegado en Azure haya superado smoke, version y cache checks.
 
 Estado al 2026-09-26: 1 a 3 se cumplen (lo abierto quedo registrado arriba como alcance posterior).
-4 se cumple: la suite E2E y axe paso en GitHub Actions en el PR #23. 5 y 6 dependen del
-propietario: revision manual (UI-07) y despliegue con las migraciones aplicadas (OPS-03); ver
-`docs/operations/OWNER-ACTIONS.md`. El workflow ya verifica salud,
-CSP, cache y compresion de la consola en cada despliegue.
+4 se cumple: la suite E2E y axe paso en GitHub Actions en el PR #23. 6 se cumple: el despliegue
+del 2026-09-26 (run `CI/CD` #73) supero la verificacion de salud, esquema, CSP, cache y
+compresion de la consola. 5 depende del propietario: revision manual con lectores de pantalla
+(UI-07, `docs/operations/OWNER-ACTIONS.md`).
