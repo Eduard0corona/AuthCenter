@@ -353,6 +353,7 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [P] **OPS-05** Primera rotación de la llave de firma.
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-05--primera-rotación-de-la-llave-de-firma).
 - [P] **OPS-06** Purgar del historial la llave RSA retirada (requiere reescritura autorizada).
+  *Estado:* el 2026-09-26 el propietario decidió hacerlo él mismo, fuera de esta remediación (la llave ya está retirada y rotada; la purga reescribe todas las ramas).
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-06--purgar-la-llave-rsa-retirada-del-historial-autorización-expresa).
 - [P] **OPS-07** Origen real del frontend en CORS y ActionLinks.
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-07--origen-real-del-frontend).
@@ -361,6 +362,7 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [x] **OPS-09** Las pruebas relacionales "pasan" sin ejecutarse cuando no hay SQL Server.
   *Resuelto:* atributo `[RelationalFact]`: sin SQL Server las pruebas se reportan como omitidas.
 - [P] **OPS-10** Ramas remotas ya integradas.
+  *Estado:* autorizado por el propietario el 2026-09-26 para las 8 ramas integradas en `main` sin PR abierto (`feat/admin-federation`, `feat/admin-frontend-foundation`, `feat/admin-oauth-clients`, `feat/okta-phase1-complete`, `feat/production-idp-integration-kit`, `fix/azure-phase56-validation`, `fix/comprehensive-security-architecture-hardening`, `fix/ui-html-content-type`). La sesión de remediación no pudo borrarlas: sus credenciales sólo escriben en su propia rama (HTTP 403). Queda para el propietario: *Branches* en GitHub o `git push origin --delete <rama>`.
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-10--ramas-remotas-ya-integradas-autorización-expresa).
 - [x] **OPS-11** Dependabot, presupuesto de bundle y cobertura en CI.
   *Resuelto:* `.github/dependabot.yml`: NuGet, npm (consola, SDK TypeScript, quickstart SPA y pruebas del login hospedado), Actions y Docker, semanal, con menores y parches agrupados; los mayores de ASP.NET Core, EF Core, Extensions y de las imágenes .NET se ignoran porque cambian con el framework. CI: cobertura .NET de unitarias e integración (coverlet con `coverlet.runsettings`, ReportGenerator) con resumen en la página del run, artefacto `coverage-report` y mínimos de 80 % de líneas y 60 % de ramas (`scripts/ci/coverage-gate.py`; al introducirlo 85,1 % y 64,5 %); cobertura de los módulos de lógica de la consola con mínimos en `vite.config.ts` (líneas 70, sentencias 68, ramas 58, funciones 65; hoy 77,6/73,6/65,1/70,7); presupuesto gzip de la consola (`src/AuthCenter.Admin/scripts/check-bundle-budget.mjs`: entrada 110 KB, cada chunk 45 KB, total 420 KB; hoy 64,9/22,7/263,8 KB). El job pasa de 25 a 40 minutos por la instrumentación.
