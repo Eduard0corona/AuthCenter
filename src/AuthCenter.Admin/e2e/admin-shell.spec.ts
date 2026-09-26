@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const applicationId = "11111111-1111-4111-8111-111111111111";
 const roleId = "22222222-2222-4222-8222-222222222222";
@@ -743,4 +743,204 @@ test("creates a typed group rule and previews the affected members", async ({ pa
   await expect(page.getByRole("link", { name: "Ver usuario" })).toBeVisible();
   await expect(page.getByText("1 usuario", { exact: true })).toBeVisible();
   expect(previewPayload).toEqual({ page: 1, pageSize: 20 });
+});
+
+const oidcProviderId = "13131313-1313-4131-8131-131313131313";
+const samlProviderId = "14141414-1414-4141-8141-141414141414";
+const oidcProvider = {
+  id: oidcProviderId, applicationSystemId: applicationId, name: "Entra ID corporativo", protocol: "Oidc", issuer: "https://login.example.test",
+  discoveryEndpoint: null, clientId: "authcenter", oidcCallbackUrl: "https://authcenter.example.test/api/federation/oidc/callback", hasClientSecret: true,
+  samlSingleSignOnUrl: null, samlSigningCertificateThumbprint: null, jitProvisioningEnabled: true, accountLinkingMode: "VerifiedEmail", isActive: true, version: 1
+};
+const samlProvider = {
+  ...oidcProvider, id: samlProviderId, name: "IdP SAML", protocol: "Saml2", issuer: "https://idp.example.test", clientId: null, oidcCallbackUrl: null, hasClientSecret: false,
+  samlSingleSignOnUrl: "https://idp.example.test/sso", samlSigningCertificateThumbprint: "ABCDEF0123456789ABCDEF0123456789ABCDEF01", jitProvisioningEnabled: false, accountLinkingMode: "Disabled", version: 2
+};
+const routingRules = [
+  { id: "15151515-1515-4151-8151-151515151515", federationProviderId: oidcProviderId, providerName: oidcProvider.name, applicationSystemId: applicationId, priority: 10, emailDomain: "empresa.com", directoryGroupId: null, profileAttributeDefinitionId: null, expectedProfileValueJson: null, isActive: true, version: 1 },
+  { id: "16161616-1616-4161-8161-161616161616", federationProviderId: samlProviderId, providerName: samlProvider.name, applicationSystemId: applicationId, priority: 20, emailDomain: null, directoryGroupId: groupId, profileAttributeDefinitionId: null, expectedProfileValueJson: null, isActive: true, version: 3 }
+];
+
+function mockStepUp(page: Page, onPurpose: (purpose: string) => void) {
+  return page.route("**/api/auth/reauth/password", async (route) => {
+    onPurpose((route.request().postDataJSON() as { purpose: string }).purpose);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "single-use-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+}
+
+test("creates an OIDC federation provider with step-up and never echoes the secret", async ({ page }) => {
+  let createPayload: Record<string, unknown> | null = null;
+  let proofHeader = "";
+  const purposes: string[] = [];
+  await mockStepUp(page, (purpose) => purposes.push(purpose));
+  await page.route("**/api/federation/providers", async (route) => {
+    if (route.request().method() === "POST") {
+      createPayload = route.request().postDataJSON() as Record<string, unknown>;
+      proofHeader = route.request().headers()["x-authcenter-reauthentication"] ?? "";
+      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: oidcProvider }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider] }) });
+  });
+
+  await page.goto(`/admin-v2/federation/providers/new?applicationId=${applicationId}`);
+  await expect(page.getByLabel("Aplicación")).toHaveValue(applicationId);
+  await page.getByLabel("Nombre").fill(oidcProvider.name);
+  await page.getByLabel("Issuer", { exact: true }).fill(oidcProvider.issuer);
+  await page.getByLabel("Client ID").fill("authcenter");
+  await page.getByLabel("Callback URL").fill("http://insecure.example.test/callback");
+  await page.getByLabel("Client secret").fill("upstream-secret");
+  await page.getByLabel(/Just-in-time provisioning/).check();
+  await page.getByLabel("Vinculación de cuentas").selectOption("VerifiedEmail");
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+  await expect(page.getByText("La callback URL debe ser HTTPS y exacta.")).toBeVisible();
+  expect(purposes).toEqual([]);
+
+  await page.getByLabel("Callback URL").fill(oidcProvider.oidcCallbackUrl);
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y crear" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/federation/providers/${oidcProviderId}$`));
+  expect(purposes).toEqual(["admin.federation.change"]);
+  expect(proofHeader).toBe("single-use-proof");
+  expect(createPayload).toEqual({
+    applicationSystemId: applicationId, name: oidcProvider.name, protocol: "Oidc", issuer: oidcProvider.issuer, discoveryEndpoint: null, clientId: "authcenter",
+    oidcCallbackUrl: oidcProvider.oidcCallbackUrl, clientSecret: "upstream-secret", samlSingleSignOnUrl: null, samlSigningCertificatePem: null,
+    jitProvisioningEnabled: true, accountLinkingMode: "VerifiedEmail", isActive: true, version: 0
+  });
+  await expect(page.getByText("Secret configurado")).toBeVisible();
+  await expect(page.getByLabel("Nuevo client secret")).toHaveValue("");
+  await expect(page.getByText("upstream-secret")).toHaveCount(0);
+});
+
+test("updates a SAML provider without re-sending the stored certificate", async ({ page }) => {
+  let updatePayload: Record<string, unknown> | null = null;
+  await mockStepUp(page, () => undefined);
+  await page.route("**/api/federation/providers", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider, samlProvider] }) }));
+  await page.route(`**/api/federation/providers/${samlProviderId}`, async (route) => {
+    updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...samlProvider, samlSingleSignOnUrl: "https://idp.example.test/sso2", version: 3 } }) });
+  });
+
+  await page.goto(`/admin-v2/federation/providers/${samlProviderId}`);
+  await expect(page.getByRole("heading", { name: "SAML 2.0" })).toBeVisible();
+  await expect(page.getByText(`SHA-1 ${samlProvider.samlSigningCertificateThumbprint}`)).toBeVisible();
+  await expect(page.getByLabel("Metadata del SP")).toHaveValue(new RegExp(`/api/federation/saml/${samlProviderId}/metadata$`));
+  await expect(page.getByLabel("Nuevo certificado de firma (PEM)")).toHaveValue("");
+  await page.getByLabel("URL de Single Sign-On").fill("https://idp.example.test/sso2");
+  await page.getByRole("button", { name: "Verificar y guardar" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("versión 3");
+  expect(updatePayload).toMatchObject({ protocol: "Saml2", samlSingleSignOnUrl: "https://idp.example.test/sso2", samlSigningCertificatePem: null, clientId: null, oidcCallbackUrl: null, clientSecret: null, version: 2 });
+});
+
+test("creates, reorders and simulates federation routing rules with step-up", async ({ page }) => {
+  let createPayload: Record<string, unknown> | null = null;
+  let orderPayload: Record<string, unknown> | null = null;
+  let routePayload: Record<string, unknown> | null = null;
+  const purposes: string[] = [];
+  await mockStepUp(page, (purpose) => purposes.push(purpose));
+  await page.route("**/api/federation/providers?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider, samlProvider] }) }));
+  await page.route("**/api/federation/routing-rules?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: routingRules }) }));
+  await page.route("**/api/federation/routing-rules", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.route("**/api/federation/routing-rules/order", async (route) => {
+    orderPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.route("**/api/federation/route", async (route) => {
+    routePayload = route.request().postDataJSON() as Record<string, unknown>;
+    const email = String(routePayload.email);
+    if (email.endsWith("@empresa.com")) await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { providerId: oidcProviderId, providerName: oidcProvider.name, protocol: "Oidc" } }) });
+    else await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FEDERATION_ROUTE_NOT_FOUND", message: "No active federation route matched this application and identity." }) });
+  });
+
+  await page.goto(`/admin-v2/federation?applicationId=${applicationId}`);
+  await expect(page.getByRole("heading", { name: "Routing rules", exact: true })).toBeVisible();
+  await expect(page.getByText("dominio empresa.com")).toBeVisible();
+  await expect(page.getByText(`grupo ${group.name}`)).toBeVisible();
+
+  await page.getByRole("button", { name: "Nueva regla" }).click();
+  await page.getByRole("combobox", { name: "Proveedor", exact: true }).selectOption(samlProviderId);
+  await expect(page.getByLabel("Prioridad")).toHaveValue("30");
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+  await expect(page.getByText("Define al menos una condición: dominio, grupo o atributo.")).toBeVisible();
+  await page.getByLabel("Dominio de correo").fill("Socios.MX");
+  await page.getByLabel("Atributo del perfil").selectOption(profileSchema[0].id);
+  await page.getByLabel("Valor esperado").fill("Ingeniería");
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+  const createDialog = page.getByRole("dialog");
+  await createDialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await createDialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("quedó creada");
+  expect(createPayload).toEqual({ federationProviderId: samlProviderId, priority: 30, emailDomain: "socios.mx", directoryGroupId: null, profileAttributeDefinitionId: profileSchema[0].id, expectedProfileValueJson: "\"Ingeniería\"", isActive: true });
+
+  const saveOrder = page.getByRole("button", { name: "Verificar y guardar orden" });
+  await expect(saveOrder).toBeDisabled();
+  await page.getByRole("button", { name: "Bajar regla 1" }).click();
+  await expect(saveOrder).toBeEnabled();
+  await saveOrder.click();
+  const orderDialog = page.getByRole("dialog");
+  await orderDialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await orderDialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("orden de evaluación");
+  expect(orderPayload).toEqual({ rules: [{ id: routingRules[1].id, priority: 10, version: 3 }, { id: routingRules[0].id, priority: 20, version: 1 }] });
+  expect(purposes).toEqual(["admin.federation.change", "admin.federation.change"]);
+
+  await page.getByLabel("Correo de prueba").fill("persona@empresa.com");
+  await page.getByRole("button", { name: "Simular" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Se enrutaría" })).toContainText(oidcProvider.name);
+  expect(routePayload).toEqual({ applicationCode: application.code, email: "persona@empresa.com" });
+  await page.getByLabel("Correo de prueba").fill("nadie@otro.test");
+  await page.getByRole("button", { name: "Simular" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Ninguna regla activa" })).toBeVisible();
+
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
+test("editing a routing rule without directory permissions preserves its group and attribute conditions", async ({ page }) => {
+  const rule = { ...routingRules[1], emailDomain: "socios.mx", profileAttributeDefinitionId: profileSchema[0].id, expectedProfileValueJson: "\"Ingeniería\"" };
+  let updatePayload: Record<string, unknown> | null = null;
+  let catalogueRequests = 0;
+  await page.unroute("**/ui-api/session");
+  await page.route("**/ui-api/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { user: { id: "operator-2", name: "Ada Operadora", email: "ada@example.test", applications: ["AUTHCENTER"], roles: ["Admin"], permissions: ["AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_APPLICATIONS_WRITE"] }, csrfToken: "e2e-csrf" } }) }));
+  await page.unroute("**/api/groups?**");
+  await page.unroute("**/api/profile-schema");
+  await page.route("**/api/groups?**", async (route) => { catalogueRequests += 1; await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FORBIDDEN", message: "Forbidden" }) }); });
+  await page.route("**/api/profile-schema", async (route) => { catalogueRequests += 1; await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FORBIDDEN", message: "Forbidden" }) }); });
+  await mockStepUp(page, () => undefined);
+  await page.route("**/api/federation/providers?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider, samlProvider] }) }));
+  await page.route("**/api/federation/routing-rules?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [rule] }) }));
+  await page.route(`**/api/federation/routing-rules/${rule.id}`, async (route) => {
+    updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...rule, isActive: false, version: 4 } }) });
+  });
+
+  await page.goto(`/admin-v2/federation?applicationId=${applicationId}`);
+  await expect(page.getByText(`grupo ${groupId}`)).toBeVisible();
+  await page.getByRole("button", { name: "Editar" }).click();
+  await expect(page.getByRole("combobox", { name: "Grupo del directorio" })).toHaveValue(groupId);
+  await expect(page.getByRole("combobox", { name: "Atributo del perfil" })).toHaveValue(profileSchema[0].id);
+  await expect(page.getByLabel("Valor esperado")).toHaveValue("Ingeniería");
+  expect(catalogueRequests).toBe(0);
+
+  await page.getByLabel("Valor esperado").fill("Ventas");
+  await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("AUTHCENTER_PROFILE_SCHEMAS_READ");
+  expect(updatePayload).toBeNull();
+
+  await page.getByLabel("Valor esperado").fill("Ingeniería");
+  await page.getByLabel("Regla activa").uncheck();
+  await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("quedó guardada");
+  expect(updatePayload).toEqual({ priority: rule.priority, emailDomain: "socios.mx", directoryGroupId: groupId, profileAttributeDefinitionId: profileSchema[0].id, expectedProfileValueJson: "\"Ingeniería\"", isActive: false, version: rule.version });
 });
