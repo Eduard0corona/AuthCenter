@@ -25,14 +25,24 @@ public sealed class UiSessionController : ControllerBase
     private readonly IAuthService _auth;
     private readonly IAccountManagementService _accounts;
     private readonly IPasskeyService _passkeys;
+    private readonly IRefreshTokenService _refreshTokens;
     private readonly MfaSettings _mfa;
+    private readonly SingleSignOnSettings _sso;
 
-    public UiSessionController(IAuthService auth, IAccountManagementService accounts, IPasskeyService passkeys, IOptions<MfaSettings> mfa)
+    public UiSessionController(
+        IAuthService auth,
+        IAccountManagementService accounts,
+        IPasskeyService passkeys,
+        IRefreshTokenService refreshTokens,
+        IOptions<MfaSettings> mfa,
+        IOptions<SingleSignOnSettings> sso)
     {
         _auth = auth;
         _accounts = accounts;
         _passkeys = passkeys;
+        _refreshTokens = refreshTokens;
         _mfa = mfa.Value;
+        _sso = sso.Value;
     }
 
     [AllowAnonymous]
@@ -142,16 +152,25 @@ public sealed class UiSessionController : ControllerBase
     private async Task CreateSessionAsync(AuthResponse response)
     {
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(response.AccessToken);
+        var userId = Guid.Parse(jwt.Subject);
+        var newSessionId = Guid.Parse(jwt.Claims.Single(claim => claim.Type == JwtRegisteredClaimNames.Sid).Value);
+        var currentSessionId = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal)
+            ? SessionClaims.SessionId(User)
+            : null;
+        var sessionId = await _refreshTokens.ContinueBrowserSessionAsync(currentSessionId, userId, newSessionId, HttpContext.RequestAborted);
         var claims = jwt.Claims
-            .Where(claim => claim.Type is not "exp" and not "nbf" and not "iat")
+            .Where(claim => claim.Type is not "exp" and not "nbf" and not "iat" and not JwtRegisteredClaimNames.Sid)
             .Select(claim => claim.Type == DomainConstants.Claims.Role ? new Claim(ClaimTypes.Role, claim.Value) : claim)
+            .Append(new Claim(JwtRegisteredClaimNames.Sid, sessionId.ToString()))
             .ToList();
         var identity = new ClaimsIdentity(claims, AuthenticationSchemes.UiCookie, JwtRegisteredClaimNames.Name, ClaimTypes.Role);
         await HttpContext.SignInAsync(AuthenticationSchemes.UiCookie, new ClaimsPrincipal(identity), new AuthenticationProperties
         {
             IsPersistent = false,
             AllowRefresh = false,
-            ExpiresUtc = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, response.ExpiresIn))
+            // The single sign-on session outlives the short access token it was created from; the
+            // session record behind "sid" is still checked on every request and can be revoked.
+            ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(_sso.SessionLifetimeMinutes)
         });
     }
 

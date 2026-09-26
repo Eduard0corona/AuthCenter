@@ -5,6 +5,7 @@ using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Permissions;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Permissions;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -52,8 +53,19 @@ public class PermissionService : IPermissionService
 
     public async Task<OperationResult<PermissionDto>> CreateAsync(CreatePermissionRequest request, CancellationToken ct = default)
     {
-        if (!await _db.ApplicationSystems.AnyAsync(a => a.Id == request.ApplicationSystemId, ct))
-            throw new NotFoundException(nameof(ApplicationSystem), request.ApplicationSystemId);
+        var applicationCode = await _db.ApplicationSystems
+            .Where(a => a.Id == request.ApplicationSystemId)
+            .Select(a => a.Code)
+            .SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundException(nameof(ApplicationSystem), request.ApplicationSystemId);
+
+        if (request.Code.StartsWith(DomainConstants.Permissions.ReservedPrefix, StringComparison.Ordinal) &&
+            !string.Equals(applicationCode, DomainConstants.SystemCodes.AuthCenter, StringComparison.Ordinal))
+        {
+            return OperationResult<PermissionDto>.Failure(
+                "RESERVED_PERMISSION_CODE",
+                $"Permission codes starting with {DomainConstants.Permissions.ReservedPrefix} are reserved for AuthCenter.");
+        }
 
         if (await _db.Permissions.AnyAsync(p => p.ApplicationSystemId == request.ApplicationSystemId && p.Code == request.Code, ct))
             return OperationResult<PermissionDto>.Failure("CODE_TAKEN", $"Permission code '{request.Code}' already exists for this application.");

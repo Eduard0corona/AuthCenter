@@ -5,6 +5,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Xml;
 using AuthCenter.Application.Common;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Federation;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Federation;
@@ -133,7 +134,7 @@ public sealed partial class FederationService
         var userResult = await ResolveFederatedUserAsync(provider, subject, email, name ?? email, ct);
         if (!userResult.IsSuccess) return OperationResult<AuthResponse>.Failure(userResult.ErrorCode!, userResult.Message!);
         await _audit.LogAsync("FEDERATION_LOGIN_SUCCESS", userResult.Data!.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), ipAddress, userAgent, new { protocol = "SAML2" }, ct);
-        return await _sessions.IssueAsync(userResult.Data, provider.ApplicationSystemId, provider.ApplicationSystem.Code, ipAddress, userAgent, ct: ct);
+        return await _sessions.IssueAsync(userResult.Data, provider.ApplicationSystemId, provider.ApplicationSystem.Code, ipAddress, userAgent, authentication: AuthenticationContext.Federated, ct: ct);
     }
 
     public async Task<OperationResult<string>> GetSamlMetadataAsync(Guid providerId, CancellationToken ct = default)

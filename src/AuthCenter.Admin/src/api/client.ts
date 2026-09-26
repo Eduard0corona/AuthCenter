@@ -3,6 +3,9 @@ import type { ApiEnvelope } from "./types";
 let csrfToken = "";
 let redirectStarted = false;
 
+/** The console administers AuthCenter itself, so it needs a session issued for this application. */
+export const ADMIN_APPLICATION_CODE = "AUTHCENTER";
+
 export type ApiErrorKind = "authentication" | "authorization" | "validation" | "conflict" | "transient" | "unexpected";
 
 export class ApiError extends Error {
@@ -70,11 +73,11 @@ async function readEnvelope<T>(response: Response): Promise<ApiEnvelope<T> | nul
   }
 }
 
-function redirectToLoginOnce(): void {
+export function redirectToLoginOnce(): void {
   if (redirectStarted || typeof window === "undefined") return;
   redirectStarted = true;
   const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  window.location.replace(`/login?return_url=${encodeURIComponent(returnUrl)}`);
+  window.location.replace(`/login?application=${ADMIN_APPLICATION_CODE}&return_url=${encodeURIComponent(returnUrl)}`);
 }
 
 function classifyError(status: number): ApiErrorKind {

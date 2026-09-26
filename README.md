@@ -153,6 +153,7 @@ git-ignored and its values are for local use only.
 | `Jwt:AdditionalValidationKeysPem` | Array of PEM keys still accepted on validation and published in the JWKS, but no longer used for signing. See [Rotating the signing key](#rotating-the-signing-key) |
 | `Jwt:AccessTokenMinutes` | Access token lifetime (default 15) |
 | `Jwt:RefreshTokenDays` | Refresh token lifetime (default 30) |
+| `Sso:SessionLifetimeMinutes` | Lifetime of the hosted-login single sign-on session shared by every application (default 480, from 5 minutes to 7 days). The session record is still checked on every request, so sign-out and entitlement changes end it immediately |
 | `Mfa:EncryptionKey` | Key used to encrypt TOTP secrets at rest (min 32 chars, required outside Development) |
 | `Authentication:Google:ClientId` | Google OAuth Client ID |
 | `Passkeys:RelyingPartyId` | Exact WebAuthn RP host, without scheme or path |
@@ -358,9 +359,11 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 |--------|----------|-------------|
 | GET | `/.well-known/openid-configuration` | Discovery document |
 | GET | `/.well-known/jwks.json` | Public signing keys |
-| GET | `/oauth/authorize` | Start an authorization request |
+| GET/POST | `/oauth/authorize` | Start an authorization request (answered directly when a single sign-on session applies) |
+| GET | `/oauth/interactions/{interactionId}/context` | Application, login hint and freshness for the hosted login; only from the browser that started the request |
 | GET | `/oauth/interactions/{interactionId}` | Read safe application/scope metadata for the authenticated consent UI |
 | POST | `/oauth/authorize/complete` | Grant consent and issue the code |
+| GET | `/oauth/authorize/response/{responseId}` | One-time `form_post` delivery page for the browser that completed the interaction |
 | POST | `/oauth/token` | Exchange code / refresh token / client credentials |
 | POST | `/oauth/revoke` | Revoke a refresh token and its complete rotation family |
 | GET | `/oauth/userinfo` | OIDC claims for the access token's subject |
@@ -372,6 +375,21 @@ refresh token grants. Tokens are signed with RS256 and verifiable through the pu
 
 `/oauth/userinfo` accepts only access tokens issued by `/oauth/token`; first-party login tokens are
 rejected because they are not scoped to an OAuth client.
+
+**Single sign-on.** Register each client's `LoginUrl` as the hosted login,
+`https://<authcenter-host>/login`. `/oauth/authorize` appends `interaction_id`, and the page reads
+`/oauth/interactions/{id}/context` to sign the user in to the client's own application (its
+branding, password policy, access policies and MFA). The hosted-login cookie
+(`__Host-AuthCenter.Ui`, `SameSite=Lax`) is the single sign-on session: while it is valid,
+`/oauth/authorize` answers other clients directly without showing a page. Supported request
+parameters: `prompt` (`none`, `login`, `consent`, `select_account`), `max_age`, `login_hint`,
+`id_token_hint`, `acr_values` and `response_mode` (`query` or `form_post`); `request` and
+`request_uri` are rejected with their standard errors. Interactions are bound to the browser that
+started them (`__Host-AuthCenter.Browser`), so a link cannot be completed from another browser.
+ID tokens carry `sid`, the real `auth_time`, `amr` (RFC 8176) and `acr`
+(`urn:authcenter:acr:1fa`, `urn:authcenter:acr:mfa`, `urn:authcenter:acr:phr`). Re-authenticating
+with the same account keeps the session and its `sid`; signing in with another account ends the
+previous account's session.
 
 Every OAuth client belongs to exactly one active `ApplicationSystem`. Authorization-code clients
 must use an exact registered redirect URI, `state`, PKCE `S256` and `nonce` when requesting
@@ -585,7 +603,10 @@ curl -X POST https://localhost:7001/api/auth/google \
   used for login, and carry the RFC 9068 header `typ: at+jwt` so resource servers can reject ID
   tokens presented as bearer tokens. Tokens issued before this contract used the .NET URI
   `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`; `AuthCenter.Client` accepts both.
-- Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`.
+- Endpoints are protected with `[Authorize(Policy = "PERMISSION_CODE")]`. AuthCenter's own
+  administration permissions only count in a session issued for the `AUTHCENTER` application, and
+  the `AUTHCENTER_` code prefix is reserved to it: permission codes are unique per application, so
+  another application's look-alike permission must never open the administration API.
 - Refresh tokens are bound to the application they were issued for.
 - Effective application access and claims are the union of active direct assignments and active
   directory-group assignments; duplicates are removed.

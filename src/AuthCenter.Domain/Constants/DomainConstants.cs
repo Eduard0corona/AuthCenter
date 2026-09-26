@@ -17,6 +17,12 @@ public static class DomainConstants
 
     public static class Permissions
     {
+        /// <summary>
+        /// Prefix of AuthCenter's own administration permissions. Permission codes are only unique
+        /// per application, so the prefix is reserved to the AuthCenter application.
+        /// </summary>
+        public const string ReservedPrefix = "AUTHCENTER_";
+
         public const string UsersRead = "AUTHCENTER_USERS_READ";
         public const string UsersWrite = "AUTHCENTER_USERS_WRITE";
         public const string ApplicationsRead = "AUTHCENTER_APPLICATIONS_READ";
@@ -64,6 +70,30 @@ public static class DomainConstants
 
         /// <summary>JWT header type for access tokens (RFC 9068), distinct from ID tokens.</summary>
         public const string AccessTokenType = "at+jwt";
+    }
+
+    /// <summary>RFC 8176 authentication method reference values emitted in the OIDC amr claim.</summary>
+    public static class AuthenticationMethods
+    {
+        public const string Password = "pwd";
+        public const string OneTimePassword = "otp";
+        public const string MultiFactor = "mfa";
+
+        /// <summary>Proof of possession of a key: a user-verified passkey (WebAuthn).</summary>
+        public const string ProofOfPossession = "pop";
+
+        /// <summary>Authentication delegated to an upstream identity provider (federation, social).</summary>
+        public const string Federated = "fed";
+    }
+
+    /// <summary>OIDC acr values published by AuthCenter, one per authentication assurance level.</summary>
+    public static class AuthenticationContextClasses
+    {
+        public const string SingleFactor = "urn:authcenter:acr:1fa";
+        public const string MultiFactor = "urn:authcenter:acr:mfa";
+        public const string PhishingResistant = "urn:authcenter:acr:phr";
+
+        public static readonly IReadOnlyList<string> All = [SingleFactor, MultiFactor, PhishingResistant];
     }
 
     public static class OAuthScopes

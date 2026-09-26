@@ -13,11 +13,22 @@ let mfaPendingToken = "";
 let passwordChangeToken = "";
 let themeCode = "";
 
-application.value = params.get("application") || application.value;
+// An authorization request names its application: the page signs the user in to that
+// application (its policies, branding and hint) instead of asking the user for a code.
+const interaction = interactionId ? await loadInteractionContext() : null;
+application.value = interaction?.applicationCode || params.get("application") || application.value;
 await loadBranding();
-await resumeExistingSession();
-
-application.addEventListener("change", loadBranding);
+if (interaction?.loginHint) email.value = interaction.loginHint;
+if (interaction && !interaction.allowPasswordLogin) {
+  password.closest("label").hidden = true;
+  loginForm.querySelector("button[type=submit]").hidden = true;
+}
+if (interactionId && !interaction) showUnavailable();
+else if (interaction?.requiresFreshLogin) {
+  await primeCsrf();
+  status(message, `Confirma tu identidad para continuar en ${interaction.applicationName}.`);
+}
+else await resumeExistingSession();
 loginForm.addEventListener("submit", async event => {
   event.preventDefault();
   status(message, "Verificando credenciales…");
@@ -120,11 +131,21 @@ document.querySelector("#passkey").addEventListener("click", async () => {
 });
 
 async function resumeExistingSession() {
-  try {
-    const current = await api("/ui-api/session");
-    setCsrf(current.csrfToken);
-    await finishLogin();
-  } catch { /* An anonymous visit is expected. */ }
+  let current;
+  try { current = await api("/ui-api/session"); }
+  catch { return; /* An anonymous visit is expected. */ }
+  setCsrf(current.csrfToken);
+  // Authorization requests are checked against the client's application by the server. A direct
+  // visit only reuses a session issued for the requested application; otherwise the user signs
+  // in to it, which continues the same single sign-on session.
+  if (!interactionId && !current.user.applications.includes(application.value)) return;
+  await finishLogin();
+}
+
+// A browser that already holds a session must send its CSRF token even to sign in again.
+async function primeCsrf() {
+  try { setCsrf((await api("/ui-api/session")).csrfToken); }
+  catch { /* No session: nothing to protect. */ }
 }
 
 async function finishLogin() {
@@ -132,8 +153,34 @@ async function finishLogin() {
   location.replace(safeLocalPath(params.get("return_url"), location.origin, "/portal"));
 }
 
+async function loadInteractionContext() {
+  try { return await api(`/oauth/interactions/${encodeURIComponent(interactionId)}/context`); }
+  catch { return null; }
+}
+
+function showUnavailable() {
+  for (const form of [loginForm, mfaForm, passwordChangeForm, document.querySelector("#consent")]) form.hidden = true;
+  status(message, "Esta solicitud de inicio de sesión expiró o se abrió en otro navegador. Vuelve a la aplicación e inténtalo de nuevo.", "error");
+}
+
+function requireFreshSignIn() {
+  for (const form of [mfaForm, passwordChangeForm, document.querySelector("#consent")]) form.hidden = true;
+  loginForm.hidden = false;
+  password.value = "";
+  status(message, "Por seguridad, vuelve a iniciar sesión para continuar.");
+}
+
+function handleInteractionError(error) {
+  if (error.code === "LOGIN_REQUIRED") return requireFreshSignIn();
+  if (["INVALID_INTERACTION", "INTERACTION_BINDING_MISMATCH", "INVALID_CLIENT"].includes(error.code)) return showUnavailable();
+  status(message, error.message, "error");
+}
+
 async function showConsent() {
-  const interaction = await api(`/oauth/interactions/${encodeURIComponent(interactionId)}`);
+  let interaction;
+  try { interaction = await api(`/oauth/interactions/${encodeURIComponent(interactionId)}`); }
+  catch (error) { return handleInteractionError(error); }
+  if (interaction.requiresReauthentication) return requireFreshSignIn();
   if (!interaction.requiresConsent) return completeConsent(true);
   loginForm.hidden = true;
   mfaForm.hidden = true;
@@ -156,7 +203,7 @@ async function completeConsent(consent) {
       body: JSON.stringify({ interactionId, consent })
     });
     location.assign(result.redirectUrl);
-  } catch (error) { status(message, error.message, "error"); }
+  } catch (error) { handleInteractionError(error); }
 }
 
 async function loadBranding() {

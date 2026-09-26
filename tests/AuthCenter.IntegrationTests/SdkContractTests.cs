@@ -125,7 +125,8 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
     {
         using var admin = await CreateAdminClientAsync();
         var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access"], ["authorization_code", "refresh_token"]);
-        await using var bff = await StartBffAsync(clientId, secret, []);
+        var logs = new List<string>();
+        await using var bff = await StartBffAsync(clientId, secret, logs);
         using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
         {
             BaseAddress = new Uri(BffOrigin)
@@ -133,7 +134,54 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
 
         var callback = await SignInThroughBffAsync(browser, admin, "/auth/login?return_url=https%3A%2F%2Fevil.example%2F");
 
-        Assert.Equal("/", callback.Headers.Location!.OriginalString);
+        Assert.True(callback.Headers.Location?.OriginalString == "/", $"{callback.Headers.Location}{Environment.NewLine}{string.Join(Environment.NewLine, logs)}");
+    }
+
+    [Fact]
+    public async Task Bff_ForwardsWellFormedSingleSignOnParameters()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access"], ["authorization_code", "refresh_token"]);
+        await using var bff = await StartBffAsync(clientId, secret, []);
+        using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
+        {
+            BaseAddress = new Uri(BffOrigin)
+        };
+
+        var accepted = QueryHelpers.ParseQuery((await browser.GetAsync(
+            "/auth/login?prompt=login&max_age=0&login_hint=ana%40example.com&acr_values=urn%3Aauthcenter%3Aacr%3Amfa")).Headers.Location!.Query);
+        var rejected = QueryHelpers.ParseQuery((await browser.GetAsync(
+            "/auth/login?prompt=none%20login&max_age=-1&login_hint=ev%0Ail&acr_values=%3Cscript%3E")).Headers.Location!.Query);
+
+        Assert.Equal("login", accepted["prompt"].ToString());
+        Assert.Equal("0", accepted["max_age"].ToString());
+        Assert.Equal("ana@example.com", accepted["login_hint"].ToString());
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.MultiFactor, accepted["acr_values"].ToString());
+        foreach (var parameter in new[] { "prompt", "max_age", "login_hint", "acr_values" })
+            Assert.False(rejected.ContainsKey(parameter), parameter);
+    }
+
+    [Fact]
+    public async Task Bff_SilentSignInWithoutSession_ReportsLoginRequiredToTheApplication()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (clientId, secret) = await RegisterClientAsync(admin, $"{BffOrigin}/signin-authcenter", ["openid", "profile", "email", "offline_access"], ["authorization_code", "refresh_token"]);
+        await using var bff = await StartBffAsync(clientId, secret, []);
+        using var browser = new HttpClient(new CookieContainerHandler(new CookieContainer()) { InnerHandler = bff.GetTestServer().CreateHandler() })
+        {
+            BaseAddress = new Uri(BffOrigin)
+        };
+
+        var login = await browser.GetAsync("/auth/login?prompt=none&return_url=%2Fwhoami");
+        using var authCenter = _factory.CreateAuthCenterClient();
+        var authorize = await authCenter.GetAsync(login.Headers.Location!);
+        var callback = await DeliverAuthorizationResponseAsync(browser, authorize);
+
+        Assert.Equal("/auth/error?error=login_required", callback.Headers.Location!.OriginalString);
+        var failure = await browser.GetAsync(callback.Headers.Location);
+        Assert.Equal(HttpStatusCode.Unauthorized, failure.StatusCode);
+        using var problem = JsonDocument.Parse(await failure.Content.ReadAsStringAsync());
+        Assert.Equal("login_required", problem.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]
@@ -204,8 +252,26 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
         var interactionId = QueryHelpers.ParseQuery(authorize.Headers.Location!.Query)["interaction_id"].ToString();
         // The hosted login authenticates the user; the seeded administrator's first-party token plays that role.
         var complete = await admin.PostAsJsonAsync("/oauth/authorize/complete", new { InteractionId = interactionId, Consent = true });
-        Assert.Equal(HttpStatusCode.Redirect, complete.StatusCode);
-        return await browser.GetAsync(complete.Headers.Location!);
+        return await DeliverAuthorizationResponseAsync(browser, complete);
+    }
+
+    /// <summary>
+    /// Plays the browser's part in delivering an authorization response: follow a query redirect,
+    /// or submit the form_post page (the ASP.NET Core OpenID Connect handler asks for form_post).
+    /// </summary>
+    internal static async Task<HttpResponseMessage> DeliverAuthorizationResponseAsync(HttpClient browser, HttpResponseMessage response)
+    {
+        if (response.StatusCode == HttpStatusCode.Redirect)
+            return await browser.GetAsync(response.Headers.Location!);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("form-action", response.Headers.GetValues("Content-Security-Policy").Single());
+        var html = await response.Content.ReadAsStringAsync();
+        var action = System.Net.WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Match(html, "<form method=\"post\" action=\"([^\"]+)\"").Groups[1].Value);
+        var fields = System.Text.RegularExpressions.Regex.Matches(html, "<input type=\"hidden\" name=\"([^\"]+)\" value=\"([^\"]*)\">")
+            .ToDictionary(match => System.Net.WebUtility.HtmlDecode(match.Groups[1].Value), match => System.Net.WebUtility.HtmlDecode(match.Groups[2].Value));
+        return await browser.PostAsync(action, new FormUrlEncodedContent(fields));
     }
 
     private async Task<OAuthTokenSet> AuthorizeWithSdkAsync(AuthCenterClient sdk, HttpClient admin, string redirect)

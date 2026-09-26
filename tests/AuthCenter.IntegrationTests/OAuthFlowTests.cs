@@ -405,12 +405,15 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         var jwk = jwks.GetProperty("keys").EnumerateArray().Single(key =>
             key.GetProperty("kid").GetString() == jwt.Header.Kid);
 
-        using var rsa = RSA.Create();
-        rsa.ImportParameters(new RSAParameters
+        // Built from parameters, not from a disposable RSA: signature providers are cached in the
+        // process-wide CryptoProviderFactory.Default by key thumbprint, so a provider holding an RSA
+        // disposed here would break every later validation of the same key in this test run.
+        var signingKey = new RsaSecurityKey(new RSAParameters
         {
             Modulus = Base64UrlEncoder.DecodeBytes(jwk.GetProperty("n").GetString()!),
             Exponent = Base64UrlEncoder.DecodeBytes(jwk.GetProperty("e").GetString()!)
-        });
+        })
+        { KeyId = jwt.Header.Kid };
 
         var discovery = await tokenClient.GetFromJsonAsync<JsonElement>("/.well-known/openid-configuration");
         var principal = handler.ValidateToken(tokenBody.AccessToken, new TokenValidationParameters
@@ -421,7 +424,7 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
             ValidateIssuerSigningKey = true,
             ValidIssuer = discovery.GetProperty("issuer").GetString(),
             ValidAudience = clientId,
-            IssuerSigningKey = new RsaSecurityKey(rsa) { KeyId = jwt.Header.Kid },
+            IssuerSigningKey = signingKey,
             ClockSkew = TimeSpan.Zero,
             ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
         }, out _);

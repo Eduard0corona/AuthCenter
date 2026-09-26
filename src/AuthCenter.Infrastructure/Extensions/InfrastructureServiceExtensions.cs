@@ -50,6 +50,8 @@ public static class InfrastructureServiceExtensions
         services.Configure<GitHubAuthSettings>(configuration.GetSection("Authentication:GitHub"));
         services.Configure<AppleAuthSettings>(configuration.GetSection("Authentication:Apple"));
         services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        services.Configure<SingleSignOnSettings>(configuration.GetSection("Sso"));
+        services.AddSingleton<IValidateOptions<SingleSignOnSettings>, SingleSignOnSettingsValidator>();
         services.Configure<MfaSettings>(configuration.GetSection("Mfa"));
         services.AddSingleton<IValidateOptions<MfaSettings>, MfaSettingsValidator>();
         services.Configure<PasskeySettings>(configuration.GetSection("Passkeys"));

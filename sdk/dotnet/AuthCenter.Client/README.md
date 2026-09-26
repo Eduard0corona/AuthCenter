@@ -43,11 +43,24 @@ El SDK publica:
 
 | Método | Ruta | Uso |
 |---|---|---|
-| GET | `/auth/login?return_url=/ruta-local` | Inicia OIDC; rechaza redirecciones externas |
+| GET | `/auth/login?return_url=/ruta-local` | Inicia OIDC; rechaza redirecciones externas. Acepta `prompt`, `max_age`, `login_hint` y `acr_values` |
 | GET | `/auth/session` | Devuelve usuario autorizado y token CSRF, nunca tokens OAuth |
 | POST | `/auth/refresh` | Rota el refresh token; requiere `X-AuthCenter-CSRF` |
 | POST | `/auth/logout` | Revoca la familia de refresh y elimina la sesión; requiere CSRF |
-| GET | `/auth/error` | Error genérico sin datos del proveedor |
+| GET | `/auth/error` | Error genérico sin datos del proveedor; incluye `error` sólo para códigos OIDC accionables |
+
+### Inicio de sesión único (SSO)
+
+AuthCenter mantiene una sesión SSO en su propio dominio: si el usuario ya inició sesión en otra
+aplicación, `/auth/login` vuelve con la sesión creada sin mostrar el login. Parámetros opcionales
+(los valores mal formados se descartan y AuthCenter vuelve a validarlos):
+
+| Parámetro | Uso |
+|---|---|
+| `prompt=none` | SSO silencioso. Sin sesión (o sin consentimiento) AuthCenter responde `login_required` / `consent_required` y el BFF redirige a `/auth/error?error=login_required` para que la aplicación muestre su propio botón de ingreso. |
+| `prompt=login`, `max_age=N` | Exige reautenticación (o una autenticación de hace menos de `N` segundos). La sesión SSO y su `sid` se conservan. |
+| `login_hint=correo` | Prellena el correo en el login hospedado. |
+| `acr_values=urn:authcenter:acr:mfa` | Solicita el nivel de autenticación; el ID token informa `acr`, `amr`, `auth_time` y `sid`. |
 
 El navegador debe llamar `/auth/session` con credenciales incluidas y conservar el `csrfToken`
 sólo en memoria. En cada POST anterior debe enviarlo en `X-AuthCenter-CSRF`. La cookie tiene

@@ -24,31 +24,35 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **FED-01** La federación empresarial (OIDC/SAML entrante) no está conectada al login hospedado
   ni al flujo `/oauth/authorize`: `oidc/complete` y `saml/acs` devuelven tokens en JSON, no existe
   callback OIDC en servidor y el login no ofrece descubrimiento por dominio.
-- [ ] **FED-02** `login_hint`, `idp` y `domain_hint` se ignoran en `/oauth/authorize`.
-- [ ] **SSO-01** El login hospedado autentica contra el campo "Aplicación" (por defecto
+- [~] **FED-02** `login_hint`, `idp` y `domain_hint` se ignoran en `/oauth/authorize`.
+  *Avance:* `login_hint` se valida, se guarda en la interacción y prellena el login; `id_token_hint` se valida contra el cliente. Pendiente (F8): `idp` y `domain_hint` para el descubrimiento de IdP.
+- [x] **SSO-01** El login hospedado autentica contra el campo "Aplicación" (por defecto
   `AUTHCENTER`); usuarios de otras aplicaciones reciben `401 ACCESS_DENIED`. `LoginUrl` no está
   documentado.
+  *Resuelto:* `/oauth/authorize` guarda la aplicación del cliente en la interacción y el login hospedado la lee de `GET /oauth/interactions/{id}/context` (aplicación, `login_hint`, `AllowPasswordLogin`, frescura); ya no hay campo "Aplicación" y el usuario inicia sesión en la aplicación del cliente con sus políticas y MFA. `LoginUrl` documentado en README (`https://<host>/login`). La consola administrativa pide un inicio de sesión en `AUTHCENTER` si la sesión SSO se abrió para otra aplicación (la nueva autenticación continúa la misma sesión). Pruebas: `SingleSignOnTests.InteractionContext_*`, e2e "a single sign-on session opened for another application…".
 - [ ] **SSO-02** Las políticas de acceso y el MFA de la aplicación destino no se evalúan al
   completar la autorización, canjear el código ni renovar tokens OAuth.
-- [ ] **SSO-03** La sesión SSO dura lo mismo que un access token (15 min, sin renovación); no hay
+- [x] **SSO-03** La sesión SSO dura lo mismo que un access token (15 min, sin renovación); no hay
   `prompt`/`max_age`; `auth_time` es la hora de emisión; no se emiten `amr`/`acr`.
-- [ ] **SSO-04** El `interaction_id` no está ligado al navegador que inició la autorización.
+  *Resuelto:* sesión SSO propia (`Sso:SessionLifetimeMinutes`, 480 por defecto, cookie `SameSite=Lax` con el registro de sesión verificado en cada petición); `/oauth/authorize` responde directamente si hay sesión válida; `prompt=none|login|consent|select_account`, `max_age` (incluido `max_age=0`), `id_token_hint`, `form_post`; `auth_time` real, `amr` y `acr` persistidos en la sesión, el código y los refresh OAuth. Reautenticarse con la misma cuenta conserva la sesión y su `sid`; otra cuenta cierra la sesión anterior. **Requisito de despliegue:** migración `20260926092052_AddSingleSignOnSessionContext`. Pruebas: `SingleSignOnTests` (21).
+- [x] **SSO-04** El `interaction_id` no está ligado al navegador que inició la autorización.
+  *Resuelto:* cookie `__Host-AuthCenter.Browser` (HttpOnly, aleatoria); la interacción guarda su hash y sólo ese navegador puede leer el contexto, completarla o recibir la respuesta `form_post` de un solo uso (`INTERACTION_BINDING_MISMATCH`). Pruebas: `Interaction_CannotBeContinuedFromAnotherBrowser`, `FormPost_FromTheHostedLogin_*`.
 - [x] **TOK-01** El claim de roles se emite como URI
   `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`; el SDK espera `role`, por lo que
   `IsInRole`/`RequireRole` fallan en los sistemas integrados.
   *Resuelto:* los access tokens emiten `role` (constante `DomainConstants.Claims.Role`); la cookie de la UI lo mapea a `ClaimTypes.Role` y el SDK guarda los roles bajo el `RoleClaimType` de la identidad aceptando también el URI legacy. Pruebas: `SdkContractTests` (`IsInRole` y `RequireRole` en BFF y API).
 - [ ] **TOK-02** El access token siempre tiene `aud = client_id`; no hay `resource` (RFC 8707) ni
   catálogo de APIs y scopes propios.
-- [~] **TOK-03** Higiene de tokens: `email_verified` como string en el ID token, sin `sid`/`azp`,
+- [x] **TOK-03** Higiene de tokens: `email_verified` como string en el ID token, sin `sid`/`azp`,
   access token sin `typ: at+jwt` ni `iat`, respuesta de token con campos `null`.
-  *Avance:* access tokens con `typ: at+jwt` e `iat`; ID token con `azp` y `email_verified` booleano; token y userinfo omiten campos nulos. Pendiente para F3: `sid`, `auth_time` real, `amr`/`acr`.
+  *Resuelto:* access tokens con `typ: at+jwt` e `iat`; ID token con `azp`, `email_verified` booleano, `sid`, `auth_time` real, `amr` (arreglo JSON) y `acr`; token y userinfo omiten campos nulos. Pruebas: `OAuthFlowTests`, `SingleSignOnTests.ExistingSession_*`, `SecondFactorSignIn_IsReportedAsMultiFactorInTheIdToken`.
 - [ ] **LOG-01** No hay logout global: faltan `end_session_endpoint`, `post_logout_redirect_uris`,
   `sid` y back-channel logout; el refresh de una aplicación sigue vivo tras cerrar sesión.
 - [ ] **RL-01** Límites de tasa sólo por IP (5 logins/min, 60 llamadas/min a `/oauth/token`).
 - [ ] **CORS-01** CORS global con credenciales; no hay orígenes por cliente OAuth.
 - [~] **DISC-01** Discovery incompleto (`claims_supported`, logout, parámetros no soportados) y sin
   validación `issuer` = origen público.
-  *Avance:* discovery publica `claims_supported`, `response_modes_supported` y declara no soportados `request`, `request_uri` y `claims`; fuera de desarrollo el arranque exige que `Jwt:Issuer` identifique la misma URL que `Oidc:PublicOrigin` (prueba `IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment`). **Requisito de despliegue:** ambos valores deben coincidir. Pendiente: endpoints de logout e introspección (F5/F6).
+  *Avance:* discovery publica `claims_supported` (incl. `sid`, `auth_time`, `amr`, `acr`), `response_modes_supported` (`query`, `form_post`), `prompt_values_supported`, `acr_values_supported` y declara no soportados `request`, `request_uri` y `claims`; fuera de desarrollo el arranque exige que `Jwt:Issuer` identifique la misma URL que `Oidc:PublicOrigin` (prueba `IssuerDifferentFromPublicOrigin_FailsStartupOutsideDevelopment`). **Requisito de despliegue:** ambos valores deben coincidir. Pendiente: endpoints de logout e introspección (F5/F6).
 - [ ] **OIDC-01** No hay endpoint de introspección (RFC 7662).
 - [ ] **OIDC-02** No hay token exchange (RFC 8693).
 - [ ] **SAML-01** AuthCenter no puede actuar como IdP SAML para aplicaciones que sólo hablan SAML.
@@ -73,6 +77,12 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **SDK-08** El quickstart SPA sólo tiene el botón de login.
 - [ ] **SDK-09** Falta sobrecarga basada en `IConfiguration` y documentación de `LoginUrl`,
   recursos y logout.
+- [x] **SDK-10** *(nuevo)* El BFF no permitía pedir `prompt`, `max_age`, `login_hint` ni
+  `acr_values`, y un `prompt=none` sin sesión terminaba en un error genérico.
+  *Resuelto:* `/auth/login` reenvía esos parámetros si están bien formados y `/auth/error` informa
+  `error=login_required|consent_required|interaction_required|…`. Pruebas:
+  `Bff_ForwardsWellFormedSingleSignOnParameters`,
+  `Bff_SilentSignInWithoutSession_ReportsLoginRequiredToTheApplication`.
 
 ### C. Seguridad
 
@@ -95,6 +105,15 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   y cambio pendiente se evitaba el segundo factor.
   *Resuelto:* el cambio forzado ejecuta la misma compuerta que el login (`MFA_REQUIRED` cuando
   corresponde). Prueba: `ForcedChange_WithEnabledMfa_StillRequiresTheSecondFactor`.
+
+- [x] **SEC-09** *(nuevo, hallado durante la remediación)* Los permisos administrativos de
+  AuthCenter se comparaban sólo por código: un token emitido para otra aplicación con un permiso
+  homónimo (p. ej. `AUTHCENTER_USERS_READ` creado en esa aplicación) abría la API administrativa
+  (verificado: `GET /api/users` respondía 200).
+  *Resuelto:* `PermissionAuthorizationHandler` exige además que la sesión se haya emitido para
+  `AUTHCENTER`, y el prefijo `AUTHCENTER_` queda reservado (`RESERVED_PERMISSION_CODE`). Pruebas:
+  `PermissionOfAnotherApplication_DoesNotOpenTheAuthCenterAdminApi`,
+  `AuthCenterPermissionCodes_AreReservedForAuthCenter`.
 
 ### D. Backend administrativo y Event Hooks
 
@@ -161,6 +180,12 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [P] **OPS-10** Ramas remotas ya integradas.
 - [ ] **OPS-11** Dependabot, presupuesto de bundle y cobertura en CI.
 - [ ] **OPS-12** Pruebas de carga con directorios grandes.
+- [x] **OPS-13** *(nuevo)* Prueba intermitente del SDK (`IDX10511` al validar el ID token bajo
+  ejecución paralela).
+  *Causa raíz:* una prueba validaba con un `RsaSecurityKey` sobre un `RSA` que luego liberaba; el
+  proveedor de firma queda en la caché global `CryptoProviderFactory.Default` indexado por la huella
+  de la llave, la misma que usan el BFF y la API del SDK. *Resuelto:* la prueba construye la llave
+  con `RSAParameters`. Verificado con ejecuciones repetidas de la suite completa.
 
 ### I. Documentación
 
@@ -177,3 +202,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | Documento de seguimiento creado a partir del análisis. | — |
 | 2026-09-26 | F1: validación en la frontera de la API, redirección abierta, contraseña temporal y bypass de MFA, `AllowPasswordLogin`, acceso JIT, Event Hooks, pruebas relacionales y defectos del SDK. | SEC-01/02/03/05/07/08, HOOK-01/02, OPS-09, SDK-01/02/05 |
 | 2026-09-26 | F2: contrato de claims `role`, `at+jwt`, higiene de ID token y respuestas, discovery e issuer, prueba de contrato SDK↔servidor. | TOK-01, TOK-03, DISC-01, SDK-06 |
+| 2026-09-26 | F3: sesión SSO real en `/oauth/authorize` (`prompt`, `max_age`, `id_token_hint`, `form_post`), login hospedado guiado por la interacción, interacciones ligadas al navegador, `sid`/`auth_time`/`amr`/`acr`, continuidad de sesión, parámetros SSO en el SDK; hallazgos nuevos SEC-09 (permisos entre aplicaciones) y OPS-13 (prueba intermitente). | SSO-01/03/04, TOK-03, FED-02, DISC-01, SEC-09, SDK-10, OPS-13 |

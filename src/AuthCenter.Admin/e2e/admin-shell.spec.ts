@@ -313,6 +313,27 @@ test("application detail is read-only without write permission", async ({ page }
   await expect(page.getByText("AUTHCENTER_APPLICATIONS_WRITE")).toBeVisible();
 });
 
+test("a single sign-on session opened for another application asks for an AuthCenter sign-in", async ({ page }) => {
+  await page.unroute("**/ui-api/session");
+  await page.route("**/ui-api/session", async (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ success: true, data: { user: {
+      id: "shopper-1",
+      name: "Cliente",
+      email: "cliente@example.test",
+      applications: ["TIENDITAPP"],
+      roles: ["Operator"],
+      permissions: ["AUTHCENTER_USERS_READ"]
+    }, csrfToken: "other-app-csrf" } })
+  }));
+  await page.route("**/login?**", async (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Login</title><h1>Hosted login</h1>" }));
+
+  await page.goto("/admin-v2/users");
+
+  await expect(page).toHaveURL(/\/login\?application=AUTHCENTER&return_url=%2Fadmin-v2%2Fusers/);
+});
+
 test("updates a role permission matrix in one atomic request", async ({ page }) => {
   let matrixPayload: { permissionIds: string[] } | null = null;
   await page.route(`**/api/roles/${roleId}/permissions`, async (route) => {

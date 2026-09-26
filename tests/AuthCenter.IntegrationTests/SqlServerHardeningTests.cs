@@ -53,7 +53,7 @@ public sealed class SqlServerHardeningTests
             var applied = await verifyDb.Database
                 .SqlQueryRaw<string>("SELECT MigrationId AS Value FROM dbo.__EFMigrationsHistory")
                 .ToListAsync();
-            Assert.Equal(24, applied.Count);
+            Assert.Equal(verifyDb.Database.GetMigrations().Count(), applied.Count);
             Assert.Contains("20260811070000_CompleteOktaPhase1", applied);
             Assert.Contains("20260811091450_AddIdentityPasskeysPhase2", applied);
             Assert.Contains("20260811092337_CompleteAdaptiveAuthenticationPhase2", applied);
@@ -63,6 +63,7 @@ public sealed class SqlServerHardeningTests
             Assert.Contains("20260811105540_CompleteOperationalExcellencePhase6", applied);
             Assert.Contains("20260811120003_EnsureFirstPartyApplicationAvailability", applied);
             Assert.Contains(applied, migration => migration.EndsWith("_CompleteAdminBackendContracts", StringComparison.Ordinal));
+            Assert.Contains("20260926092052_AddSingleSignOnSessionContext", applied);
 
             var firstPartyApplication = await verifyDb.ApplicationSystems
                 .Include(application => application.RegistrationSettings)

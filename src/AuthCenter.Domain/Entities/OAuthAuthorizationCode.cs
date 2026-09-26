@@ -13,6 +13,10 @@ public class OAuthAuthorizationCode
     public string? Nonce { get; set; }
     public DateTime ExpiresAt { get; set; }
     public bool IsUsed { get; set; }
+    public Guid? SessionId { get; set; }
+    public DateTime? AuthenticatedAt { get; set; }
+    public string? AuthenticationMethods { get; set; }
+    public int? AssuranceLevel { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public OAuthClient OAuthClient { get; set; } = null!;

@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Domain.Constants;
@@ -77,7 +78,8 @@ public class TokenService : ITokenService
         IList<string> scopes,
         IList<string> roles,
         IList<string> permissions,
-        int lifetimeSeconds)
+        int lifetimeSeconds,
+        TokenAuthentication? authentication = null)
     {
         var creds = GetRsaSigningCredentials();
         var now = _dateTimeProvider.UtcNow;
@@ -106,12 +108,19 @@ public class TokenService : ITokenService
 
             foreach (var permission in permissions)
                 claims.Add(new Claim(DomainConstants.Claims.Permissions, permission));
+
+            // RFC 9068 section 2.2.1: resource servers can require a recent or stronger authentication.
+            if (authentication is not null)
+            {
+                claims.Add(new Claim("auth_time", ToUnixTime(authentication.AuthenticatedAt), ClaimValueTypes.Integer64));
+                claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
+            }
         }
 
         return WriteAccessToken(creds, clientId, claims, now.AddSeconds(lifetimeSeconds));
     }
 
-    public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes)
+    public string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes, TokenAuthentication? authentication = null)
     {
         if (!_keyRing.IsConfigured) return null;
 
@@ -119,9 +128,19 @@ public class TokenService : ITokenService
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Iat, new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
-            new("auth_time", new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new(JwtRegisteredClaimNames.Iat, ToUnixTime(now), ClaimValueTypes.Integer64),
+            // auth_time is when the user authenticated, which an SSO session can predate by hours.
+            new("auth_time", ToUnixTime(authentication?.AuthenticatedAt ?? now), ClaimValueTypes.Integer64),
         };
+
+        if (authentication is not null)
+        {
+            // amr is always a JSON array, even with a single method (OIDC Core section 2).
+            claims.Add(new Claim("amr", JsonSerializer.Serialize(authentication.Methods), JsonClaimValueTypes.JsonArray));
+            claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
+            if (authentication.SessionId.HasValue)
+                claims.Add(new Claim(JwtRegisteredClaimNames.Sid, authentication.SessionId.Value.ToString()));
+        }
 
         if (nonce is not null)
             claims.Add(new Claim("nonce", nonce));
@@ -161,7 +180,38 @@ public class TokenService : ITokenService
     }
 
     private static Claim IssuedAt(DateTime now) =>
-        new(JwtRegisteredClaimNames.Iat, new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64);
+        new(JwtRegisteredClaimNames.Iat, ToUnixTime(now), ClaimValueTypes.Integer64);
+
+    private static string ToUnixTime(DateTime value) =>
+        new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    public string? ReadIdTokenHintSubject(string idToken, string clientId)
+    {
+        if (string.IsNullOrWhiteSpace(idToken) || !_keyRing.IsConfigured)
+            return null;
+
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        try
+        {
+            var principal = handler.ValidateToken(idToken, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuer = _jwtSettings.Issuer,
+                ValidateAudience = true,
+                ValidAudience = clientId,
+                // An id_token_hint may be expired; only its origin and subject matter.
+                ValidateLifetime = false,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeys = _keyRing.ValidationKeys,
+                ValidAlgorithms = [SecurityAlgorithms.RsaSha256]
+            }, out _);
+            return principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        }
+        catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     private SigningCredentials GetRsaSigningCredentials() => _keyRing.RequireSigningCredentials();
 
@@ -173,9 +223,9 @@ public class TokenService : ITokenService
         return (token, HashToken(token));
     }
 
-    public string GenerateMfaPendingToken(Guid userId, string applicationCode)
+    public string GenerateMfaPendingToken(Guid userId, string applicationCode, string? primaryMethod = null)
     {
-        return GeneratePendingToken(userId, applicationCode, "mfa_pending");
+        return GeneratePendingToken(userId, applicationCode, "mfa_pending", _mfaSettings.MfaTokenExpirySeconds, primaryMethod);
     }
 
     public MfaPendingTokenValidationResult? ValidateMfaPendingToken(string token)
@@ -214,7 +264,7 @@ public class TokenService : ITokenService
         return GeneratePendingToken(userId, applicationCode, purpose, _mfaSettings.MfaTokenExpirySeconds);
     }
 
-    private string GeneratePendingToken(Guid userId, string applicationCode, string purpose, double expirySeconds)
+    private string GeneratePendingToken(Guid userId, string applicationCode, string purpose, double expirySeconds, string? primaryMethod = null)
     {
         var claims = new List<Claim>
         {
@@ -223,6 +273,8 @@ public class TokenService : ITokenService
             new("appCode", applicationCode),
             new("purpose", purpose)
         };
+        if (!string.IsNullOrWhiteSpace(primaryMethod))
+            claims.Add(new Claim("amr", primaryMethod));
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.SigningKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -271,7 +323,7 @@ public class TokenService : ITokenService
                 return null;
             }
 
-            return new MfaPendingTokenValidationResult(userId, applicationCode, tokenId);
+            return new MfaPendingTokenValidationResult(userId, applicationCode, tokenId, principal.FindFirst("amr")?.Value);
         }
         catch
         {

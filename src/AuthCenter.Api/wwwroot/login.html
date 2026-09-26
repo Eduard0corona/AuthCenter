@@ -24,7 +24,7 @@
         <p class="muted">Usa tu cuenta organizacional. Nunca compartiremos tus credenciales con la aplicación.</p>
       </div>
       <form id="login-form" class="stack" novalidate>
-        <label>Aplicación <input id="application" name="application" value="AUTHCENTER" maxlength="50" autocomplete="off" required></label>
+        <input id="application" name="application" type="hidden" value="AUTHCENTER">
         <label>Correo electrónico <input id="email" name="email" type="email" autocomplete="username webauthn" required></label>
         <label>Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required></label>
         <button type="submit">Continuar</button>

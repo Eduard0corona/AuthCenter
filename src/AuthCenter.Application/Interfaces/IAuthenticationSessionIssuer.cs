@@ -1,4 +1,5 @@
 using AuthCenter.Application.Common;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
 
@@ -13,5 +14,6 @@ public interface IAuthenticationSessionIssuer
         string? ipAddress,
         string? userAgent,
         string? deviceToken = null,
+        AuthenticationContext? authentication = null,
         CancellationToken ct = default);
 }

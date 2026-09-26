@@ -2,9 +2,11 @@ using AuthCenter.Api.Authorization;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.OAuth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.OAuth;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -26,34 +28,75 @@ public class OAuthController : ControllerBase
     }
 
     [HttpGet("authorize")]
-    public async Task<IActionResult> Authorize(CancellationToken ct)
+    public Task<IActionResult> Authorize(CancellationToken ct) => AuthorizeAsync(Request.Query, ct);
+
+    // OpenID Connect Core section 3.1.2.1: the authorization endpoint also accepts form posts.
+    [HttpPost("authorize")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public async Task<IActionResult> AuthorizePost(CancellationToken ct) =>
+        await AuthorizeAsync((await Request.ReadFormAsync(ct)).ToDictionary(item => item.Key, item => item.Value), ct);
+
+    private async Task<IActionResult> AuthorizeAsync(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> parameters, CancellationToken ct)
     {
-        var q = Request.Query;
+        var values = parameters.ToDictionary(item => item.Key, item => item.Value.ToString(), StringComparer.Ordinal);
+        string? Value(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value) ? value : null;
         var request = new AuthorizeRequest
         {
-            ResponseType = q["response_type"],
-            ClientId = q["client_id"],
-            RedirectUri = q["redirect_uri"],
-            Scope = q["scope"],
-            State = q["state"],
-            CodeChallenge = q["code_challenge"],
-            CodeChallengeMethod = q["code_challenge_method"],
-            Nonce = q["nonce"]
+            ResponseType = Value("response_type"),
+            ClientId = Value("client_id"),
+            RedirectUri = Value("redirect_uri"),
+            Scope = Value("scope"),
+            State = Value("state"),
+            CodeChallenge = Value("code_challenge"),
+            CodeChallengeMethod = Value("code_challenge_method"),
+            Nonce = Value("nonce"),
+            Prompt = Value("prompt"),
+            MaxAge = Value("max_age"),
+            LoginHint = Value("login_hint"),
+            IdTokenHint = Value("id_token_hint"),
+            AcrValues = Value("acr_values"),
+            ResponseMode = Value("response_mode"),
+            UiLocales = Value("ui_locales"),
+            Request = Value("request"),
+            RequestUri = Value("request_uri")
         };
 
-        var result = await _oAuthService.InitiateAuthorizationAsync(request, ct);
+        // The hosted-login cookie is SameSite=Lax, so it reaches this top-level navigation and an
+        // existing single sign-on session can answer the client without showing a page.
+        var sso = await HttpContext.AuthenticateAsync(AuthenticationSchemes.UiCookie);
+        var caller = new AuthorizationCaller
+        {
+            UserId = sso.Succeeded ? SessionClaims.UserId(sso.Principal!) : null,
+            SessionId = sso.Succeeded ? SessionClaims.SessionId(sso.Principal!) : null,
+            BrowserBinding = BrowserBinding.Ensure(HttpContext)
+        };
+
+        var result = await _oAuthService.InitiateAuthorizationAsync(request, caller, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
-        return Redirect(result.Data!);
+        return result.Data!.Response is { } response ? AuthorizationResponseResult.Create(response) : Redirect(result.Data.LoginUrl!);
+    }
+
+    /// <summary>
+    /// Non-sensitive context for the hosted login (application, login hint, freshness), readable
+    /// before sign-in and only from the browser that started the authorization request.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("interactions/{interactionId}/context")]
+    public async Task<IActionResult> GetInteractionContext(string interactionId, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _oAuthService.GetInteractionContextAsync(interactionId, BrowserBinding.Read(HttpContext), ct);
+        return result.IsSuccess
+            ? Ok(ApiResponse<object>.Ok(result.Data!))
+            : NotFound(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
     [Authorize]
     [HttpGet("interactions/{interactionId}")]
     public async Task<IActionResult> GetInteraction(string interactionId, CancellationToken ct)
     {
-        var userId = _currentUserService.UserId;
-        if (userId is null) return Unauthorized();
-        var result = await _oAuthService.GetInteractionAsync(interactionId, userId.Value, ct);
+        var result = await _oAuthService.GetInteractionAsync(interactionId, CurrentCaller(), ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         return Ok(ApiResponse<object>.Ok(result.Data!));
@@ -84,15 +127,35 @@ public class OAuthController : ControllerBase
     [HttpPost("authorize/complete")]
     public async Task<IActionResult> CompleteAuthorization([FromBody] CompleteAuthorizationRequest request, CancellationToken ct)
     {
-        var userId = _currentUserService.UserId;
-        if (userId is null) return Unauthorized();
+        var caller = CurrentCaller();
+        if (caller.UserId is null) return Unauthorized();
 
-        var result = await _oAuthService.CompleteAuthorizationAsync(request, userId.Value, ct);
+        var result = await _oAuthService.CompleteAuthorizationAsync(request, caller, ct);
         if (!result.IsSuccess)
             return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+
+        var response = result.Data!;
         if (Request.Headers["X-AuthCenter-UI"] == "1")
-            return Ok(ApiResponse<object>.Ok(new { redirectUrl = result.Data! }));
-        return Redirect(result.Data!);
+        {
+            // The hosted login navigates with location.assign; a form post response is rendered by
+            // AuthCenter itself so its CSP can allow exactly the client's origin as form action.
+            var redirectUrl = response.IsFormPost
+                ? $"/oauth/authorize/response/{Uri.EscapeDataString(await _oAuthService.StorePendingResponseAsync(response, caller.BrowserBinding, ct))}"
+                : response.ToRedirectUrl();
+            return Ok(ApiResponse<object>.Ok(new { redirectUrl }));
+        }
+
+        return AuthorizationResponseResult.Create(response);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("authorize/response/{responseId}")]
+    public async Task<IActionResult> AuthorizationResponsePage(string responseId, CancellationToken ct)
+    {
+        var response = await _oAuthService.TakePendingResponseAsync(responseId, BrowserBinding.Read(HttpContext), ct);
+        return response is null
+            ? NotFound(ApiResponse<object>.Fail("INVALID_RESPONSE", "The authorization response expired or was already delivered."))
+            : AuthorizationResponseResult.Create(response);
     }
 
     [HttpPost("token")]
@@ -222,6 +285,14 @@ public class OAuthController : ControllerBase
             return (false, null, null, "Malformed HTTP Basic client credentials.");
         }
     }
+
+    private AuthorizationCaller CurrentCaller() => new()
+    {
+        UserId = _currentUserService.UserId,
+        SessionId = SessionClaims.SessionId(User),
+        BrowserBinding = BrowserBinding.Read(HttpContext),
+        RequiresBrowserBinding = string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal)
+    };
 
     private ObjectResult OAuthError(string error, string description, int statusCode)
     {

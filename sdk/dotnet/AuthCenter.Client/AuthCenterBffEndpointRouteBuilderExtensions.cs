@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace AuthCenter.Client;
 
@@ -17,14 +19,22 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
         var options = endpoints.ServiceProvider.GetRequiredService<AuthCenterBffOptions>();
 
         // The documented query parameter is return_url; returnUrl is accepted for callers that
-        // relied on minimal-API name binding. Only local paths are honoured.
+        // relied on minimal-API name binding. Only local paths are honoured. prompt, max_age,
+        // login_hint and acr_values are forwarded to AuthCenter when they are well formed.
         Func<HttpContext, Task> loginHandler = async context =>
         {
-            var returnUrl = context.Request.Query["return_url"].FirstOrDefault() ?? context.Request.Query["returnUrl"].FirstOrDefault();
-            var destination = IsLocalReturnUrl(returnUrl) ? returnUrl! : "/";
-            await context.ChallengeAsync(
-                AuthCenterBffDefaults.OpenIdConnectScheme,
-                new AuthenticationProperties { RedirectUri = destination });
+            var query = context.Request.Query;
+            var returnUrl = query["return_url"].FirstOrDefault() ?? query["returnUrl"].FirstOrDefault();
+            var properties = new OpenIdConnectChallengeProperties { RedirectUri = IsLocalReturnUrl(returnUrl) ? returnUrl! : "/" };
+            if (AuthCenterChallengeParameters.Prompt(query["prompt"].FirstOrDefault()) is { } prompt)
+                properties.Prompt = prompt;
+            if (AuthCenterChallengeParameters.MaxAge(query["max_age"].FirstOrDefault()) is { } maxAge)
+                properties.MaxAge = maxAge;
+            if (AuthCenterChallengeParameters.LoginHint(query["login_hint"].FirstOrDefault()) is { } loginHint)
+                properties.SetParameter(OpenIdConnectParameterNames.LoginHint, loginHint);
+            if (AuthCenterChallengeParameters.AcrValues(query["acr_values"].FirstOrDefault()) is { } acrValues)
+                properties.SetParameter(OpenIdConnectParameterNames.AcrValues, acrValues);
+            await context.ChallengeAsync(AuthCenterBffDefaults.OpenIdConnectScheme, properties);
         };
         endpoints.MapGet(options.LoginPath, loginHandler).AllowAnonymous();
 
@@ -81,10 +91,17 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
         };
         endpoints.MapPost(options.LogoutPath, logoutHandler).RequireAuthorization(CookieAuthorization());
 
-        Func<IResult> failureHandler = () => Results.Problem(
-            title: "Authentication failed",
-            detail: "The AuthCenter sign-in could not be completed. Start a new sign-in attempt.",
-            statusCode: StatusCodes.Status401Unauthorized);
+        // error carries a standard OpenID Connect code (for example login_required after a
+        // prompt=none attempt) so the application can decide what to show next.
+        Func<HttpContext, IResult> failureHandler = context =>
+        {
+            var error = AuthCenterChallengeParameters.ForwardedError(context.Request.Query["error"].FirstOrDefault());
+            return Results.Problem(
+                title: "Authentication failed",
+                detail: "The AuthCenter sign-in could not be completed. Start a new sign-in attempt.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: error is null ? null : new Dictionary<string, object?> { ["error"] = error });
+        };
         endpoints.MapGet(options.RemoteFailurePath, failureHandler).AllowAnonymous();
 
         return endpoints;

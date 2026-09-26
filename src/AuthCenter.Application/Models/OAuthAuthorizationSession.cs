@@ -12,4 +12,13 @@ public class OAuthAuthorizationSession
     public string? CodeChallengeMethod { get; init; }
     public string? Nonce { get; init; }
     public DateTime CreatedAt { get; init; }
+    public IList<string> Prompt { get; init; } = [];
+    public int? MaxAge { get; init; }
+    public string? LoginHint { get; init; }
+    public string? IdTokenHintSubject { get; init; }
+    public IList<string> AcrValues { get; init; } = [];
+    public string ResponseMode { get; init; } = AuthorizationResponse.Query;
+
+    /// <summary>SHA-256 of the browser binding cookie of the browser that started the request.</summary>
+    public string? BrowserBindingHash { get; init; }
 }

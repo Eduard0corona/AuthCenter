@@ -60,6 +60,7 @@ try
     builder.Services.AddOptions<PasskeySettings>().ValidateOnStart();
     builder.Services.AddOptions<AdaptiveAuthenticationSettings>().ValidateOnStart();
     builder.Services.AddOptions<SamlSettings>().ValidateOnStart();
+    builder.Services.AddOptions<SingleSignOnSettings>().ValidateOnStart();
 
     builder.Services.AddAuthentication(options =>
     {
@@ -84,7 +85,9 @@ try
             options.Cookie.Name = "__Host-AuthCenter.Ui";
             options.Cookie.HttpOnly = true;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-            options.Cookie.SameSite = SameSiteMode.Strict;
+            // Lax lets the single sign-on session reach top-level navigations to /oauth/authorize
+            // (prompt=none, silent SSO). Unsafe cookie requests still need the CSRF double submit.
+            options.Cookie.SameSite = SameSiteMode.Lax;
             options.Cookie.Path = "/";
             options.SlidingExpiration = false;
             options.Events.OnRedirectToLogin = context =>

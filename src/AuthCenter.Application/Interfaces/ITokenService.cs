@@ -14,7 +14,7 @@ public interface ITokenService
 
     (string token, string hash) GenerateRefreshToken();
 
-    string GenerateMfaPendingToken(Guid userId, string applicationCode);
+    string GenerateMfaPendingToken(Guid userId, string applicationCode, string? primaryMethod = null);
 
     MfaPendingTokenValidationResult? ValidateMfaPendingToken(string token);
 
@@ -35,8 +35,16 @@ public interface ITokenService
         IList<string> scopes,
         IList<string> roles,
         IList<string> permissions,
-        int lifetimeSeconds);
-    string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes);
+        int lifetimeSeconds,
+        TokenAuthentication? authentication = null);
+
+    string? GenerateIdToken(ApplicationUser user, string clientId, string? nonce, IList<string> scopes, TokenAuthentication? authentication = null);
+
+    /// <summary>
+    /// Returns the subject of an ID token this server issued to <paramref name="clientId"/>, even if
+    /// it has expired (OIDC id_token_hint), or null when the token was not issued by this server.
+    /// </summary>
+    string? ReadIdTokenHintSubject(string idToken, string clientId);
     string GetJwks();
 
     int AccessTokenExpiryMinutes { get; }

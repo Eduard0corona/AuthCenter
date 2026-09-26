@@ -491,7 +491,7 @@ public class AuthService : IAuthService
         if (!hasAccess)
             return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
 
-        var mfaResult = await RequireMfaIfNeededAsync(user.Id, appSystem, deviceToken, ipAddress, userAgent, ct);
+        var mfaResult = await RequireMfaIfNeededAsync(user.Id, appSystem, deviceToken, ipAddress, userAgent, ct, DomainConstants.AuthenticationMethods.Federated);
         if (mfaResult is not null)
             return mfaResult;
 
@@ -500,7 +500,7 @@ public class AuthService : IAuthService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync(loginSuccessAuditAction, user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
-        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, AuthenticationContext.Federated, ct);
     }
 
     private async Task GrantExternalUserAccessAsync(
@@ -609,7 +609,7 @@ public class AuthService : IAuthService
         if (request.TrustDevice)
             deviceToken = await CreateTrustedDeviceAsync(user.Id, userAgent, ct);
 
-        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, deviceToken, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, deviceToken, AuthenticationContext.WithSecondFactor(pending.PrimaryMethod), ct);
     }
 
     public async Task<OperationResult<AuthResponse>> ForcedChangePasswordAsync(ForcedChangePasswordRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
@@ -949,7 +949,7 @@ public class AuthService : IAuthService
         if (!hasAccess)
             return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
 
-        var mfaResult = await RequireMfaIfNeededAsync(user.Id, appSystem, request.DeviceToken, ipAddress, userAgent, ct);
+        var mfaResult = await RequireMfaIfNeededAsync(user.Id, appSystem, request.DeviceToken, ipAddress, userAgent, ct, DomainConstants.AuthenticationMethods.OneTimePassword);
         if (mfaResult is not null)
             return mfaResult;
 
@@ -959,7 +959,7 @@ public class AuthService : IAuthService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("LOGIN_MAGIC_LINK_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
-        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, AuthenticationContext.OneTimeLink, ct);
     }
 
     public async Task<OperationResult> SendMfaEmailOtpAsync(SendMfaEmailOtpRequest request, CancellationToken ct = default)
@@ -984,7 +984,8 @@ public class AuthService : IAuthService
         string? deviceToken,
         string? ipAddress,
         string? userAgent,
-        CancellationToken ct)
+        CancellationToken ct,
+        string primaryMethod = DomainConstants.AuthenticationMethods.Password)
     {
         var signals = await _authenticationRisk.AssessAndRecordAsync(userId, ipAddress, userAgent, ct: ct);
         var policy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
@@ -1063,19 +1064,19 @@ public class AuthService : IAuthService
             }
         }
 
-        var pendingToken = _tokenService.GenerateMfaPendingToken(userId, appSystem.Code);
+        var pendingToken = _tokenService.GenerateMfaPendingToken(userId, appSystem.Code, primaryMethod);
         await _auditService.LogAsync("MFA_REQUIRED", userId, appSystem.Code, null, null, ipAddress, userAgent, ct: ct);
         return OperationResult<AuthResponse>.Failure("MFA_REQUIRED", pendingToken);
     }
 
     private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, CancellationToken ct)
     {
-        return await BuildAuthResponseAsync(user, appSystemId, appCode, ipAddress, userAgent, null, ct);
+        return await BuildAuthResponseAsync(user, appSystemId, appCode, ipAddress, userAgent, null, AuthenticationContext.Password, ct);
     }
 
-    private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, string? deviceToken, CancellationToken ct)
+    private async Task<OperationResult<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user, Guid appSystemId, string appCode, string? ipAddress, string? userAgent, string? deviceToken, AuthenticationContext authentication, CancellationToken ct)
     {
-        return await _sessionIssuer.IssueAsync(user, appSystemId, appCode, ipAddress, userAgent, deviceToken, ct);
+        return await _sessionIssuer.IssueAsync(user, appSystemId, appCode, ipAddress, userAgent, deviceToken, authentication, ct);
     }
 
     private async Task<string> CreateTrustedDeviceAsync(Guid userId, string? userAgent, CancellationToken ct)

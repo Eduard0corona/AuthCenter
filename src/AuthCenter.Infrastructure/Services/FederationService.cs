@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Federation;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Contracts.Responses.Federation;
@@ -247,7 +248,7 @@ public sealed partial class FederationService : IFederationService
         if (!userResult.IsSuccess) return OperationResult<AuthResponse>.Failure(userResult.ErrorCode!, userResult.Message!);
         var user = userResult.Data!;
         await _audit.LogAsync("FEDERATION_LOGIN_SUCCESS", user.Id, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), ipAddress, userAgent, new { protocol = "OIDC" }, ct);
-        return await _sessions.IssueAsync(user, provider.ApplicationSystemId, provider.ApplicationSystem.Code, ipAddress, userAgent, ct: ct);
+        return await _sessions.IssueAsync(user, provider.ApplicationSystemId, provider.ApplicationSystem.Code, ipAddress, userAgent, authentication: AuthenticationContext.Federated, ct: ct);
     }
 
     private async Task<OperationResult<ApplicationUser>> ResolveFederatedUserAsync(FederationProvider provider, string subject, string email, string name, CancellationToken ct)
