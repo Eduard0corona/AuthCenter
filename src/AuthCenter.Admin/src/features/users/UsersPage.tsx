@@ -93,7 +93,7 @@ export default function UsersPage() {
           <Pagination page={users.data.page} pageSize={users.data.pageSize} totalCount={users.data.totalCount} totalPages={users.data.totalPages} onPageChange={(value) => updateParam("page", String(value))} onPageSizeChange={(value) => updateParam("pageSize", String(value))} />
         </>
       ) : null}
-      <ConfirmDialog open={target !== null} title={target?.isActive ? "Desactivar usuario" : "Activar usuario"} detail={target ? `${target.isActive ? "Desactivar" : "Activar"} a ${target.fullName} (${target.email}). La API volverá a validar tus permisos.` : ""} confirmLabel={target?.isActive ? "Desactivar" : "Activar"} dangerous={Boolean(target?.isActive)} busy={changeStatus.isPending} onCancel={() => setTarget(null)} onConfirm={() => { if (target) changeStatus.mutate(target); }} />
+      <ConfirmDialog open={target !== null} title={target?.isActive ? "Desactivar usuario" : "Activar usuario"} detail={target ? `${target.isActive ? "Desactivar" : "Activar"} a ${target.fullName} (${target.email}). La API volverá a validar tus permisos.` : ""} confirmLabel={target?.isActive ? "Desactivar" : "Activar"} dangerous={Boolean(target?.isActive)} busy={changeStatus.isPending} error={changeStatus.error} onCancel={() => setTarget(null)} onConfirm={() => { if (target) changeStatus.mutate(target); }} />
     </>
   );
 }

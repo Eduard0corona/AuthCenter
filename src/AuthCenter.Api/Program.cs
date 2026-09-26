@@ -288,7 +288,9 @@ try
     // container restarted; readiness is the one that reports whether SQL Server is reachable.
     var connStr = builder.Configuration.GetConnectionString("DefaultConnection")!;
     builder.Services.AddHealthChecks()
-        .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"]);
+        .AddSqlServer(connStr, name: "sql-server", tags: ["ready", "db", "sql"])
+        // Readiness also requires the schema this build expects (migrations run out of band).
+        .AddCheck<DatabaseSchemaHealthCheck>("database-schema", tags: ["ready", "db"]);
 
     var app = builder.Build();
     var publishedAdminFrontendRoot = Path.Combine(app.Environment.WebRootPath, "admin-v2");
@@ -513,7 +515,11 @@ try
     var readinessHost = app.Configuration["HealthChecks:ReadinessHost"];
     if (!string.IsNullOrWhiteSpace(readinessHost))
     {
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") })
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+            {
+                Predicate = check => check.Tags.Contains("ready"),
+                ResponseWriter = HealthCheckResponses.WriteReadinessAsync
+            })
             .RequireHost(readinessHost);
     }
 

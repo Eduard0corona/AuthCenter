@@ -18,6 +18,14 @@ public sealed class SqlServerWebApplicationFactory : WebApplicationFactory<Progr
 
     private static readonly string MfaEncryptionKey = TestSecretGenerator.CreateKey();
     private readonly string _connectionString = SqlServerHardeningTests.BuildIsolatedConnectionString();
+    private readonly IReadOnlyDictionary<string, string> _settings;
+
+    /// <param name="settings">More host settings, applied after the defaults.</param>
+    public SqlServerWebApplicationFactory(IReadOnlyDictionary<string, string>? settings = null) =>
+        _settings = settings ?? new Dictionary<string, string>();
+
+    /// <summary>The isolated database's connection string (for tests that inspect or alter it directly).</summary>
+    public string ConnectionString => _connectionString;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -38,6 +46,8 @@ public sealed class SqlServerWebApplicationFactory : WebApplicationFactory<Progr
             ["Passkeys:RelyingPartyId"] = "localhost",
             ["Passkeys:AllowedOrigins:0"] = "http://localhost"
         })
+            builder.UseSetting(key, value);
+        foreach (var (key, value) in _settings)
             builder.UseSetting(key, value);
     }
 

@@ -40,7 +40,8 @@ copies tokens, cadenas de conexión, claves ni cuerpos de autenticación al tick
 1. Configura `HealthChecks__ReadinessHost` con el hostname exacto del App Service; la aplicación no
    publica `/health/ready` para hosts distintos.
 2. Configura `healthCheckPath=/health/ready` en Site Config para que Azure retire del balanceador
-   instancias que no puedan atender dependencias. Conserva `/health/live` para distinguir proceso
+   instancias que no puedan atender dependencias (SQL Server inalcanzable o esquema atrasado,
+   checks `sql-server` y `database-schema`). Conserva `/health/live` para distinguir proceso
    vivo de instancia lista.
 3. Verifica ambos endpoints después de cada cambio de configuración. Nunca uses una URL de login,
    discovery o token como health probe.
@@ -51,6 +52,19 @@ az webapp config appsettings set -g <resource-group> -n <app-name> `
 az webapp config set -g <resource-group> -n <app-name> `
   --generic-configurations healthCheckPath=/health/ready -o none
 ```
+
+## Despliegue con migraciones
+
+1. Antes de desplegar, compara `__EFMigrationsHistory` con las migraciones del commit. Si faltan,
+   aplica el script idempotente del artefacto `database-migrations` con el administrador Entra de la
+   base (procedimiento en `OWNER-ACTIONS.md`, OPS-03). Nunca actives `Database:MigrateOnStartup` en
+   producción: la identidad de la aplicación no puede cambiar el esquema.
+2. Si el despliegue falla en la verificación de salud, el workflow imprime el reporte de
+   `/health/ready`: `database-schema: Unhealthy` nombra la primera migración pendiente. Aplica el
+   script y vuelve a ejecutar el job `deploy` (*Re-run failed jobs*).
+3. `database-schema: Degraded` significa que la base va por delante del código (tras revertir un
+   despliegue): el código anterior funciona si las migraciones nuevas son compatibles hacia atrás,
+   que es la regla para escribirlas. Planea el siguiente despliegue hacia adelante.
 
 ## Key Vault
 

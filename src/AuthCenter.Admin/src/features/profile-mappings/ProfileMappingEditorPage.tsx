@@ -137,7 +137,7 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
       {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar mapping</button></div>
     </section> : null}
-    <ConfirmDialog open={confirmDelete} title="Eliminar profile mapping" detail={`Se eliminará el mapping ${current?.sourcePath ?? ""} → ${current?.targetAttributeName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
+    <ConfirmDialog open={confirmDelete} title="Eliminar profile mapping" detail={`Se eliminará el mapping ${current?.sourcePath ?? ""} → ${current?.targetAttributeName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} error={remove.error} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
   </>;
 }
 

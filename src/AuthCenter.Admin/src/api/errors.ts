@@ -14,6 +14,7 @@ const GENERIC_MESSAGES: Record<string, string> = {
   SELF_APPROVAL_FORBIDDEN: "Nadie decide su propia solicitud de acceso.",
   SELF_REVIEW_FORBIDDEN: "Nadie revisa su propio acceso.",
   ACCESS_NOT_PENDING: "El acceso fue revocado, no solicitado: otórgalo de nuevo en lugar de aprobarlo.",
+  LAST_SUPER_ADMIN: "La operación dejaría a AuthCenter sin ningún SuperAdmin activo. Asigna el rol a otra persona antes.",
   INTERNAL_ERROR: "AuthCenter no pudo completar la operación."
 };
 

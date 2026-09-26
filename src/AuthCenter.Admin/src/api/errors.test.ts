@@ -21,7 +21,8 @@ describe("errorMessage", () => {
   });
 
   it("keeps domain messages and explains network failures", () => {
-    expect(errorMessage(new ApiError(400, "LAST_SUPER_ADMIN", "The last SuperAdmin cannot be removed."))).toBe("The last SuperAdmin cannot be removed.");
+    expect(errorMessage(new ApiError(400, "ROLE_INVALID", "Only active application roles can be assigned to groups."))).toBe("Only active application roles can be assigned to groups.");
+    expect(errorMessage(new ApiError(400, "LAST_SUPER_ADMIN", "The last SuperAdmin cannot be removed."))).toMatch(/sin ningún SuperAdmin activo/);
     expect(errorMessage(new TypeError("Failed to fetch"))).toMatch(/No pudimos conectar/);
     expect(errorMessage("boom")).toBe("Ocurrió un error inesperado.");
   });

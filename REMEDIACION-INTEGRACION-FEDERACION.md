@@ -15,6 +15,26 @@ como **acción del propietario** con el procedimiento preparado.
 - Prueba E2E del SDK real contra el servidor real (arnés fuera del repo): el login BFF, refresh,
   rotación, revocación y logout local funcionan; se confirmaron los defectos listados abajo.
 
+## Estado verificado al cierre (2026-09-26, después de F15)
+
+- Puntos: 87 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-01,
+  OPS-02, OPS-03 en Azure, OPS-04, OPS-05, OPS-06, OPS-07, OPS-10 y OPS-14), cada uno con su
+  procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
+  la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
+- Build .NET 10 Release: 0 errores, 0 advertencias; ningún cambio del modelo sin migración (35
+  migraciones).
+- Pruebas .NET: 74 unitarias y 345 de integración con SQL Server 2022 real (la prueba de escala se
+  omite salvo con `AUTHCENTER_SCALE_TESTS=1`); cobertura combinada 85,1 % de líneas y 64,5 % de ramas.
+- Consola admin: lint, typecheck, 79 pruebas unitarias (lógica: 77,6 % de líneas), build dentro del
+  presupuesto (64,9 KB de entrada y 264 KB en total, gzip) y 301 escenarios Playwright, con axe
+  (incluida la regla WCAG 2.2 AA `target-size`) y reflow a 320 px en las 39 rutas.
+- Login hospedado, portal y consola contra la API Release y SQL Server: 6 pruebas unitarias y 31
+  escenarios end-to-end, axe incluido.
+- SDK TypeScript 11/11; quickstart SPA compila; `npm audit` sin vulnerabilidades en los cuatro
+  paquetes; `dotnet list package --vulnerable --include-transitive` sin hallazgos; Gitleaks limpio.
+- Escala: con 100 000 usuarios y 1 000 grupos todas las lecturas administrativas responden en menos
+  de 0,62 s ([`docs/operations/CAPACITY.md`](docs/operations/CAPACITY.md#directorio-grande)).
+
 ## Estado por área
 
 Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` acción del propietario.
@@ -73,6 +93,7 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   `authcenter`, reservar el ID NuGet y confirmar la licencia (`package.json` declara MIT; falta el
   archivo `LICENSE` y `PackageLicenseExpression` en NuGet). Después, publicar con la etiqueta
   `sdk-v1.1.0`.
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-14--publicación-de-los-sdk).
 
 ### B. SDK de integración
 
@@ -204,7 +225,8 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   *Resuelto:* `tests/AuthCenter.HostedUi.Tests/e2e/admin.spec.mjs` recorre la consola (build de `src/AuthCenter.Admin/dist`) contra la API Release y SQL Server: inicio de sesión hospedado hacia `/admin-v2`, métricas, entorno y versión; esquema de perfil → historial en System Log → exportación CSV; catálogo de APIs → scope en un cliente OAuth sin alterar `backchannelLogoutSessionRequired`; renovación del token CSRF reemplazado por otra pestaña (la prueba falla si se quita la renovación); usuarios con acceso pendiente; operador sin permisos de Event Hooks (ruta restringida y 403 de la API); redirección de `/admin`. Todo con axe.
 - [x] **UI-07** Accesibilidad: axe ampliado y navegación por teclado (la revisión manual humana queda
   como acción del propietario).
-  *Resuelto:* `accessibility.spec.ts` corre axe en las 32 rutas de la consola (escritorio y móvil) y prueba el teclado: salto al contenido (el `main` recibe el foco), foco en el encabezado de cada página, diálogos que atrapan el foco, cierran con Escape y lo devuelven al control que los abrió (`useModalDialog`, ahora en todos los diálogos, con nombre accesible), y el menú móvil que se cierra con Escape. Buscador de usuarios con patrón combobox ARIA y campos de scopes con nombres únicos. La revisión manual con lectores de pantalla sigue siendo acción del propietario ([P]).
+  *Resuelto:* `accessibility.spec.ts` corre axe en las rutas de la consola, escritorio y móvil (32 en F11; 39 desde que F13 y F14 agregaron SAML y gobierno) y prueba el teclado: salto al contenido (el `main` recibe el foco), foco en el encabezado de cada página, diálogos que atrapan el foco, cierran con Escape y lo devuelven al control que los abrió (`useModalDialog`, ahora en todos los diálogos, con nombre accesible), y el menú móvil que se cierra con Escape. Buscador de usuarios con patrón combobox ARIA y campos de scopes con nombres únicos. F15 activa la regla WCAG 2.2 AA `target-size`, verifica el reflow a 320 px de las 39 rutas y extiende axe al login hospedado, el portal y las páginas de enlaces (UI-13, HL-09). La revisión manual con lectores de pantalla sigue siendo acción del propietario ([P]).
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ui-07--revisión-manual-con-lectores-de-pantalla).
 - [x] **UI-08** Retiro de `/admin` (borra URLs de branding; el portal enlaza ahí).
   *Resuelto:* `/admin` y `/admin.html` redirigen a `/admin-v2/`; `admin.html`/`admin.js` (que borraban las URLs de branding) se eliminaron junto con la forma legacy `deadLettersOnly` de las entregas; `/admin-v2` ahora recibe la CSP de las páginas propias (antes no tenía); el portal enlaza a `/admin-v2/`; el smoke de despliegue verifica la redirección y la CSP. Pruebas: `RetiredConsole_RedirectsToTheCurrentOne`, `FirstPartyUiDocuments_AlwaysApplyContentSecurityPolicy` con rutas de `/admin-v2`.
 - [x] **UI-09** Selectores limitados a 100, filtro de acceso pendiente, componentes faltantes,
@@ -220,6 +242,15 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   reautenticación se desmontaba al cargar el nuevo token.
   *Resuelto:* una instancia de página por token (`key`) y la prueba espera al token rotado antes de
   actuar. Verificado con ejecuciones repetidas.
+- [x] **UI-13** *(nuevo, F15)* Defectos de la consola que encontraron los flujos E2E y la prueba de
+  reflow agregados en F15: (1) cuando la operación de un diálogo de confirmación fallaba (por ejemplo
+  `LAST_SUPER_ADMIN` al desactivar), el diálogo modal seguía abierto y el error se pintaba detrás,
+  fuera del alcance del operador; (2) en móvil los grupos de botones no se ajustaban: en la ficha de
+  usuario "Operaciones de cuenta" desbordaba la página (contenido corrido, "Anonimizar usuario" fuera
+  de pantalla y clics interceptados); (3) a 320 px desbordaban el alta de clientes OAuth (la etiqueta
+  `backchannel_logout_session_required`) y el filtro de entregas de Event Hooks; (4) `LAST_SUPER_ADMIN`
+  se mostraba en inglés.
+  *Resuelto:* `ConfirmDialog` muestra dentro del diálogo el error de la confirmación (sólo el del intento en curso; al reabrirlo empieza limpio), en los 17 diálogos; `.button-group`, `.page-actions` y el control segmentado se ajustan en pantallas angostas y las etiquetas de casillas cortan palabras largas; mensaje en español para `LAST_SUPER_ADMIN`. Pruebas: `accessibility.spec.ts` "reflows at 320 pixels" (WCAG 1.4.10, 39 rutas) y axe con la regla WCAG 2.2 AA `target-size` activada (axe la trae apagada); `admin-shell.spec.ts` "deactivates a user after confirming", "explains inside the confirmation that the last SuperAdmin cannot be deactivated", "a session that expires during a change returns to the sign-in and back to the same page"; `operations.spec.ts` "narrows the System Log to one trace, typed or from an event's detail".
 
 ### F. Login hospedado y portal
 
@@ -291,6 +322,10 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   *Resuelto:* el enlace lleva `userId`; `POST /api/auth/mfa/email-otp/verification` y validador que
   acepta `EmailOtpCode`; `POST /ui-api/session/magic-link {token}` toma la aplicación del token
   firmado. Los enlaces de correo incluyen `application` para la marca. Pruebas: `HostedAccountTests`.
+- [x] **HL-09** *(nuevo, F15)* El login hospedado y las páginas de los enlaces de correo no tenían
+  análisis axe automático, y el distintivo del panel lateral tenía texto blanco sobre fondo gris claro
+  (contraste ≈1,2:1, WCAG 1.4.3) en `/login` y en las páginas de enlaces.
+  *Resuelto:* texto oscuro para el distintivo en el panel lateral; `tests/AuthCenter.HostedUi.Tests/e2e/accessibility.spec.mjs` corre axe (con `target-size`) contra la API Release y SQL Server en cada paso del login (formulario, contraseña incorrecta, contraseña olvidada, inscripción del segundo factor), en los siete paneles del portal y en las cinco páginas de enlaces de correo.
 
 ### G. Gobierno de accesos
 
@@ -307,19 +342,30 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 - [P] **OPS-01** El CI de `main` (run 69) no llegó a ejecutarse (sin runner ni logs): revisar
   minutos/facturación de GitHub Actions.
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-01--github-actions-no-ejecuta).
 - [P] **OPS-02** `main` no tiene protección de rama.
-- [ ] **OPS-03** Confirmar la migración 24 en Azure SQL; readiness que detecte migraciones
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-02--protección-de-main).
+- [P] **OPS-03** Confirmar la migración 24 en Azure SQL; readiness que detecte migraciones
   pendientes.
+  *Resuelto (código):* `/health/ready` incluye el check `database-schema` (`DatabaseSchemaHealthCheck`): 503 `Unhealthy` mientras la base no tenga alguna migración de esta build (nombra la primera), `Degraded` (200) cuando la base va por delante del código (tras revertir un despliegue); la respuesta JSON lista cada check con su estado y el despliegue la imprime si falla. CI rechaza un cambio del modelo sin migración (`dotnet ef migrations has-pending-model-changes`) y publica el script idempotente de cada commit como artefacto `database-migrations`; `dotnet-ef` y ReportGenerator quedan fijados en `.config/dotnet-tools.json`. README y `RUNBOOKS.md` documentan el orden (migrar, después desplegar). Prueba: `SchemaReadinessRelationalTests.Readiness_FailsWhileMigrationsArePending_AndIsDegradedByUnknownOnes`. **Acción del propietario:** aplicar en Azure SQL las migraciones pendientes con ese script (`docs/operations/OWNER-ACTIONS.md`, OPS-03).
 - [P] **OPS-04** Carga inicial productiva (administrador inicial).
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-04--carga-inicial-productiva).
 - [P] **OPS-05** Primera rotación de la llave de firma.
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-05--primera-rotación-de-la-llave-de-firma).
 - [P] **OPS-06** Purgar del historial la llave RSA retirada (requiere reescritura autorizada).
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-06--purgar-la-llave-rsa-retirada-del-historial-autorización-expresa).
 - [P] **OPS-07** Origen real del frontend en CORS y ActionLinks.
-- [ ] **OPS-08** Vulnerabilidades moderadas npm (vitest) y parches NuGet 10.0.12.
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-07--origen-real-del-frontend).
+- [x] **OPS-08** Vulnerabilidades moderadas npm (vitest) y parches NuGet 10.0.12.
+  *Resuelto:* `vitest` 4.1.10 → 4.1.11 (con `@vitest/coverage-v8` del mismo release): `npm audit` sin vulnerabilidades en la consola, el SDK TypeScript, el quickstart SPA y las pruebas del login hospedado. ASP.NET Core, EF Core, `Microsoft.Extensions.Logging.Abstractions` y `System.Security.Cryptography.Xml` 10.0.10 → 10.0.12 en la API, Application, Infrastructure, las pruebas y el SDK .NET (su destino `net8.0` sigue en 8.0.31); `dotnet list package --vulnerable --include-transitive` sin hallazgos. Dependabot (OPS-11) los mantiene al día.
 - [x] **OPS-09** Las pruebas relacionales "pasan" sin ejecutarse cuando no hay SQL Server.
   *Resuelto:* atributo `[RelationalFact]`: sin SQL Server las pruebas se reportan como omitidas.
 - [P] **OPS-10** Ramas remotas ya integradas.
-- [ ] **OPS-11** Dependabot, presupuesto de bundle y cobertura en CI.
-- [ ] **OPS-12** Pruebas de carga con directorios grandes.
+  *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-10--ramas-remotas-ya-integradas-autorización-expresa).
+- [x] **OPS-11** Dependabot, presupuesto de bundle y cobertura en CI.
+  *Resuelto:* `.github/dependabot.yml`: NuGet, npm (consola, SDK TypeScript, quickstart SPA y pruebas del login hospedado), Actions y Docker, semanal, con menores y parches agrupados; los mayores de ASP.NET Core, EF Core, Extensions y de las imágenes .NET se ignoran porque cambian con el framework. CI: cobertura .NET de unitarias e integración (coverlet con `coverlet.runsettings`, ReportGenerator) con resumen en la página del run, artefacto `coverage-report` y mínimos de 80 % de líneas y 60 % de ramas (`scripts/ci/coverage-gate.py`; al introducirlo 85,1 % y 64,5 %); cobertura de los módulos de lógica de la consola con mínimos en `vite.config.ts` (líneas 70, sentencias 68, ramas 58, funciones 65; hoy 77,6/73,6/65,1/70,7); presupuesto gzip de la consola (`src/AuthCenter.Admin/scripts/check-bundle-budget.mjs`: entrada 110 KB, cada chunk 45 KB, total 420 KB; hoy 64,9/22,7/263,8 KB). El job pasa de 25 a 40 minutos por la instrumentación.
+- [x] **OPS-12** Pruebas de carga con directorios grandes.
+  *Resuelto:* `ops/load/seed-large-directory.sql` siembra un directorio sintético (usuarios `scale-<n>@load.test` sin contraseña, un grupo por cada 100 usuarios con la aplicación asignada, tres membresías por usuario; no repite si el prefijo ya existe). `DirectoryScaleRelationalTests` (con `AUTHCENTER_SCALE_TESTS=1`) mide usuarios, grupos, miembros, dashboard, violaciones de segregación de funciones y revisiones de acceso con 2 s por lectura y 90 s para el snapshot; el workflow semanal `Directory scale` publica la tabla en el resumen del run y `ops/load/directory.js` (k6) repite las lecturas en staging contra el SLO de Directory. Con 100 000 usuarios y 1 000 grupos todas las lecturas quedan bajo 0,62 s (`docs/operations/CAPACITY.md`). *Hallazgo corregido:* el snapshot de las revisiones de acceso era cuadrático (usuarios × membresías; 18,2 s con 20 000 usuarios); ahora indexa por usuario: 11,0 s con 20 000 y 43,9 s con 100 000, lineal y dominado por la inserción de los ítems (un lote mayor en EF Core lo empeoraba: 16 s). El cierre de una campaña renueva su reclamo antes de cada lote de 200, para que una revocación masiva que dura más que el reclamo no la tome otra instancia a medias.
 - [x] **OPS-13** *(nuevo)* Prueba intermitente del SDK (`IDX10511` al validar el ID token bajo
   ejecución paralela).
   *Causa raíz:* una prueba validaba con un `RsaSecurityKey` sobre un `RSA` que luego liberaba; el
@@ -329,13 +375,15 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### I. Documentación
 
-- [ ] **DOC-01** Conteos y estados desactualizados (plan admin, roadmap "Fase 5 lista",
+- [x] **DOC-01** Conteos y estados desactualizados (plan admin, roadmap "Fase 5 lista",
   REMEDIACION, TODO).
+  *Resuelto:* `OKTA-LEVEL-ROADMAP.md`: nota del análisis y matriz con el estado real de cada área, la fase de la remediación que lo cerró y lo que depende del propietario. `FRONTEND-ADMIN-IMPLEMENTATION-PLAN.md`: estado del documento, las 45 casillas abiertas revisadas contra el código y las pruebas (33 cerradas con su evidencia; siguen abiertas, con el motivo, la observabilidad frontend, i18n, Lighthouse, OpenAPI, la revisión manual WCAG y la matriz de navegadores) y el estado de cada criterio de cierre de la Fase 5. `TODO.md` y `TODO-improvements.md`: conteos marcados como históricos, readiness del esquema, pendientes enlazados a `OWNER-ACTIONS.md`. README: descripción del producto y del CI actual. `docs/production-idp-integration.md` afirmaba que no existía `end_session_endpoint` (existe desde F5). En este documento, el conteo de rutas de UI-07 y la sección "Estado verificado al cierre".
 - [x] **DOC-02** README: `traceId`, descripción del rol Admin, forma legacy de entregas.
   *Resuelto:* el README documenta el `traceId` de cada respuesta y de los errores de la consola, el alcance del rol Admin frente a SuperAdmin y el contrato paginado de entregas (la forma legacy se retiró en F11).
 - [x] **DOC-03** Guía de integración: `LoginUrl`, recursos de API, logout, federación y SDK.
   *Resuelto:* `docs/integration-quickstarts.md` reescrita: elección de flujo, paquetes, registro del cliente por tipo (redirects, `LoginUrl`, post-logout, back-channel, CORS, scopes), BFF, API protegida, SPA, parámetros SSO, logout, federación y despliegue con varias instancias.
-- [ ] **DOC-04** Runbooks de operador y soporte para la consola.
+- [x] **DOC-04** Runbooks de operador y soporte para la consola.
+  *Resuelto:* `docs/operations/CONSOLE-RUNBOOKS.md`: "no puedo iniciar sesión", cuenta comprometida, accesos pendientes y solicitudes, SCIM, grupos y reglas, federación, aplicaciones SAML, clientes OAuth, gobierno, Event Hooks y mensajes de la consola, con el permiso, el evento de System Log y el step-up de cada paso (verificados contra el código). `docs/operations/OWNER-ACTIONS.md`: procedimiento y comprobación de cada acción del propietario. `RUNBOOKS.md` agrega el despliegue con migraciones. Enlazados desde el README.
 
 ## Bitácora de avance
 
@@ -356,3 +404,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F12: concurrencia optimista (`Version` en 9 entidades, 409 con recarga en la consola), idempotency keys en todas las altas y rotaciones, operadores tipados de group rules con grupos gestionados por reglas, SCIM completo (descubrimiento, PUT, PATCH de Entra ID/Okta, orden, ETag, proyección, rutas de extensión y diagnóstico por token); hallazgo nuevo ADM-09 (operaciones transaccionales con 500 en SQL Server) y fábrica de pruebas con el registro real de SQL Server. | ADM-02, ADM-03, ADM-05, ADM-07, ADM-09, DOC-02 |
 | 2026-09-26 | F13: AuthCenter como IdP SAML 2.0 — SSO por HTTP-Redirect/POST, aserciones firmadas y opcionalmente cifradas, NameID persistente por aplicación, atributos del directorio, step-up por `RequestedAuthnContext`, inicio desde AuthCenter y el portal, SLO iniciado por el SP; compuerta de acceso compartida con OAuth (`ISsoAccessGate`), login hospedado para interacciones SAML, API y consola de aplicaciones SAML, permisos `AUTHCENTER_SAML_APPS_*` y E2E contra la API real con un certificado generado por la prueba. | SAML-01, UI-11 (parcial) |
 | 2026-09-26 | F14: gobierno de accesos — owners por aplicación, solicitudes de acceso desde el portal con aprobación de owners o administradores (correo a ambos, expiración, cancelación, sin autoaprobación), revisiones periódicas con recurrencia, remediación por grupos y cierre automático, segregación de funciones preventiva y detectiva; portal (solicitar, mis solicitudes, aprobaciones) y consola (Gobierno, responsables, dashboard); hallazgo nuevo GOV-02 (defectos del acceso pendiente). | GOV-01, GOV-02, UI-11 |
+| 2026-09-26 | F15: operación y documentación — readiness del esquema (`database-schema`, 503 con migraciones pendientes), script idempotente de migraciones por commit y verificación del modelo en CI, cobertura con mínimos (.NET y consola), presupuesto de bundle, Dependabot, parches NuGet 10.0.12 y vitest 4.1.11; prueba de escala con 100 000 usuarios (encontró el snapshot cuadrático de las revisiones de acceso, ahora lineal, y el cierre de campañas renueva su reclamo); axe con la regla WCAG 2.2 AA en consola, login, portal y enlaces y reflow a 320 px (encontraron contraste insuficiente en el login, errores ocultos tras los diálogos de confirmación y desbordes en móvil); flujos E2E mínimos del plan; runbooks de consola, procedimientos del propietario y documentación al día. | OPS-03 (código), OPS-08, OPS-11, OPS-12, UI-07, UI-13, HL-09, DOC-01, DOC-04 |

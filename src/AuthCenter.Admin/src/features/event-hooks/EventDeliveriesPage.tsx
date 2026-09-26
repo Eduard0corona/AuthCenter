@@ -129,7 +129,7 @@ export default function EventDeliveriesPage() {
         <Pagination page={deliveries.data.page} pageSize={deliveries.data.pageSize} totalCount={deliveries.data.totalCount} totalPages={deliveries.data.totalPages} onPageChange={(value) => update({ page: String(value) }, false)} onPageSizeChange={(value) => update({ pageSize: String(value) }, false)} />
       </> : null}
       <DeliveryDetailDialog deliveryId={detailId} canReplay={canWrite} onClose={() => setDetailId(null)} onReplay={(delivery) => setTarget(delivery)} />
-      <ConfirmDialog open={target !== null} title="Reintentar dead letter" detail={target ? `El evento ${target.eventId} del hook ${target.hookName} volverá a la cola con el contador reiniciado.` : ""} confirmLabel="Reintentar" busy={replay.isPending} onCancel={() => setTarget(null)} onConfirm={() => { if (target) replay.mutate({ delivery: target, idempotencyKey: crypto.randomUUID() }); }} />
+      <ConfirmDialog open={target !== null} title="Reintentar dead letter" detail={target ? `El evento ${target.eventId} del hook ${target.hookName} volverá a la cola con el contador reiniciado.` : ""} confirmLabel="Reintentar" busy={replay.isPending} error={replay.error} onCancel={() => setTarget(null)} onConfirm={() => { if (target) replay.mutate({ delivery: target, idempotencyKey: crypto.randomUUID() }); }} />
     </>
   );
 }

@@ -312,16 +312,17 @@ public sealed class AccessReviewService : IAccessReviewService
                 .Select(assignment => new { membership.UserId, assignment.Role.DisplayName }))
             .ToListAsync(ct);
 
+        // Indexed by user: the campaign of an application with 100,000 users stays linear.
         var directSet = direct.ToHashSet();
+        var groupsByUser = viaGroups.ToLookup(entry => entry.UserId, entry => entry.Name);
+        var rolesByUser = directRoles.Concat(groupRoles).ToLookup(entry => entry.UserId, entry => entry.DisplayName);
         return direct.Concat(viaGroups.Select(entry => entry.UserId))
             .Distinct()
             .Select(userId => new Snapshot(
                 userId,
                 directSet.Contains(userId),
-                viaGroups.Where(entry => entry.UserId == userId).Select(entry => entry.Name).Distinct().Order().ToList(),
-                directRoles.Where(entry => entry.UserId == userId).Select(entry => entry.DisplayName)
-                    .Concat(groupRoles.Where(entry => entry.UserId == userId).Select(entry => entry.DisplayName))
-                    .Distinct().Order().ToList()))
+                groupsByUser[userId].Distinct().Order().ToList(),
+                rolesByUser[userId].Distinct().Order().ToList()))
             .ToList();
     }
 
@@ -370,6 +371,8 @@ public sealed class AccessReviewService : IAccessReviewService
         var decision = campaign.RevokeUnreviewed ? AccessReviewDecision.Revoke : AccessReviewDecision.Keep;
         while (true)
         {
+            if (!await RenewClaimAsync(campaignId, ct))
+                return;
             var pending = await _db.AccessReviewItems
                 .Where(item => item.CampaignId == campaignId && item.Decision == AccessReviewDecision.Pending)
                 .Take(200)
@@ -399,9 +402,14 @@ public sealed class AccessReviewService : IAccessReviewService
             .Where(item => item.CampaignId == campaignId && item.Decision == AccessReviewDecision.Revoke && item.Outcome == null)
             .Select(item => item.Id)
             .ToListAsync(ct);
-        foreach (var itemId in unfinished)
-            await RevokeAsync(itemId, campaign.ApplicationSystemId, ct);
-        _db.ChangeTracker.Clear();
+        foreach (var batch in unfinished.Chunk(200))
+        {
+            if (!await RenewClaimAsync(campaignId, ct))
+                return;
+            foreach (var itemId in batch)
+                await RevokeAsync(itemId, campaign.ApplicationSystemId, ct);
+            _db.ChangeTracker.Clear();
+        }
 
         var completed = await _db.AccessReviewCampaigns.SingleAsync(item => item.Id == campaignId, ct);
         completed.Status = AccessReviewStatus.Completed;
@@ -437,6 +445,31 @@ public sealed class AccessReviewService : IAccessReviewService
         }
         var duration = previous.DueAt - previous.CreatedAt;
         await StartAsync(previous.Name, application, _clock.UtcNow.Add(duration), previous.RevokeUnreviewed, previous.RecurrenceMonths, previous.Id, null, ct);
+    }
+
+    /// <summary>
+    /// Extends the claim before each batch of a long completion (thousands of revocations outlast
+    /// the claim). False when the campaign changed meanwhile, such as another instance claiming it:
+    /// this one stops and leaves the rest to whoever holds it.
+    /// </summary>
+    private async Task<bool> RenewClaimAsync(Guid campaignId, CancellationToken ct)
+    {
+        var campaign = await _db.AccessReviewCampaigns.SingleAsync(item => item.Id == campaignId, ct);
+        campaign.LockedUntil = _clock.UtcNow.Add(ClaimLifetime);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _logger.LogWarning("Access review {CampaignId} changed while it was being completed; this instance stops.", campaignId);
+            return false;
+        }
+        finally
+        {
+            _db.ChangeTracker.Clear();
+        }
     }
 
     /// <summary>One instance at a time completes a campaign or starts its successor.</summary>

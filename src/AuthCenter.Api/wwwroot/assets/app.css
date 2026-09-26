@@ -62,6 +62,8 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: .75rem; text-align: left; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
 th { background: #f1f5f9; }
 .badge { display: inline-block; border-radius: 999px; padding: .2rem .55rem; background: #e2e8f0; margin: .12rem; font-size: .85rem; }
+/* The hero's white text would sit on the badge's light background. */
+.auth-hero .badge { color: #0f172a; }
 .badge.good { color: #065f46; background: #d1fae5; }
 .badge.warn { color: #92400e; background: #fef3c7; }
 .panel { display: none; }

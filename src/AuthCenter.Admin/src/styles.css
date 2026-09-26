@@ -70,6 +70,8 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .workspace { min-width: 0; }
 .topbar { display: flex; min-height: 4.5rem; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem clamp(1.15rem, 3vw, 2.5rem); border-bottom: 1px solid var(--slate-200); background: rgb(255 255 255 / .92); backdrop-filter: blur(12px); }
 .topbar__actions, .page-actions, .button-group { display: flex; align-items: center; gap: .65rem; }
+/* Several actions wrap on a narrow screen instead of widening the page. */
+.page-actions, .button-group { flex-wrap: wrap; }
 .environment-pill { display: flex; align-items: center; gap: .45rem; padding: .32rem .65rem; border: 1px solid var(--slate-200); border-radius: 999px; color: var(--slate-600); background: var(--white); font-size: .75rem; font-weight: 700; }
 .environment-pill span[aria-hidden="true"] { width: .45rem; height: .45rem; border-radius: 50%; background: #12b76a; box-shadow: 0 0 0 3px #d1fadf; }
 .environment-pill--production { border-color: #fecdca; color: var(--red-700); background: #fff6f5; }.environment-pill--production span[aria-hidden="true"] { background: #f04438; box-shadow: 0 0 0 3px var(--red-100); }
@@ -135,6 +137,8 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .checkbox-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
 .checkbox-field { display: flex; min-height: 2.7rem; align-items: center; gap: .65rem; padding: .65rem .75rem; border: 1px solid var(--slate-200); border-radius: .55rem; color: var(--slate-700); background: var(--slate-50); font-size: .82rem; font-weight: 650; }
 .checkbox-field input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--blue-700); }
+/* Protocol names (backchannel_logout_session_required) break instead of widening the form. */
+.checkbox-field > span { min-width: 0; overflow-wrap: anywhere; }
 .form-footer { display: flex; justify-content: flex-end; gap: .65rem; padding-top: .25rem; }
 .permission-matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; max-height: 28rem; overflow: auto; }
 .permission-option { display: flex; align-items: flex-start; gap: .7rem; padding: .75rem; border: 1px solid var(--slate-200); border-radius: .55rem; background: var(--slate-50); }
@@ -292,7 +296,7 @@ a.metric-card:hover { border-color: var(--blue-700); background: var(--white); }
   .topbar { position: sticky; top: 0; z-index: 30; }.environment-pill { display: none; }.topbar__actions { margin-left: auto; }.button--quiet { display: none; }
   .content { padding: 1.25rem 1rem 2rem; }
   .module-grid, .application-grid, .delivery-grid, .toolbar, .toolbar--wide { grid-template-columns: 1fr; }
-  .page-header { align-items: flex-start; }.page-actions { width: 100%; }.segmented { width: 100%; }.segmented button { flex: 1; }
+  .page-header { align-items: flex-start; }.page-actions { width: 100%; }.segmented { width: 100%; flex-wrap: wrap; gap: .2rem; }.segmented button { flex: 1; }
   .pagination { align-items: flex-start; }.pagination .button-group { width: 100%; justify-content: space-between; }
   .form-grid, .detail-list, .event-type-picker__toolbar, .scope-row { grid-template-columns: 1fr; }
   .checkbox-grid { grid-template-columns: 1fr; }

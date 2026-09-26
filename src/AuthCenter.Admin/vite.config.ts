@@ -31,6 +31,16 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
-    css: true
+    css: true,
+    coverage: {
+      // The logic modules (API client, errors, schemas, formatters, hooks). The pages are covered
+      // by the Playwright suite, which vitest cannot measure.
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/test/**", "src/**/*.d.ts"],
+      reporter: ["text-summary", "cobertura", "html"],
+      reportsDirectory: "coverage",
+      thresholds: { lines: 70, statements: 68, branches: 58, functions: 65 }
+    }
   }
 });

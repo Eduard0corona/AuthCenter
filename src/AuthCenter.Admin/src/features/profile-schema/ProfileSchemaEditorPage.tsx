@@ -130,7 +130,7 @@ function ProfileSchemaEditorPage({ create }: { create: boolean }) {
         <button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear atributo" : "Guardar cambios"}</button>
       </div> : null}
     </form>
-    <ConfirmDialog open={confirmDeactivate} title="Desactivar atributo" detail={`"${title}" dejará de mostrarse y de validarse en los perfiles, SCIM y reglas nuevas. Los valores guardados se conservan.`} confirmLabel="Desactivar" dangerous busy={deactivate.isPending} onCancel={() => setConfirmDeactivate(false)} onConfirm={() => deactivate.mutate()} />
+    <ConfirmDialog open={confirmDeactivate} title="Desactivar atributo" detail={`"${title}" dejará de mostrarse y de validarse en los perfiles, SCIM y reglas nuevas. Los valores guardados se conservan.`} confirmLabel="Desactivar" dangerous busy={deactivate.isPending} error={deactivate.error} onCancel={() => setConfirmDeactivate(false)} onConfirm={() => deactivate.mutate()} />
   </>;
 }
 

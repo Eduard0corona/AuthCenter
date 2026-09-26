@@ -150,6 +150,6 @@ export default function AccessReviewDetailPage() {
       onCancel={() => setDecision(null)}
       onConfirm={(comment) => { if (decision) decide.mutate({ ...decision, comment }); }}
     />
-    <ConfirmDialog open={confirmCancel} title="Cancelar la revisión" detail={`La revisión ${current.name} dejará de estar en curso. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Cancelar revisión" dangerous busy={cancel.isPending} onCancel={() => setConfirmCancel(false)} onConfirm={() => cancel.mutate()} />
+    <ConfirmDialog open={confirmCancel} title="Cancelar la revisión" detail={`La revisión ${current.name} dejará de estar en curso. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Cancelar revisión" dangerous busy={cancel.isPending} error={cancel.error} onCancel={() => setConfirmCancel(false)} onConfirm={() => cancel.mutate()} />
   </>;
 }

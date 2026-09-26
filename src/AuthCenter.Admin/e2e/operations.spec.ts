@@ -61,6 +61,27 @@ test("hides the metrics from operators without the audit permission", async ({ p
   expect(dashboardRequests).toBe(0);
 });
 
+test("narrows the System Log to one trace, typed or from an event's detail", async ({ page }) => {
+  const requests: string[] = [];
+  await mockShell(page);
+  await page.route("**/api/audit-logs?**", (route) => {
+    requests.push(route.request().url());
+    return json(route, paged([auditEntry]));
+  });
+
+  await page.goto("/admin-v2/system-log");
+  await page.getByRole("button", { name: /Detalle del evento EVENT_HOOK_UPDATED/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Eventos de esta traza" }).click();
+  await expect(page).toHaveURL(new RegExp(`trace=${auditEntry.traceId}$`));
+  await expect(page.getByLabel("Trace ID")).toHaveValue(auditEntry.traceId);
+  await expect.poll(() => requests.at(-1) ?? "").toContain(`traceId=${auditEntry.traceId}`);
+
+  // The reference support copies from an error message works the same way.
+  await page.getByLabel("Trace ID").fill("0af7651916cd43dd8448eb211c80319c");
+  await expect.poll(() => requests.at(-1) ?? "").toContain("traceId=0af7651916cd43dd8448eb211c80319c");
+  await expect(page).toHaveURL(/trace=0af7651916cd43dd8448eb211c80319c/);
+});
+
 test("filters the System Log with debounce, shows the actor and details, and exports CSV", async ({ page }) => {
   const requests: string[] = [];
   let exportUrl = "";

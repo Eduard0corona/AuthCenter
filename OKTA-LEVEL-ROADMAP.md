@@ -12,20 +12,25 @@ Esta hoja de ruta es el registro canónico. Una capacidad sólo se marca lista c
 API, autorización administrativa, migración, auditoría, documentación, pruebas negativas/positivas
 y evidencia de operación.
 
+El análisis del 2026-09-26 encontró que varias marcas de "lista" no cumplían esa regla (sesión SSO,
+logout global, federación en el login, consola y SDK incompletos). La remediación
+(`REMEDIACION-INTEGRACION-FEDERACION.md`, fases F1 a F15) cerró esos huecos; la matriz indica en
+qué fase y lo que aún depende del propietario (`docs/operations/OWNER-ACTIONS.md`).
+
 ## Matriz de capacidades
 
 | Área | Estado actual | Objetivo de producto | Estado |
 |---|---|---|---|
-| OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación | Interoperabilidad completa, PAR, Device Authorization, introspección y token exchange cuando exista un consumidor real | Fundación lista |
-| Directorio universal | Usuarios, grupos, membresías, perfiles tipados y asignaciones efectivas | Reglas dinámicas de membresía y mappings en Fase 4 | Fase 1 lista |
-| Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable | Señales adaptables y passkey step-up en Fase 2 | Fase 1 lista |
-| Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión | Portal de autoservicio y recuperación asistida en Fase 5 | Fase 2 lista |
-| Federación | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado | Catálogo y UX administrativa en Fase 5 | Fase 3 lista |
-| Lifecycle | SCIM 2.0 Users/Groups, tokens acotados, deprovisioning, mappings y reglas dinámicas | Importaciones masivas y conectores en Fase 5 | Fase 4 lista |
+| OAuth 2.0 / OIDC | Authorization Code + PKCE, Client Credentials, refresh, JWKS y revocación; sesión SSO (`prompt`, `max_age`, `id_token_hint`), logout global con back-channel, catálogo de APIs (RFC 8707), introspección y token exchange, CORS por cliente | PAR y Device Authorization cuando exista un consumidor real | Lista (F2–F7) |
+| Directorio universal | Usuarios, grupos, membresías, perfiles tipados, asignaciones efectivas, reglas dinámicas con operadores tipados y mappings; probado con 100 000 usuarios | Importaciones masivas | Lista (Fases 1 y 4, F12, escala en F15) |
+| Políticas de acceso | Motor versionado con usuario, grupo, red, horario, riesgo, assurance y simulación explicable; señales adaptables y step-up con passkey; aplicado también en OAuth y SAML | — | Lista (Fases 1 y 2, F4, F13) |
+| Autenticadores | Password, TOTP, email OTP, magic link, backup codes, passkeys passwordless y step-up de sesión; inscripción guiada al iniciar sesión, portal de autoservicio y restablecimiento de MFA por soporte | — | Lista (Fase 2, F10) |
+| Federación | Proveedores OIDC y SAML configurables, routing por dominio/usuario y JIT controlado, conectados al login hospedado y a `/oauth/authorize`, con prueba de conexión y consola; AuthCenter también es IdP SAML para aplicaciones | Catálogo de proveedores preconfigurados | Lista (F8, F13) |
+| Lifecycle | SCIM 2.0 Users/Groups completo (descubrimiento, PUT, PATCH de Entra ID/Okta, ETag, diagnóstico por token), tokens acotados, deprovisioning, mappings y reglas dinámicas | Importaciones masivas y conectores | Lista (Fase 4, F12) |
 | System Log | Auditoría consultable correlacionada con W3C trace IDs, outbox y event hooks con métricas/dead-letter | Exportación analítica de largo plazo según retención corporativa | Fase 6 lista |
-| Experiencia administrativa | Consola admin, portal de usuario y login hospedado accesibles, con branding y consentimiento revocable | Custom domains administrados | Fase 5 lista |
-| Plataforma para desarrolladores | Discovery/JWKS, SDKs .NET/TypeScript, quickstarts y perfil de conformidad OIDC/SCIM | Publicación automatizada de paquetes cuando exista un registry organizacional | Fase 5 lista |
-| Operación | OpenTelemetry/Azure Monitor, SLO/burn rate, capacity/soak, scripts DR y runbooks además de CI/CD/Key Vault/health | Failover regional cuando se apruebe una segunda región | Fase 6 lista |
+| Experiencia administrativa | Consola admin completa (concurrencia optimista, idempotencia, System Log, Event Hooks, gobierno), portal de usuario y login hospedado accesibles (axe con la regla WCAG 2.2 AA en las 39 rutas de la consola, cada paso del login, el portal y los enlaces de correo; reflow a 320 px), con branding y consentimiento revocable; runbooks de soporte | Custom domains administrados | Lista (F10, F11, F15); falta la revisión manual con lectores de pantalla (UI-07, propietario) |
+| Plataforma para desarrolladores | Discovery/JWKS, SDKs .NET (net8/net10) y TypeScript con prueba de contrato contra el servidor, quickstarts (BFF, API, SPA) y perfil de conformidad OIDC/SCIM; paquetes y workflow de publicación listos | Paquetes publicados en NuGet/npm | Lista salvo publicar: credenciales y licencia del propietario (OPS-14) |
+| Operación | OpenTelemetry/Azure Monitor, SLO/burn rate, capacity/soak, scripts DR y runbooks además de CI/CD/Key Vault/health; readiness del esquema, script de migraciones por commit, compuertas de cobertura y bundle, Dependabot y prueba de escala semanal | Failover regional cuando se apruebe una segunda región | Lista (Fase 6, F15); pendientes del propietario OPS-01 a OPS-07 |
 | Gobierno | RBAC por aplicación, owners por aplicación, solicitudes de acceso con aprobación, revisiones periódicas con recurrencia y segregación de funciones preventiva y detectiva | Entitlements finos por recurso y flujos de aprobación de varios niveles | Lista (F14 de la remediación) |
 
 ## Fases de entrega

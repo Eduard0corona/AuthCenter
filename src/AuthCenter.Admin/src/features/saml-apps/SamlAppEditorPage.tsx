@@ -182,7 +182,7 @@ function SamlAppEditorPage({ create }: { create: boolean }) {
       {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error, SAML_ERRORS)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar aplicación SAML</button></div>
     </section> : null}
-    <ConfirmDialog open={confirmDelete} title="Eliminar aplicación SAML" detail={`Se eliminará ${current?.name ?? ""} (${current?.entityId ?? ""}). Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
+    <ConfirmDialog open={confirmDelete} title="Eliminar aplicación SAML" detail={`Se eliminará ${current?.name ?? ""} (${current?.entityId ?? ""}). Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} error={remove.error} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
   </>;
 }
 

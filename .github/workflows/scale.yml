@@ -1,0 +1,60 @@
+name: Directory scale
+
+# The administrative reads against a large directory (tests/AuthCenter.IntegrationTests/DirectoryScaleRelationalTests.cs):
+# weekly and on demand, not on every pull request.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      users:
+        description: Users to seed
+        default: "20000"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_SA_PASSWORD }}
+        ports:
+          - 1433:1433
+    env:
+      AUTHCENTER_RELATIONAL_TEST_CONNECTION: "Server=localhost,1433;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=true"
+      AUTHCENTER_SCALE_TESTS: "1"
+      AUTHCENTER_SCALE_USERS: ${{ github.event.inputs.users || '20000' }}
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if (echo > /dev/tcp/127.0.0.1/1433) 2>/dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Build
+        run: dotnet build tests/AuthCenter.IntegrationTests/AuthCenter.IntegrationTests.csproj --configuration Release
+
+      - name: Directory scale
+        run: >
+          dotnet test tests/AuthCenter.IntegrationTests/AuthCenter.IntegrationTests.csproj --configuration Release --no-build
+          --filter Category=Scale --logger "console;verbosity=detailed"

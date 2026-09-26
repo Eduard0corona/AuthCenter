@@ -38,8 +38,24 @@ for (const route of routes) {
     await page.goto(`/admin-v2${route}`);
     await expect(page.locator("main h1").first()).toBeVisible();
     await expect(page.locator("[aria-busy='true']")).toHaveCount(0);
-    const { violations } = await new AxeBuilder({ page }).analyze();
+    // target-size is axe's WCAG 2.2 AA rule, off by default.
+    const { violations } = await new AxeBuilder({ page }).options({ rules: { "target-size": { enabled: true } } }).analyze();
     expect(violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(" ")).join(", ")}`)).toEqual([]);
+  });
+}
+
+// WCAG 1.4.10: at 320 CSS pixels (a 1280 px screen at 400 % zoom) the page reflows without
+// horizontal scrolling; wide tables scroll inside their own region.
+for (const route of routes) {
+  test(`${route} reflows at 320 pixels`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-mobile", "One narrow layout is enough.");
+    await page.setViewportSize({ width: 320, height: 640 });
+    await mockEmptyApi(page);
+    await page.goto(`/admin-v2${route}`);
+    await expect(page.locator("main h1").first()).toBeVisible();
+    await expect(page.locator("[aria-busy='true']")).toHaveCount(0);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, "horizontal overflow in CSS pixels").toBeLessThanOrEqual(0);
   });
 }
 
@@ -99,4 +115,13 @@ test("the mobile navigation drawer closes with Escape and returns focus to its b
   await page.keyboard.press("Escape");
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   await expect(menu).toBeFocused();
+});
+
+test("the drawer does not animate for people who ask for reduced motion", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-mobile", "The drawer only exists on small screens.");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mockEmptyApi(page);
+  await page.goto("/admin-v2/");
+  const duration = await page.locator(".sidebar").evaluate((element) => getComputedStyle(element).transitionDuration);
+  expect(Number.parseFloat(duration)).toBeLessThan(0.001);
 });

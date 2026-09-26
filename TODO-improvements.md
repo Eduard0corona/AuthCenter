@@ -45,7 +45,8 @@ doing first.
 - [x] User search uses indexable prefixes over `FullName` and `NormalizedEmail`.
 - [x] Serilog writes to console only; there is no production file sink.
 - [x] Split the health endpoint into `/health/live`, which carries no dependencies, and
-      `/health/ready`, which reports SQL Server. `/health` is unchanged.
+      `/health/ready`, which reports SQL Server and, since the remediation's F15, whether the
+      database has every migration of the build (`database-schema`). `/health` is unchanged.
 
 ## Correctness
 
@@ -58,7 +59,7 @@ doing first.
       durable effects are delegated to focused services. Further mechanical file splitting would
       redistribute the coordinator without reducing its remaining coupling.
 - [x] EF Core and Identity use-case implementations deliberately remain in Infrastructure behind
-      Application interfaces. Pure validation stays in Application, and the 141-test suite runs in
+      Application interfaces. Pure validation stays in Application, where its unit tests run in
       seconds; moving framework adapters inward would violate the dependency rule without improving
       test feedback.
 

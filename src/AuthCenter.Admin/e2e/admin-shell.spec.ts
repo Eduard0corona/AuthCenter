@@ -461,6 +461,57 @@ test("replaces direct user access atomically", async ({ page }) => {
   expect(accessPayload).toEqual({ applicationSystemIds: [applicationId], roleIds: [roleId] });
 });
 
+test("deactivates a user after confirming", async ({ page }) => {
+  let deactivations = 0;
+  await page.route("**/api/users/user-1/deactivate", async (route) => {
+    deactivations += 1;
+    expect(route.request().method()).toBe("PATCH");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+  });
+  await page.goto("/admin-v2/users/user-1");
+  await page.getByRole("button", { name: "Desactivar usuario" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("las sesiones anteriores serán revocadas");
+  await dialog.getByRole("button", { name: "Desactivar", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("status")).toContainText("El estado quedó actualizado y las sesiones anteriores fueron revocadas.");
+  expect(deactivations).toBe(1);
+});
+
+test("explains inside the confirmation that the last SuperAdmin cannot be deactivated", async ({ page }) => {
+  await page.route("**/api/users/user-1/deactivate", async (route) => route.fulfill({
+    status: 400,
+    contentType: "application/json",
+    body: JSON.stringify({ success: false, errorCode: "LAST_SUPER_ADMIN", message: "The last effective SuperAdmin cannot be deactivated.", traceId: "trace-last-admin" })
+  }));
+  await page.goto("/admin-v2/users/user-1");
+  await page.getByRole("button", { name: "Desactivar usuario" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Desactivar", exact: true }).click();
+  // The dialog covers the page: the refusal is shown where the operator is looking.
+  await expect(dialog.getByRole("alert")).toHaveText(/sin ningún SuperAdmin activo/);
+  expect((await new AxeBuilder({ page }).include("dialog").analyze()).violations).toEqual([]);
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "sin ningún SuperAdmin activo" })).toBeVisible();
+  // Opening it again starts without the previous error.
+  await page.getByRole("button", { name: "Desactivar usuario" }).click();
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+});
+
+test("a session that expires during a change returns to the sign-in and back to the same page", async ({ page }) => {
+  await page.route("**/api/users/user-1/access", async (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify({ success: false, errorCode: "UNAUTHORIZED", message: "Authentication required." })
+  }));
+  await page.route("**/login?**", async (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>Login</title><h1>Hosted login</h1>" }));
+  await page.goto("/admin-v2/users/user-1");
+  await page.getByRole("group", { name: "Roles" }).getByRole("checkbox", { name: /^Operator/ }).check();
+  await page.getByRole("button", { name: "Guardar acceso directo" }).click();
+
+  await expect(page).toHaveURL(/\/login\?application=AUTHCENTER&return_url=%2Fadmin-v2%2Fusers%2Fuser-1$/);
+});
+
 test("requires step-up before resetting another user's MFA", async ({ page }) => {
   let proofPurpose = "";
   let proofHeader = "";

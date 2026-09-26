@@ -171,7 +171,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
       {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar regla</button></div>
     </section> : null}
-    <ConfirmDialog open={confirmDelete} title="Eliminar group rule" detail={`Se eliminará la regla ${current ? describeRule(current) : ""} del grupo ${current?.groupName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
+    <ConfirmDialog open={confirmDelete} title="Eliminar group rule" detail={`Se eliminará la regla ${current ? describeRule(current) : ""} del grupo ${current?.groupName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} error={remove.error} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
   </>;
 }
 

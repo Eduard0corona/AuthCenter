@@ -1,6 +1,6 @@
 # AuthCenter
 
-Centralized authentication and identity service for multiple systems. Handles user registration, login (email/password and Google), JWT access tokens, refresh token rotation, roles, permissions, and multi-application access control.
+Centralized authentication and identity service for multiple systems: an OAuth 2.0/OpenID Connect provider with single sign-on and global logout, a SAML 2.0 identity provider, hosted login (passwords, passkeys, MFA, emailed links, enterprise federation with OIDC and SAML providers), a user portal, SCIM 2.0 provisioning, a universal directory with groups and rules, per-application access policies, access governance (requests, reviews, separation of duties), System Log and Event Hooks, an administrative console, and .NET/TypeScript SDKs.
 
 ## Architecture
 
@@ -16,8 +16,9 @@ Clean Architecture with five layers:
 
 See [docs/architecture.md](docs/architecture.md) for full details.
 The product-level capability plan is tracked in
-[OKTA-LEVEL-ROADMAP.md](OKTA-LEVEL-ROADMAP.md); the current API is a hardened foundation, not yet
-feature parity with a full Identity-as-a-Service platform.
+[OKTA-LEVEL-ROADMAP.md](OKTA-LEVEL-ROADMAP.md), which lists what is still outside the product (PAR,
+device authorization, custom domains, bulk imports); the remediation of the 2026-09-26 analysis is
+tracked in [REMEDIACION-INTEGRACION-FEDERACION.md](REMEDIACION-INTEGRACION-FEDERACION.md).
 
 ## Requirements
 
@@ -250,6 +251,15 @@ set to `true` along with the `Seed:*` values, then turn both back off so that la
 not re-run the bootstrap. Alternatively, apply the migrations out of band with
 `dotnet ef database update`.
 
+In Azure the application identity cannot change the schema, so every release applies its
+migrations **before** the code that needs them: the `CI/CD` workflow publishes the idempotent
+script of each commit as the `database-migrations` artifact (`dotnet ef migrations script
+--idempotent`, with the tools pinned in `.config/dotnet-tools.json`), and a database administrator
+runs it. Readiness guards the order: the `database-schema` check of `/health/ready` answers 503
+while this build has migrations the database lacks, and reports `Degraded` (still 200) when the
+database is ahead of the build, as after rolling the code back. The response names each check and
+its status. Step by step: [docs/operations/OWNER-ACTIONS.md](docs/operations/OWNER-ACTIONS.md#ops-03--migraciones-en-azure-sql).
+
 The Azure deployment uses a passwordless database connection:
 
 - App Service uses its system-assigned managed identity.
@@ -272,12 +282,25 @@ The single `CI/CD` workflow validates every pull request. On a push to `main` (o
 authentication uses GitHub OIDC; no publish profile or Azure client secret is stored in GitHub.
 The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
 `CI_MSSQL_SA_PASSWORD` as secrets, plus `AZURE_WEBAPP_NAME` and `AZURE_WEBAPP_SLOT` as variables.
-After deployment, `/health/live` must return HTTP 200 or the workflow is marked failed.
+After deployment, `/health/live`, `/health/ready` and the branding endpoint must return HTTP 200 or
+the workflow is marked failed; on failure it prints the readiness report.
+
+Besides the tests, CI fails when an EF Core model change has no migration, when .NET coverage
+(unit and integration, merged) drops under 80% of lines or 60% of branches, when the console's
+logic modules drop under their minimums (`vite.config.ts`), or when the console's JavaScript
+outgrows its gzip budget (`src/AuthCenter.Admin/scripts/check-bundle-budget.mjs`). The coverage
+summary goes to the run page and the reports to the `coverage-report` artifact. Dependabot
+(`.github/dependabot.yml`) proposes grouped weekly updates for NuGet, npm, Actions and Docker. The
+`Directory scale` workflow runs the large-directory capacity test weekly
+([docs/operations/CAPACITY.md](docs/operations/CAPACITY.md#directorio-grande)).
 
 OpenTelemetry exports traces, metrics and bounded custom SLI dimensions to Azure Monitor. System
 Log entries contain only the W3C `traceId` correlation key, not telemetry payloads. SLOs and burn-
 rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident procedures are in
-`ops/load/`, `scripts/ops/` and [docs/operations](docs/operations/).
+`ops/load/`, `scripts/ops/` and [docs/operations](docs/operations/): support procedures with the
+console in [CONSOLE-RUNBOOKS.md](docs/operations/CONSOLE-RUNBOOKS.md), and the steps that need the
+owner's accounts or approval (GitHub Actions billing, branch protection, production migrations,
+seed and key rotation, SDK publishing) in [OWNER-ACTIONS.md](docs/operations/OWNER-ACTIONS.md).
 
 ## Key Endpoints
 
@@ -920,7 +943,20 @@ and emails written to a pickup directory, and drives the login, the portal, the 
 (with a virtual WebAuthn authenticator), SAML sign-in and the administration console against the real API, with
 axe checks (`HOSTED_UI_CHROMIUM` can point at a local Chromium). The same variable runs the SQL
 Server integration tests of `dotnet test`. The console's own Playwright suite (`npm run test:e2e`)
-uses mocked responses and checks every route with axe on desktop and mobile.
+uses mocked responses and checks every route with axe (including the WCAG 2.2 `target-size` rule)
+on desktop and mobile, and its reflow at 320 pixels.
+
+Coverage and capacity, as CI runs them:
+
+```bash
+dotnet tool restore
+dotnet test --settings coverlet.runsettings --collect:"XPlat Code Coverage" --results-directory ./coverage
+dotnet reportgenerator -reports:"coverage/**/coverage.cobertura.xml" -targetdir:coverage/report -reporttypes:"Cobertura;HtmlSummary"
+python3 scripts/ci/coverage-gate.py coverage/report/Cobertura.xml 80 60
+cd src/AuthCenter.Admin && npm run test:coverage && npm run build && npm run budget
+# The large-directory test (SQL Server): 20,000 users by default
+AUTHCENTER_SCALE_TESTS=1 AUTHCENTER_SCALE_USERS=100000 dotnet test tests/AuthCenter.IntegrationTests --filter Category=Scale
+```
 
 ## Repository Notes
 

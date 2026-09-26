@@ -115,6 +115,6 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
       </fieldset>
       {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/api-resources">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear API" : "Guardar cambios"}</button></div> : null}
     </form>
-    <ConfirmDialog open={pending !== null} title="Quitar scopes" detail={pending ? `Se eliminarán ${removedScopes(current, pending).join(", ")}. Los clientes que los pidan ya no obtendrán tokens con esos scopes.` : ""} confirmLabel="Guardar y quitar" dangerous busy={save.isPending} onCancel={() => setPending(null)} onConfirm={() => { if (pending) save.mutate(pending); }} />
+    <ConfirmDialog open={pending !== null} title="Quitar scopes" detail={pending ? `Se eliminarán ${removedScopes(current, pending).join(", ")}. Los clientes que los pidan ya no obtendrán tokens con esos scopes.` : ""} confirmLabel="Guardar y quitar" dangerous busy={save.isPending} error={save.error} onCancel={() => setPending(null)} onConfirm={() => { if (pending) save.mutate(pending); }} />
   </>;
 }
