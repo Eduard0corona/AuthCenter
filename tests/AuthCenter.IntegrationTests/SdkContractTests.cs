@@ -31,7 +31,7 @@ namespace AuthCenter.IntegrationTests;
 /// AuthCenter hosted at an HTTPS authority whose issuer equals its public origin, so the real SDK
 /// (OpenID Connect handler, JWT bearer, back-channel HTTP) can run against it end to end.
 /// </summary>
-public sealed class HttpsAuthCenterFactory : AuthCenterWebApplicationFactory
+public class HttpsAuthCenterFactory : AuthCenterWebApplicationFactory
 {
     public const string Authority = "https://authcenter.test";
 
@@ -148,16 +148,19 @@ public sealed class SdkContractTests : IClassFixture<HttpsAuthCenterFactory>
             BaseAddress = new Uri(BffOrigin)
         };
 
+        var provider = Guid.NewGuid();
         var accepted = QueryHelpers.ParseQuery((await browser.GetAsync(
-            "/auth/login?prompt=login&max_age=0&login_hint=ana%40example.com&acr_values=urn%3Aauthcenter%3Aacr%3Amfa")).Headers.Location!.Query);
+            $"/auth/login?prompt=login&max_age=0&login_hint=ana%40example.com&acr_values=urn%3Aauthcenter%3Aacr%3Amfa&idp={provider}&domain_hint=Contoso.COM")).Headers.Location!.Query);
         var rejected = QueryHelpers.ParseQuery((await browser.GetAsync(
-            "/auth/login?prompt=none%20login&max_age=-1&login_hint=ev%0Ail&acr_values=%3Cscript%3E")).Headers.Location!.Query);
+            "/auth/login?prompt=none%20login&max_age=-1&login_hint=ev%0Ail&acr_values=%3Cscript%3E&idp=not-a-provider&domain_hint=bad%20domain")).Headers.Location!.Query);
 
         Assert.Equal("login", accepted["prompt"].ToString());
         Assert.Equal("0", accepted["max_age"].ToString());
         Assert.Equal("ana@example.com", accepted["login_hint"].ToString());
         Assert.Equal(DomainConstants.AuthenticationContextClasses.MultiFactor, accepted["acr_values"].ToString());
-        foreach (var parameter in new[] { "prompt", "max_age", "login_hint", "acr_values" })
+        Assert.Equal(provider.ToString(), accepted["idp"].ToString());
+        Assert.Equal("contoso.com", accepted["domain_hint"].ToString());
+        foreach (var parameter in new[] { "prompt", "max_age", "login_hint", "acr_values", "idp", "domain_hint" })
             Assert.False(rejected.ContainsKey(parameter), parameter);
     }
 

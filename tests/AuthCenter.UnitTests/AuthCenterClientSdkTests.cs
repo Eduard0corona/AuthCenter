@@ -57,6 +57,21 @@ public sealed class AuthCenterClientSdkTests
         Assert.False(AuthCenterBffEndpointRouteBuilderExtensions.IsLocalReturnUrl(value));
 
     [Fact]
+    public void AuthorizationUri_CarriesFederationHints_AndRejectsMalformedOnes()
+    {
+        var client = new AuthCenterClient(new HttpClient(), new AuthCenterClientOptions { Authority = new Uri("https://identity.example.test"), ClientId = "web" });
+        var provider = Guid.NewGuid();
+        var uri = client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(),
+            identityProvider: provider.ToString("N"), domainHint: "@Contoso.COM");
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        Assert.Equal(provider.ToString(), query["idp"].ToString());
+        Assert.Equal("contoso.com", query["domain_hint"].ToString());
+
+        Assert.Throws<ArgumentException>(() => client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(), identityProvider: "corporate"));
+        Assert.Throws<ArgumentException>(() => client.BuildAuthorizationUri(new Uri("https://app.example.test/callback"), "state", "nonce", AuthCenterClient.CreatePkce(), domainHint: "not a domain"));
+    }
+
+    [Fact]
     public void AccessTokenClaims_AreBoundToValidatedOidcSubjectAndClient()
     {
         var options = ValidOptions();

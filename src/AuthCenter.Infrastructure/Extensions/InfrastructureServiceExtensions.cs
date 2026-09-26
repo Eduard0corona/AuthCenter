@@ -59,6 +59,7 @@ public static class InfrastructureServiceExtensions
         services.Configure<AdaptiveAuthenticationSettings>(configuration.GetSection("AdaptiveAuth"));
         services.AddSingleton<IValidateOptions<AdaptiveAuthenticationSettings>, AdaptiveAuthenticationSettingsValidator>();
         services.Configure<SamlSettings>(configuration.GetSection("Saml"));
+        services.Configure<OidcSettings>(configuration.GetSection("Oidc"));
         services.AddSingleton<IValidateOptions<SamlSettings>, SamlSettingsValidator>();
         services.Configure<ActionLinkSettings>(configuration.GetSection("ActionLinks"));
         services.Configure<RetentionSettings>(configuration.GetSection("Retention"));
@@ -70,7 +71,10 @@ public static class InfrastructureServiceExtensions
             client.DefaultRequestHeaders.UserAgent.ParseAdd("AuthCenter/1.0");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-        services.AddHttpClient("Federation", client => client.Timeout = TimeSpan.FromSeconds(15));
+        // Upstream metadata and token requests go to the exact configured URLs, never to a redirect.
+        services.AddHttpClient(FederationMetadataCache.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddSingleton<FederationMetadataCache>();
         services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10));
         // Logout tokens are posted to the exact registered URI; a redirect is a failed delivery.
         services.AddHttpClient(BackchannelLogoutQueue.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))

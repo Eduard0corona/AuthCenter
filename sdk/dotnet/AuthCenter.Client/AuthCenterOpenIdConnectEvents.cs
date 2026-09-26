@@ -38,6 +38,9 @@ internal sealed class AuthCenterOpenIdConnectEvents(
             context.ProtocolMessage.LoginHint = loginHint;
         if (context.Properties.GetParameter<string>(OpenIdConnectParameterNames.AcrValues) is { Length: > 0 } acrValues)
             context.ProtocolMessage.AcrValues = acrValues;
+        foreach (var name in new[] { AuthCenterChallengeParameters.IdentityProviderParameter, AuthCenterChallengeParameters.DomainHintParameter })
+            if (context.Properties.GetParameter<string>(name) is { Length: > 0 } value)
+                context.ProtocolMessage.SetParameter(name, value);
         return Task.CompletedTask;
     }
 

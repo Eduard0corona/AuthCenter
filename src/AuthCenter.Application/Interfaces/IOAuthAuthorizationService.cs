@@ -10,6 +10,12 @@ public interface IOAuthAuthorizationService
     Task<OperationResult<AuthorizationEndpointResult>> InitiateAuthorizationAsync(AuthorizeRequest request, AuthorizationCaller caller, CancellationToken ct = default);
     Task<OperationResult<OAuthInteractionContextResponse>> GetInteractionContextAsync(string interactionId, string? browserBinding, CancellationToken ct = default);
     Task<OperationResult<OAuthInteractionResponse>> GetInteractionAsync(string interactionId, AuthorizationCaller caller, CancellationToken ct = default);
+
+    /// <summary>
+    /// The application an unfinished interaction signs in to, read only by the browser that
+    /// started it; the hosted login uses it to send the user to an upstream provider.
+    /// </summary>
+    Task<InteractionTarget?> GetInteractionTargetAsync(string interactionId, string? browserBinding, CancellationToken ct = default);
     Task<OperationResult<AuthorizationResponse>> CompleteAuthorizationAsync(CompleteAuthorizationRequest request, AuthorizationCaller caller, CancellationToken ct = default);
 
     /// <summary>

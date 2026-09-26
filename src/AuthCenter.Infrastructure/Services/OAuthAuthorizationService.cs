@@ -6,6 +6,7 @@ using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.OAuth;
+using AuthCenter.Contracts.Responses.Federation;
 using AuthCenter.Contracts.Responses.OAuth;
 using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
@@ -167,6 +168,28 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (request.LoginHint is { Length: > 256 })
             return OperationResult<AuthorizationEndpointResult>.Success(Error("invalid_request", "login_hint is too long."));
 
+        // idp and domain_hint only steer the hosted login towards an upstream provider; the
+        // provider must belong to the client's application.
+        Guid? identityProviderId = null;
+        if (!string.IsNullOrWhiteSpace(request.IdentityProvider))
+        {
+            if (!Guid.TryParse(request.IdentityProvider, out var providerId) ||
+                !await _db.FederationProviders.AnyAsync(provider =>
+                    provider.Id == providerId && provider.IsActive && provider.ApplicationSystemId == client.ApplicationSystemId, ct))
+            {
+                return OperationResult<AuthorizationEndpointResult>.Success(Error("invalid_request", "idp is not an active federation provider of this application."));
+            }
+            identityProviderId = providerId;
+        }
+
+        string? domainHint = null;
+        if (!string.IsNullOrWhiteSpace(request.DomainHint))
+        {
+            domainHint = FederationDomains.Normalize(request.DomainHint);
+            if (domainHint is null)
+                return OperationResult<AuthorizationEndpointResult>.Success(Error("invalid_request", "domain_hint must be a domain name."));
+        }
+
         string? hintSubject = null;
         if (!string.IsNullOrWhiteSpace(request.IdTokenHint))
         {
@@ -192,6 +215,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             Prompt = prompt,
             MaxAge = maxAge,
             LoginHint = string.IsNullOrWhiteSpace(request.LoginHint) ? null : request.LoginHint.Trim(),
+            IdentityProviderId = identityProviderId,
+            DomainHint = domainHint,
             IdTokenHintSubject = hintSubject,
             AcrValues = ParseScopes(request.AcrValues),
             ResponseMode = responseMode,
@@ -257,6 +282,11 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
 
         var settings = await _db.ApplicationRegistrationSettings.AsNoTracking()
             .FirstOrDefaultAsync(item => item.ApplicationSystemId == client.ApplicationSystemId, ct);
+        var providers = await _db.FederationProviders.AsNoTracking()
+            .Where(provider => provider.ApplicationSystemId == client.ApplicationSystemId && provider.IsActive)
+            .Select(provider => new { provider.Id, provider.Name, provider.Protocol })
+            .ToListAsync(ct);
+        var identityProvider = providers.FirstOrDefault(provider => provider.Id == session.IdentityProviderId);
         return OperationResult<OAuthInteractionContextResponse>.Success(new OAuthInteractionContextResponse
         {
             ApplicationCode = client.ApplicationSystem.Code,
@@ -265,8 +295,31 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             LoginHint = session.LoginHint,
             RequiresFreshLogin = session.Prompt.Contains(PromptLogin) || session.Prompt.Contains(PromptSelectAccount),
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
+            FederationAvailable = providers.Count > 0,
+            IdentityProvider = identityProvider is null ? null : new FederationProviderSummary
+            {
+                Id = identityProvider.Id,
+                Name = identityProvider.Name,
+                Protocol = identityProvider.Protocol.ToString()
+            },
+            DomainHint = session.DomainHint,
             ExpiresAt = session.CreatedAt.AddMinutes(AuthorizationLifetimeMinutes)
         });
+    }
+
+    public async Task<InteractionTarget?> GetInteractionTargetAsync(string interactionId, string? browserBinding, CancellationToken ct = default)
+    {
+        var session = await ReadInteractionAsync(interactionId, ct);
+        if (session is null || !BindingMatches(session.BrowserBindingHash, browserBinding))
+            return null;
+        var client = await FindActiveClientAsync(session.ClientId, ct);
+        return client is null || client.ApplicationSystemId != session.ApplicationSystemId
+            ? null
+            : new InteractionTarget(
+                client.ApplicationSystemId,
+                client.ApplicationSystem.Code,
+                session.LoginHint,
+                session.Prompt.Contains(PromptLogin) || session.Prompt.Contains(PromptSelectAccount) || session.MaxAge is not null);
     }
 
     public async Task<OperationResult<OAuthInteractionResponse>> GetInteractionAsync(string interactionId, AuthorizationCaller caller, CancellationToken ct = default)

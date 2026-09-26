@@ -12,9 +12,19 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
 
     /// <summary>
     /// Builds the authorization request. <paramref name="resources"/> are RFC 8707 resource
-    /// indicators: the APIs whose scopes are requested.
+    /// indicators: the APIs whose scopes are requested. <c>identityProvider</c> (a federation
+    /// provider ID, sent as <c>idp</c>) makes AuthCenter's hosted login go straight to that
+    /// provider; <c>domainHint</c> (<c>domain_hint</c>) lets it find the user's organization.
     /// </summary>
-    public Uri BuildAuthorizationUri(Uri redirectUri, string state, string nonce, PkcePair pkce, IEnumerable<string>? scopes = null, IEnumerable<string>? resources = null)
+    public Uri BuildAuthorizationUri(
+        Uri redirectUri,
+        string state,
+        string nonce,
+        PkcePair pkce,
+        IEnumerable<string>? scopes = null,
+        IEnumerable<string>? resources = null,
+        string? identityProvider = null,
+        string? domainHint = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(state);
         ArgumentException.ThrowIfNullOrWhiteSpace(nonce);
@@ -31,6 +41,12 @@ public sealed class AuthCenterClient(HttpClient httpClient, AuthCenterClientOpti
         };
         foreach (var resource in resources ?? [])
             query.Add(new("resource", resource));
+        if (identityProvider is not null)
+            query.Add(new(AuthCenterChallengeParameters.IdentityProviderParameter,
+                AuthCenterChallengeParameters.IdentityProvider(identityProvider) ?? throw new ArgumentException("The identity provider must be an AuthCenter federation provider ID.", nameof(identityProvider))));
+        if (domainHint is not null)
+            query.Add(new(AuthCenterChallengeParameters.DomainHintParameter,
+                AuthCenterChallengeParameters.DomainHint(domainHint) ?? throw new ArgumentException("The domain hint must be a domain name.", nameof(domainHint))));
         return Endpoint("oauth/authorize?" + string.Join('&', query.Select(item => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(item.Value)}")));
     }
 

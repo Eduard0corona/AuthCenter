@@ -18,6 +18,8 @@ public class OAuthAuthorizationSession
     public IList<string> Prompt { get; init; } = [];
     public int? MaxAge { get; init; }
     public string? LoginHint { get; init; }
+    public Guid? IdentityProviderId { get; init; }
+    public string? DomainHint { get; init; }
     public string? IdTokenHintSubject { get; init; }
     public IList<string> AcrValues { get; init; } = [];
     public string ResponseMode { get; init; } = AuthorizationResponse.Query;

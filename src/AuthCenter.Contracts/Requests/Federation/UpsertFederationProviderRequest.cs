@@ -14,6 +14,18 @@ public sealed class UpsertFederationProviderRequest
     public string? SamlSigningCertificatePem { get; init; }
     public bool JitProvisioningEnabled { get; init; }
     public string AccountLinkingMode { get; init; } = "Disabled";
+
+    /// <summary>OIDC only: require <c>email_verified=true</c> (default). See <c>FederationProvider.RequireVerifiedEmail</c>.</summary>
+    public bool RequireVerifiedEmail { get; init; } = true;
+    public bool TrustUpstreamMfa { get; init; }
+    public string? GroupsClaim { get; init; }
+    public IReadOnlyList<FederationGroupMappingItem> GroupMappings { get; init; } = [];
     public bool IsActive { get; init; } = true;
     public long Version { get; init; }
+}
+
+public sealed class FederationGroupMappingItem
+{
+    public string UpstreamValue { get; init; } = string.Empty;
+    public Guid DirectoryGroupId { get; init; }
 }

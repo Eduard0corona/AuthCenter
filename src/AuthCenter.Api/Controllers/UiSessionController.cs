@@ -5,7 +5,9 @@ using AuthCenter.Api.Extensions;
 using AuthCenter.Api.Middleware;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Auth;
+using AuthCenter.Contracts.Requests.Federation;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Constants;
@@ -26,6 +28,7 @@ public sealed class UiSessionController : ControllerBase
     private readonly IAccountManagementService _accounts;
     private readonly IPasskeyService _passkeys;
     private readonly IRefreshTokenService _refreshTokens;
+    private readonly IFederationService _federation;
     private readonly MfaSettings _mfa;
     private readonly SingleSignOnSettings _sso;
 
@@ -34,6 +37,7 @@ public sealed class UiSessionController : ControllerBase
         IAccountManagementService accounts,
         IPasskeyService passkeys,
         IRefreshTokenService refreshTokens,
+        IFederationService federation,
         IOptions<MfaSettings> mfa,
         IOptions<SingleSignOnSettings> sso)
     {
@@ -41,9 +45,54 @@ public sealed class UiSessionController : ControllerBase
         _accounts = accounts;
         _passkeys = passkeys;
         _refreshTokens = refreshTokens;
+        _federation = federation;
         _mfa = mfa.Value;
         _sso = sso.Value;
     }
+
+    /// <summary>
+    /// Home realm discovery: which upstream provider, if any, signs this email in to the
+    /// application of the interaction (or of <c>applicationCode</c> for a direct sign-in).
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.FederationDiscover)]
+    [HttpPost("federation/discover")]
+    public async Task<IActionResult> DiscoverFederation([FromBody] FederationDiscoveryRequest request, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _federation.DiscoverAsync(request, FederationCaller(BrowserBinding.Read(HttpContext)), ct);
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    /// <summary>Returns the upstream URL to navigate to; the sign-in is bound to this browser.</summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.FederationStart)]
+    [HttpPost("federation/start")]
+    public async Task<IActionResult> StartFederation([FromBody] StartFederationRequest request, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var result = await _federation.StartAsync(request, FederationCaller(BrowserBinding.Ensure(HttpContext)), ct);
+        return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+    }
+
+    /// <summary>
+    /// Redeems the result the upstream callback left for this browser. The application's access
+    /// policy and MFA gate run here, so the answer is a session, a pending second factor or an error.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.FederationComplete)]
+    [HttpPost("federation/complete")]
+    public async Task<IActionResult> CompleteFederation([FromBody] FederationResultRequest request, CancellationToken ct)
+    {
+        var result = await _federation.RedeemResultAsync(request.Handle, FederationCaller(BrowserBinding.Read(HttpContext)), ct);
+        return await CompleteInteractiveStepAsync(result);
+    }
+
+    private FederationCaller FederationCaller(string? browserBinding) => new(
+        browserBinding,
+        string.Equals(User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal) ? SessionClaims.UserId(User) : null,
+        IpAddress(),
+        Request.Headers.UserAgent.ToString());
 
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitingExtensions.Login)]

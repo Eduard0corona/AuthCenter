@@ -10,6 +10,11 @@ namespace AuthCenter.Client;
 /// </summary>
 internal static partial class AuthCenterChallengeParameters
 {
+    /// <summary>Federation provider (its ID) AuthCenter's hosted login sends the user to.</summary>
+    public const string IdentityProviderParameter = "idp";
+
+    /// <summary>Email domain AuthCenter uses to find the user's organization (home realm discovery).</summary>
+    public const string DomainHintParameter = "domain_hint";
     private const int MaxLoginHintLength = 256;
     private static readonly string[] PromptValues = ["none", "login", "consent", "select_account"];
 
@@ -42,6 +47,15 @@ internal static partial class AuthCenterChallengeParameters
         return values.Length == 0 || values.Any(item => !AcrValuePattern().IsMatch(item)) ? null : string.Join(' ', values);
     }
 
+    public static string? IdentityProvider(string? value) =>
+        Guid.TryParse(value?.Trim(), out var provider) && provider != Guid.Empty ? provider.ToString() : null;
+
+    public static string? DomainHint(string? value)
+    {
+        var domain = value?.Trim().TrimStart('@').ToLowerInvariant();
+        return domain is { Length: > 0 and <= 253 } && DomainPattern().IsMatch(domain) ? domain : null;
+    }
+
     public static string? ForwardedError(string? value) =>
         value is not null && ForwardedErrors.Contains(value) ? value : null;
 
@@ -53,4 +67,7 @@ internal static partial class AuthCenterChallengeParameters
 
     [GeneratedRegex("^[A-Za-z0-9:._/-]{1,128}$", RegexOptions.CultureInvariant)]
     private static partial Regex AcrValuePattern();
+
+    [GeneratedRegex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", RegexOptions.CultureInvariant)]
+    private static partial Regex DomainPattern();
 }

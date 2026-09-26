@@ -141,6 +141,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/users/user-1", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userDetail }) }));
   await page.route("**/api/users/user-1/profile", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: userProfile }) }));
   await page.route("**/api/profile-schema", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: profileSchema }) }));
+  await page.route("**/api/federation/service-provider", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { oidcCallbackUrl: "https://authcenter.example.test/api/federation/oidc/callback", samlEntityId: "https://authcenter.example.test/saml", samlAssertionConsumerServiceUrl: "https://authcenter.example.test/api/federation/saml/acs" } }) }));
   await page.route("**/api/oauth/clients?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [oauthClient], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
   await page.route(`**/api/oauth/clients/${oauthClient.clientId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: oauthClient }) }));
 });
@@ -838,11 +839,52 @@ test("creates an OIDC federation provider with step-up and never echoes the secr
   expect(createPayload).toEqual({
     applicationSystemId: applicationId, name: oidcProvider.name, protocol: "Oidc", issuer: oidcProvider.issuer, discoveryEndpoint: null, clientId: "authcenter",
     oidcCallbackUrl: oidcProvider.oidcCallbackUrl, clientSecret: "upstream-secret", samlSingleSignOnUrl: null, samlSigningCertificatePem: null,
-    jitProvisioningEnabled: true, accountLinkingMode: "VerifiedEmail", isActive: true, version: 0
+    jitProvisioningEnabled: true, accountLinkingMode: "VerifiedEmail", requireVerifiedEmail: true, trustUpstreamMfa: false, groupsClaim: null, groupMappings: [],
+    isActive: true, version: 0
   });
   await expect(page.getByText("Secret configurado")).toBeVisible();
   await expect(page.getByLabel("Nuevo client secret")).toHaveValue("");
   await expect(page.getByText("upstream-secret")).toHaveCount(0);
+});
+
+test("maps IdP groups, trusts its MFA and tests the provider connection", async ({ page }) => {
+  let updatePayload: Record<string, unknown> | null = null;
+  await mockStepUp(page, () => undefined);
+  await page.route("**/api/federation/providers", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider, samlProvider] }) }));
+  await page.route(`**/api/federation/providers/${oidcProviderId}`, async (route) => {
+    updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...oidcProvider, trustUpstreamMfa: true, groupsClaim: "groups", groupMappings: [{ upstreamValue: "eng", directoryGroupId: groupId, directoryGroupName: group.name }], version: 2 } }) });
+  });
+  await page.route(`**/api/federation/providers/${oidcProviderId}/test`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: {
+    providerId: oidcProviderId, protocol: "Oidc", succeeded: false, checks: [
+      { name: "oidc.discovery", status: "Pass", detail: "Discovery document read." },
+      { name: "oidc.issuer", status: "Fail", detail: "The discovery document declares another issuer." },
+      { name: "oidc.pkce", status: "Warning", detail: "PKCE S256 is not advertised." }
+    ] } }) }));
+
+  await page.goto(`/admin-v2/federation/providers/${oidcProviderId}`);
+  await expect(page.getByLabel("Callback URL")).toHaveAttribute("placeholder", "https://authcenter.example.test/api/federation/oidc/callback");
+  await expect(page.getByLabel(/Exigir email_verified/)).toBeChecked();
+  await page.getByLabel(/Confiar en el MFA del IdP/).check();
+  await page.getByRole("button", { name: "Agregar mapeo de grupo" }).click();
+  await page.getByLabel("Valor del IdP 1").fill("eng");
+  await page.getByLabel("Grupo 1").selectOption(groupId);
+  await page.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByText("Indica el claim o atributo de grupos antes de mapear sus valores.")).toBeVisible();
+  await page.getByLabel("Claim o atributo de grupos").fill("groups");
+  await page.getByRole("button", { name: "Verificar y guardar" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y guardar" }).click();
+  await expect(page.getByRole("status")).toContainText("versión 2");
+  expect(updatePayload).toMatchObject({ trustUpstreamMfa: true, requireVerifiedEmail: true, groupsClaim: "groups", groupMappings: [{ upstreamValue: "eng", directoryGroupId: groupId }], version: 1 });
+
+  await page.getByRole("button", { name: "Probar conexión" }).click();
+  const results = page.getByRole("list", { name: "Resultado de la prueba de conexión" });
+  await expect(results).toContainText("Documento de discovery");
+  await expect(results.getByRole("listitem").filter({ hasText: "Issuer" })).toContainText("Error");
+  await expect(results.getByRole("listitem").filter({ hasText: "PKCE S256" })).toContainText("Advertencia");
+  await expect(page.getByText("Con errores")).toBeVisible();
 });
 
 test("updates a SAML provider without re-sending the stored certificate", async ({ page }) => {
@@ -858,6 +900,7 @@ test("updates a SAML provider without re-sending the stored certificate", async 
   await expect(page.getByRole("heading", { name: "SAML 2.0" })).toBeVisible();
   await expect(page.getByText(`SHA-1 ${samlProvider.samlSigningCertificateThumbprint}`)).toBeVisible();
   await expect(page.getByLabel("Metadata del SP")).toHaveValue(new RegExp(`/api/federation/saml/${samlProviderId}/metadata$`));
+  await expect(page.getByLabel("ACS de AuthCenter")).toHaveValue("https://authcenter.example.test/api/federation/saml/acs");
   await expect(page.getByLabel("Nuevo certificado de firma (PEM)")).toHaveValue("");
   await page.getByLabel("URL de Single Sign-On").fill("https://idp.example.test/sso2");
   await page.getByRole("button", { name: "Verificar y guardar" }).click();

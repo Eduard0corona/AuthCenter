@@ -654,6 +654,41 @@ public class AuthService : IAuthService
         return OperationResult<AuthResponse>.Failure("MFA_REQUIRED", pendingToken);
     }
 
+    public async Task<OperationResult<AuthResponse>> CompleteFederatedSignInAsync(
+        Guid userId,
+        string applicationCode,
+        AuthenticationContext authentication,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken ct = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
+            return OperationResult<AuthResponse>.Failure("USER_INACTIVE", "Your account is inactive.");
+
+        var appSystem = await _applicationService.GetByCodeWithSettingsAsync(applicationCode, ct);
+        if (appSystem is null || !appSystem.IsActive)
+            return OperationResult<AuthResponse>.Failure("APP_NOT_FOUND", "Application not found or inactive.");
+
+        if (!await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct))
+        {
+            await _auditService.LogAsync("LOGIN_FAILED", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { reason = "NoAccess", method = "federated" }, ct);
+            return OperationResult<AuthResponse>.Failure("ACCESS_DENIED", "You do not have access to this application.");
+        }
+
+        var primaryMethod = authentication.Methods.FirstOrDefault() ?? DomainConstants.AuthenticationMethods.Federated;
+        var gate = await RequireMfaIfNeededAsync(user.Id, appSystem, null, ipAddress, userAgent, ct, primaryMethod, authentication.Assurance);
+        if (gate is not null)
+            return gate;
+
+        user.LastLoginAt = _dateTimeProvider.UtcNow;
+        user.UpdatedAt = _dateTimeProvider.UtcNow;
+        await _userManager.UpdateAsync(user);
+
+        await _auditService.LogAsync("LOGIN_SUCCESS", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { method = "federated", amr = authentication.MethodsValue }, ct);
+        return await BuildAuthResponseAsync(user, appSystem.Id, appSystem.Code, ipAddress, userAgent, null, authentication, ct);
+    }
+
     public async Task<OperationResult<AuthResponse>> ForcedChangePasswordAsync(ForcedChangePasswordRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
         var pending = _tokenService.ValidateForcedChangePendingToken(request.ForcedChangePendingToken);
@@ -1027,7 +1062,8 @@ public class AuthService : IAuthService
         string? ipAddress,
         string? userAgent,
         CancellationToken ct,
-        string primaryMethod = DomainConstants.AuthenticationMethods.Password)
+        string primaryMethod = DomainConstants.AuthenticationMethods.Password,
+        AuthenticationAssuranceLevel reached = AuthenticationAssuranceLevel.Password)
     {
         var signals = await _authenticationRisk.AssessAndRecordAsync(userId, ipAddress, userAgent, ct: ct);
         var policy = await _accessPolicies.EvaluateAsync(new AccessPolicyEvaluationContext(
@@ -1036,7 +1072,7 @@ public class AuthService : IAuthService
             ipAddress,
             _dateTimeProvider.UtcNow,
             signals.RiskLevel,
-            AuthenticationAssuranceLevel.Password), ct);
+            reached), ct);
         if (!policy.IsAllowed)
         {
             await _auditService.LogAsync(
@@ -1054,7 +1090,7 @@ public class AuthService : IAuthService
                 "Sign-in is denied by the application's access policy.");
         }
 
-        if (policy.RequiredAssuranceLevel == AuthenticationAssuranceLevel.PhishingResistant)
+        if (policy.RequiredAssuranceLevel == AuthenticationAssuranceLevel.PhishingResistant && reached < AuthenticationAssuranceLevel.PhishingResistant)
         {
             var user = await _userManager.FindByIdAsync(userId.ToString());
             var hasPasskey = user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0;
@@ -1079,7 +1115,8 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(m => m.UserId == userId, ct);
 
         var mfaRequired = policy.RequireMfa || appSystem.RegistrationSettings?.RequireMfa == true || mfaCredential?.IsEnabled == true;
-        if (!mfaRequired)
+        // A trusted upstream MFA (federation) already satisfies the second factor.
+        if (!mfaRequired || reached >= AuthenticationAssuranceLevel.Mfa)
             return null;
 
         if (mfaCredential?.IsEnabled != true)

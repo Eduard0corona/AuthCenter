@@ -147,6 +147,7 @@ git-ignored and its values are for local use only.
 |-----|-------------|
 | `ConnectionStrings:DefaultConnection` | SQL Server connection string |
 | `Jwt:Issuer` | JWT issuer claim |
+| `Oidc:PublicOrigin` | Public HTTPS origin of AuthCenter; outside Development it must identify the same URL as `Jwt:Issuer`. The hosted OIDC federation callback is `{PublicOrigin}/api/federation/oidc/callback` |
 | `Jwt:Audience` | JWT audience claim |
 | `Jwt:SigningKey` | HMAC-SHA256 key for internal pending MFA, forced-password-change, and magic-link tokens (min 32 chars) |
 | `Jwt:RsaPrivateKeyPem` | Active RSA private key (at least 2048 bits) in PEM format used to sign access and ID tokens with RS256 (required in every environment) |
@@ -164,12 +165,12 @@ git-ignored and its values are for local use only.
 | `AdaptiveAuth:SignalHashKey` | Key Vault secret used to HMAC minimized network/device signals |
 | `Saml:EntityId` | Stable SAML service-provider entity identifier |
 | `Saml:AssertionConsumerServiceUrl` | Exact public HTTPS SAML POST callback |
-| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata |
+| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata and to decrypt encrypted assertions |
 | `Saml:SigningCertificatePassword` | Optional Key Vault password for the PKCS#12 certificate |
 | `Cors:AllowedOrigins` | Origins of first-party frontends allowed to call `/api/*` with credentials. OAuth clients register their own browser origins (`AllowedCorsOrigins`) for the token, revocation and UserInfo endpoints; discovery and JWKS are public; the hosted UI (`/ui-api/*`, `/oauth/authorize`, pages) never answers cross-origin |
 | `RateLimiting:Enabled` | Turns rate limiting on or off (default on, except in the `Testing` environment) |
 | `RateLimiting:DistributedEnabled` | Shares the counters of every instance in SQL Server instead of memory |
-| `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client |
+| `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client; federation discovery 30/min per address and 10/min per email, federation start and completion 20/min per address |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup (default: on only in Development) |
 | `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |
@@ -251,7 +252,7 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 
 | Route | Purpose |
 |---|---|
-| `/login` | Hosted password, MFA, passkey and OAuth consent flow with application branding |
+| `/login` | Hosted password, MFA, passkey, enterprise federation and OAuth consent flow with application branding |
 | `/portal` | Self-service sessions, trusted devices, passkeys, linked identities and consent grants |
 | `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
 | `/admin-v2/` | React administrative console under progressive migration |
@@ -393,7 +394,9 @@ branding, password policy, access policies and MFA). The hosted-login cookie
 (`__Host-AuthCenter.Ui`, `SameSite=Lax`) is the single sign-on session: while it is valid,
 `/oauth/authorize` answers other clients directly without showing a page. Supported request
 parameters: `prompt` (`none`, `login`, `consent`, `select_account`), `max_age`, `login_hint`,
-`id_token_hint`, `acr_values` and `response_mode` (`query` or `form_post`); `request` and
+`idp` (a federation provider ID of the client's application: the hosted login goes straight to
+it), `domain_hint` (an email domain for home realm discovery), `id_token_hint`, `acr_values` and
+`response_mode` (`query` or `form_post`); `request` and
 `request_uri` are rejected with their standard errors. Interactions are bound to the browser that
 started them (`__Host-AuthCenter.Browser`), so a link cannot be completed from another browser.
 ID tokens carry `sid`, the real `auth_time`, `amr` (RFC 8176) and `acr`
@@ -558,13 +561,64 @@ rules; give that fallback the lowest precedence (the largest priority number).
 ### Enterprise federation
 
 `/api/federation/providers` and `/api/federation/routing-rules` configure OIDC/SAML providers per
-application. OIDC callbacks are exact registered HTTPS values and upstream client secrets are
-protected at rest. SAML publishes metadata at `/api/federation/saml/{providerId}/metadata` and the
-POST ACS is `/api/federation/saml/acs`. Keep the SAML PKCS#12 certificate and password in Key Vault.
-Administrative provider and routing mutations require a short-lived, purpose-bound, single-use
-`admin.federation.change` proof. Providers and rules expose an explicit `version`; stale updates or
-reorders return `CONCURRENCY_CONFLICT`. Routing rules can be listed by application, updated,
+application. Upstream client secrets are protected at rest. Administrative provider and routing
+mutations require a short-lived, purpose-bound, single-use `admin.federation.change` proof.
+Providers and rules expose an explicit `version`; stale updates or reorders return
+`CONCURRENCY_CONFLICT`. Routing rules can be listed by application, updated,
 activated/deactivated, reordered atomically and deleted.
+
+**Registering AuthCenter at the identity provider.** `GET /api/federation/service-provider`
+returns the values to register: the hosted OIDC callback
+`https://<authcenter-host>/api/federation/oidc/callback` (derived from `Oidc:PublicOrigin`; a
+provider saved without a callback URL uses it), and the SAML entity ID and ACS
+(`/api/federation/saml/acs`). SAML metadata, with signing and encryption keys, is published at
+`/api/federation/saml/{providerId}/metadata`. Keep the SAML PKCS#12 certificate and password in Key
+Vault. `POST /api/federation/providers/{id}/test` checks a saved provider without changing it:
+OIDC discovery, issuer, HTTPS endpoints, signing keys, PKCE and the callback; SAML certificates
+(validity, key size), SSO URL and AuthCenter's own certificate.
+
+**Sign-in through the hosted login.** The hosted login offers federation to the application of
+the authorization request (or of a direct sign-in): `idp` sends the user straight to a provider,
+`domain_hint` or the email the user types selects one by home realm discovery
+(`POST /ui-api/session/federation/discover`), and `POST /ui-api/session/federation/start` returns
+the upstream URL (OIDC authorization code with PKCE, nonce and `prompt=login` when the request
+needs a fresh sign-in; SAML signed AuthnRequest with `ForceAuthn`). The upstream answers at the
+server-side OIDC callback or the ACS, which validate the response and map the identity (existing
+link, account linking by verified email, or just-in-time provisioning), but never sign the browser
+in by themselves: they leave a single-use result bound to the browser that started the sign-in
+and redirect (303) to `/login`, which redeems it with `POST /ui-api/session/federation/complete`.
+Only then does the application's access policy and MFA gate run, exactly as after a password: the
+user may be asked for a second factor, or denied. A callback delivered to another browser (login
+CSRF) signs nobody in. Access an administrator revoked is never granted again by federation.
+
+**Discovery and directory data.** Anonymous home realm discovery only uses email-domain
+conditions. Rules with group or profile-attribute conditions are evaluated only for the user the
+browser is already signed in as, so the login page cannot be used to probe directory membership.
+`POST /api/federation/route` (the administrative simulation that evaluates every condition) now
+requires `AUTHCENTER_APPLICATIONS_READ`.
+
+**Interoperability.** OIDC issuers are compared ignoring a trailing slash; ID tokens must be
+signed with RSA/ECDSA algorithms; `client_secret_basic` is used when the provider only supports
+it. `RequireVerifiedEmail` (default on) requires `email_verified=true` before an email links or
+creates an account; with it off, only emails of the provider's routing-rule domains are trusted.
+SAML entity IDs may be any absolute URI (https, http or urn). The Response, the assertion or both
+may be signed (RSA with SHA-256 or stronger; every signature present must verify) and assertions
+may be encrypted to AuthCenter's certificate (RSA-OAEP with AES-CBC or AES-GCM; RSA 1.5 is
+refused). Responses and assertions are single-use.
+
+**MFA and groups from the provider.** With `TrustUpstreamMfa`, an upstream multi-factor sign-in
+(OIDC `amr` containing `mfa`; SAML authentication context such as
+`http://schemas.microsoft.com/claims/multipleauthn` or the REFEDS MFA profile) counts as
+AuthCenter MFA (`amr` `fed mfa`, `acr` `urn:authcenter:acr:mfa`); otherwise a user who must use MFA
+completes AuthCenter's own second factor. `GroupsClaim` names the upstream claim or attribute with
+group values and `GroupMappings` map values to directory groups: the provider is authoritative for
+its mapped groups, so each sign-in adds and removes those memberships (other groups are untouched)
+and a change closes the user's existing sessions. When Entra ID moves the groups out of the token
+(overage), memberships are left as they are.
+
+The JSON API (`/api/federation/oidc/begin|complete`, `/api/federation/saml/begin`) remains for
+integrations that host their own callback; it runs the same access policy and MFA gate and answers
+`mfaPendingToken` when a second factor is needed.
 
 ### SCIM and lifecycle automation
 

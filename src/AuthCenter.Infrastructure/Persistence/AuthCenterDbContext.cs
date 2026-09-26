@@ -40,6 +40,7 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<AuthenticationObservation> AuthenticationObservations => Set<AuthenticationObservation>();
     public DbSet<FederationProvider> FederationProviders => Set<FederationProvider>();
     public DbSet<FederationRoutingRule> FederationRoutingRules => Set<FederationRoutingRule>();
+    public DbSet<FederationGroupMapping> FederationGroupMappings => Set<FederationGroupMapping>();
     public DbSet<ProvisioningToken> ProvisioningTokens => Set<ProvisioningToken>();
     public DbSet<ScimResourceLink> ScimResourceLinks => Set<ScimResourceLink>();
     public DbSet<ProfileMapping> ProfileMappings => Set<ProfileMapping>();

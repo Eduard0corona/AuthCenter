@@ -29,6 +29,9 @@ public static class RateLimitingExtensions
     public const string SendMfaEmailOtp = "auth-send-mfa-email-otp";
     public const string MfaEmailOtpEnable = "auth-mfa-email-otp-enable";
     public const string OAuthToken = "oauth-token";
+    public const string FederationDiscover = "federation-discover";
+    public const string FederationStart = "federation-start";
+    public const string FederationComplete = "federation-complete";
 
     private static RateLimitRule PerIp(int permits, TimeSpan window) => new(RateLimitDimension.Ip, permits, window);
     private static RateLimitRule PerAccount(int permits, TimeSpan window) => new(RateLimitDimension.Account, permits, window);
@@ -58,6 +61,10 @@ public static class RateLimitingExtensions
             [MagicLinkVerify] = [PerIp(10, TimeSpan.FromMinutes(1))],
             [SendMfaEmailOtp] = [PerIp(3, TimeSpan.FromMinutes(5))],
             [MfaEmailOtpEnable] = [PerIp(5, TimeSpan.FromMinutes(1))],
+            // Home realm discovery answers per email; the account budget limits probing one address.
+            [FederationDiscover] = [PerIp(30, TimeSpan.FromMinutes(1)), PerAccount(10, TimeSpan.FromMinutes(1))],
+            [FederationStart] = [PerIp(20, TimeSpan.FromMinutes(1))],
+            [FederationComplete] = [PerIp(20, TimeSpan.FromMinutes(1))],
             // Server-side clients call from one address for all their users, so the token endpoints
             // count per client; only requests that name no client fall back to the address.
             [OAuthToken] =

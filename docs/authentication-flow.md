@@ -197,6 +197,42 @@ They are JWTs with `typ: logout+jwt`, `iss`, `aud` (client ID), `iat`, `exp` (2 
 nonce. Clients must validate them like ID tokens, reject replays by `jti` and end every local
 session created from that `sid`. AuthCenter.Client does this at `/auth/backchannel-logout`.
 
+## Enterprise federation from the hosted login
+
+```
+Client -> GET /oauth/authorize?...&idp=<provider id>        (or &domain_hint=contoso.com)
+AuthCenter -> 302 /login?interaction_id=...
+Hosted login:
+  GET  /oauth/interactions/{id}/context        -> identityProvider / domainHint / federationAvailable
+  POST /ui-api/session/federation/discover     -> { federated, provider }   (domain_hint or typed email)
+  POST /ui-api/session/federation/start        -> { redirectUrl }           (bound to this browser)
+Browser -> upstream IdP (OIDC code + PKCE + nonce, or signed SAML AuthnRequest)
+IdP -> GET  /api/federation/oidc/callback?code&state      (OIDC)
+    -> POST /api/federation/saml/acs  SAMLResponse+RelayState (SAML, HTTP-POST binding)
+AuthCenter validates the upstream response, links or provisions the user, syncs mapped groups,
+stores a single-use result for the starting browser and answers 303 /login?...&federation_result=H
+Hosted login:
+  POST /ui-api/session/federation/complete {handle: H}
+     -> access policy + MFA gate of the application -> session cookie, requiresMfa, or an error
+  POST /oauth/authorize/complete -> code for the client (as after a password sign-in)
+```
+
+1. `idp` must be an active provider of the client's application; `domain_hint` must be a domain.
+   Both are optional hints; an existing single sign-on session still answers the client directly.
+2. Home realm discovery for anonymous callers only matches email-domain rules. Group and profile
+   conditions apply only when the browser is already signed in as that email's user.
+3. The callback/ACS never create a session. The result can only be redeemed once, within five
+   minutes, from the browser whose `__Host-AuthCenter.Browser` cookie started the sign-in, so an
+   attacker cannot plant their own upstream sign-in in a victim's browser.
+4. The redeemed sign-in goes through the same gate as a password: active access, the published
+   access policy, the application's `RequireMfa` and the user's MFA. With `TrustUpstreamMfa`, an
+   upstream MFA satisfies it (`amr` `fed mfa`, `acr` `urn:authcenter:acr:mfa`); otherwise the
+   hosted login asks for AuthCenter's second factor (`amr` `fed otp mfa`).
+5. Requests that need a fresh sign-in (`prompt=login`, `select_account`, `max_age`) ask the IdP to
+   authenticate again (`prompt=login` / `ForceAuthn="true"`).
+6. A direct sign-in (no authorization request) sends `applicationCode` and a local `returnUrl`;
+   any other return URL is dropped.
+
 ## OAuth client credentials
 
 This grant is only for confidential service identities and does not represent a user. Register a

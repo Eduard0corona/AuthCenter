@@ -13,7 +13,8 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context)
     {
         if (IsUnsafe(context.Request.Method) &&
-            string.Equals(context.User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal))
+            string.Equals(context.User.Identity?.AuthenticationType, AuthenticationSchemes.UiCookie, StringComparison.Ordinal) &&
+            context.GetEndpoint()?.Metadata.GetMetadata<IgnoreUiCsrfAttribute>() is null)
         {
             var cookie = context.Request.Cookies[CookieName];
             var header = context.Request.Headers[HeaderName].ToString();
@@ -55,3 +56,10 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
         return leftBytes.Length == rightBytes.Length && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 }
+
+/// <summary>
+/// Marks an endpoint that never acts with the hosted-login cookie and is protected otherwise (for
+/// example the SAML ACS, which a same-site identity provider posts with the cookie attached).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public sealed class IgnoreUiCsrfAttribute : Attribute;

@@ -1,4 +1,5 @@
 using AuthCenter.Application.Common;
+using AuthCenter.Application.Models;
 using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Enums;
@@ -21,6 +22,13 @@ public interface IAuthService
     /// (<c>MFA_SETUP_REQUIRED</c>, <c>PASSKEY_REQUIRED</c>, <c>PASSKEY_ENROLLMENT_REQUIRED</c>).
     /// </summary>
     Task<OperationResult<AuthResponse>> BeginStepUpAsync(Guid userId, string applicationCode, AuthenticationAssuranceLevel requiredAssurance, string primaryMethod, string? ipAddress, string? userAgent, CancellationToken ct = default);
+
+    /// <summary>
+    /// Finishes a sign-in whose identity an upstream provider already proved: the application's
+    /// access and policy gate still runs, and a second factor is asked for unless the upstream
+    /// authentication (a trusted upstream MFA) already reaches the required assurance.
+    /// </summary>
+    Task<OperationResult<AuthResponse>> CompleteFederatedSignInAsync(Guid userId, string applicationCode, AuthenticationContext authentication, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<OperationResult> SendMfaEmailOtpAsync(SendMfaEmailOtpRequest request, CancellationToken ct = default);
     Task<OperationResult<AuthResponse>> ForcedChangePasswordAsync(ForcedChangePasswordRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<OperationResult> SendMagicLinkAsync(MagicLinkRequest request, string? ipAddress, CancellationToken ct = default);

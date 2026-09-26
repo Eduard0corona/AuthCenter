@@ -21,11 +21,12 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### A. Componente de integración, federación y SSO
 
-- [ ] **FED-01** La federación empresarial (OIDC/SAML entrante) no está conectada al login hospedado
+- [x] **FED-01** La federación empresarial (OIDC/SAML entrante) no está conectada al login hospedado
   ni al flujo `/oauth/authorize`: `oidc/complete` y `saml/acs` devuelven tokens en JSON, no existe
   callback OIDC en servidor y el login no ofrece descubrimiento por dominio.
-- [~] **FED-02** `login_hint`, `idp` y `domain_hint` se ignoran en `/oauth/authorize`.
-  *Avance:* `login_hint` se valida, se guarda en la interacción y prellena el login; `id_token_hint` se valida contra el cliente. Pendiente (F8): `idp` y `domain_hint` para el descubrimiento de IdP.
+  *Resuelto:* el login hospedado descubre el IdP por dominio (`POST /ui-api/session/federation/discover`) o usa `idp`/`domain_hint`, y `POST /ui-api/session/federation/start` devuelve la redirección ligada al navegador (OIDC code+PKCE+nonce con `prompt=login` si la solicitud exige autenticación fresca; SAML AuthnRequest firmado con `ForceAuthn`). Nuevo callback OIDC en servidor (`GET /api/federation/oidc/callback`, por defecto el callback de cada proveedor) y el ACS SAML responden 303 al login con un resultado de un solo uso ligado a la cookie `__Host-AuthCenter.Browser`; el login lo canjea con `POST /ui-api/session/federation/complete`, donde corren la política de acceso y el MFA de la aplicación antes de crear la sesión SSO, y la interacción OAuth continúa (consentimiento, código). Un callback entregado a otro navegador no inicia sesión (CSRF de login). Hallado y corregido durante la prueba: el ACS rechazaba con `INVALID_CSRF_TOKEN` la respuesta de un IdP del mismo sitio si el navegador ya tenía sesión (el ACS queda exento: lo protegen la firma y el RelayState de un solo uso). La API JSON sigue disponible para integraciones con callback propio. **Requisito de despliegue:** migración `AddFederationHostedLogin`, `Oidc:PublicOrigin` configurado y el callback `https://<host>/api/federation/oidc/callback` registrado en cada IdP OIDC. Pruebas: `FederationHostedLoginTests` (14, IdP OIDC y SAML simulados en proceso).
+- [x] **FED-02** `login_hint`, `idp` y `domain_hint` se ignoran en `/oauth/authorize`.
+  *Resuelto:* `login_hint` se valida, se guarda en la interacción y prellena el login; `idp` debe ser un proveedor activo de la aplicación del cliente y `domain_hint` un dominio (normalizado a minúsculas/punycode); ambos se exponen en el contexto de la interacción y el login redirige solo al IdP. SDK: `/auth/login?idp=&domain_hint=` y `BuildAuthorizationUri(identityProvider, domainHint)`. Pruebas: `AuthorizeParameters_ValidateTheProviderAndExposeTheDomainHint`, `OidcFederation_RequestedWithIdp_*`, `SdkContractTests.Bff_ForwardsWellFormedSingleSignOnParameters`.
 - [x] **SSO-01** El login hospedado autentica contra el campo "Aplicación" (por defecto
   `AUTHCENTER`); usuarios de otras aplicaciones reciben `401 ACCESS_DENIED`. `LoginUrl` no está
   documentado.
@@ -98,13 +99,15 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   *Resuelto:* filtro global `RequestValidationFilter` que ejecuta el validador de cada argumento; los códigos estables se conservan con `WithErrorCode`. Pruebas: `RequestValidationTests`.
 - [x] **SEC-02** Redirección abierta en el login hospedado (`return_url=/\evil.example`).
   *Resuelto:* `safeLocalPath` resuelve la ruta contra el origen y rechaza barras invertidas y caracteres de control. Pruebas: `tests/AuthCenter.HostedUi.Tests`.
-- [~] **SEC-03** La federación reactiva accesos revocados por un administrador.
-  *Código corregido:* sólo se concede acceso JIT si nunca hubo asignación; un registro revocado o pendiente se rechaza con `ACCESS_DENIED` y auditoría. La prueba de extremo a extremo llega con el IdP de pruebas de FED-01.
-- [ ] **SEC-04** `/api/federation/route` es anónimo y permite sondear grupos/atributos por email.
+- [x] **SEC-03** La federación reactiva accesos revocados por un administrador.
+  *Resuelto:* sólo se concede acceso JIT si nunca hubo asignación; un registro revocado o pendiente se rechaza con `ACCESS_DENIED` y auditoría. Prueba de extremo a extremo con IdP simulado: `AccessRevokedByAnAdministrator_IsNotRegrantedByFederation`.
+- [x] **SEC-04** `/api/federation/route` es anónimo y permite sondear grupos/atributos por email.
+  *Resuelto:* el descubrimiento anónimo del login sólo evalúa reglas por dominio; las condiciones de grupo o atributo sólo aplican al usuario que ya inició sesión en ese navegador. `/api/federation/route` (simulación administrativa que evalúa todo e informa la regla aplicada) exige `AUTHCENTER_APPLICATIONS_READ`; el descubrimiento tiene límite de tasa por IP y por correo. Prueba: `HomeRealmDiscovery_UsesDomainRulesForAnonymousCallers_AndDirectoryRulesOnlyForTheSignedInUser`.
 - [x] **SEC-05** Los usuarios con contraseña temporal no pueden entrar por el login hospedado.
   *Resuelto:* el login hospedado recibe `requiresPasswordChange` y completa el cambio en `POST /ui-api/session/forced-change`. Pruebas: `ForcedPasswordChangeTests`.
-- [ ] **SEC-06** Interoperabilidad con IdPs: issuer con `/` final, `email_verified` obligatorio,
+- [x] **SEC-06** Interoperabilidad con IdPs: issuer con `/` final, `email_verified` obligatorio,
   firma SAML sólo a nivel Response, entity IDs no HTTPS, aserciones cifradas.
+  *Resuelto:* issuer OIDC comparado sin importar la `/` final (se guarda tal como se escribe); `RequireVerifiedEmail` por proveedor (sin `email_verified` sólo se confía en los dominios de sus reglas); `client_secret_basic` cuando el IdP sólo lo admite; algoritmos RSA/ECDSA para ID tokens. SAML: firma de Response, de aserción o ambas (RSA SHA-256+, toda firma presente debe validar, referencias al elemento exacto con ID único), entity IDs con cualquier URI absoluta (https, http, urn), aserciones cifradas con RSA-OAEP y AES-CBC/GCM (RSA 1.5 rechazado; metadata publica la llave de cifrado), réplica bloqueada por Response y por aserción. Pruebas: `IssuerWithTrailingSlash_AndUnverifiedEmailOfARoutedDomain_AreAccepted`, `SamlFederation_WithAnEncryptedAssertionSignedAlone_*`, `SamlFederation_WithATamperedAssertion_IsRejected`.
 - [x] **SEC-07** `AllowPasswordLogin` no se aplica en el login (no hay aplicaciones sólo federadas).
   *Resuelto:* `AllowPasswordLogin=false` rechaza con `PASSWORD_LOGIN_DISABLED` antes de verificar la contraseña. Prueba: `PasswordLogin_DisabledForApplication_IsRejectedWithoutRevealingPasswordValidity`.
 - [x] **SEC-08** *(nuevo, hallado durante la remediación)* El cambio de contraseña forzado emitía
@@ -122,6 +125,14 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   `PermissionOfAnotherApplication_DoesNotOpenTheAuthCenterAdminApi`,
   `AuthCenterPermissionCodes_AreReservedForAuthCenter`.
 
+- [x] **SEC-10** *(nuevo, hallado durante la remediación)* Los inicios de sesión federados (API
+  JSON y ACS) emitían la sesión directamente, sin la política de acceso ni el MFA de la aplicación:
+  un usuario con MFA vinculado a un IdP lo evitaba.
+  *Resuelto:* toda sesión federada pasa por `IAuthService.CompleteFederatedSignInAsync` (acceso,
+  política publicada con riesgo, `RequireMfa` y MFA del usuario); la API JSON responde
+  `mfaPendingToken`. Pruebas: `FederatedUserWithMfa_CompletesTheSecondFactor_UnlessTheUpstreamMfaIsTrusted`,
+  `JsonApiFederation_RunsTheApplicationMfaGate`.
+
 ### D. Backend administrativo y Event Hooks
 
 - [x] **HOOK-01** Reenviar dos veces la misma entrega fallida no la vuelve a encolar.
@@ -133,11 +144,13 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **ADM-02** Concurrencia optimista en usuarios, aplicaciones, roles, grupos, permisos,
   clientes, políticas y esquemas.
 - [ ] **ADM-03** Idempotency keys en mutaciones reintentables.
-- [ ] **ADM-04** Prueba de conexión con el IdP.
+- [x] **ADM-04** Prueba de conexión con el IdP.
+  *Resuelto:* `POST /api/federation/providers/{id}/test` (sin cambios, auditado): OIDC discovery sin caché, issuer, endpoints HTTPS, llaves, `code`, PKCE, callback hospedado, secret y scope `email`; SAML certificado del IdP (vigencia, tamaño de llave), URL de SSO, certificado propio y entity ID/ACS; más regla por dominio. `GET /api/federation/service-provider` da los valores a registrar en el IdP. Consola: botón "Probar conexión". Pruebas: `ConnectionTest_ChecksUpstreamMetadataAndCertificates`, e2e "maps IdP groups…".
 - [ ] **ADM-05** Operadores de group rules además de `eq`.
 - [ ] **ADM-06** Permisos dedicados para hooks, federación y provisioning.
 - [ ] **ADM-07** SCIM: `/Schemas`, `/ResourceTypes`, PUT, orden, ETag y diagnóstico.
-- [ ] **ADM-08** Mapeo de claims del IdP a grupos del directorio.
+- [x] **ADM-08** Mapeo de claims del IdP a grupos del directorio.
+  *Resuelto:* `GroupsClaim` y `GroupMappings` (tabla `FederationGroupMappings`) por proveedor; en cada inicio de sesión federado se agregan y quitan las membresías de los grupos mapeados (el resto no cambia), un cambio cierra las sesiones existentes y se audita (`FEDERATION_GROUPS_SYNCED`); con overage de Entra ID (`_claim_names`/`groups.link`) no se tocan. MFA del IdP de confianza con `TrustUpstreamMfa`. Consola: editor de mapeos. Pruebas: `GroupClaims_KeepTheMappedMembershipsInSync`, e2e.
 
 ### E. Consola administrativa
 
@@ -153,7 +166,8 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **UI-08** Retiro de `/admin` (borra URLs de branding; el portal enlaza ahí).
 - [ ] **UI-09** Selectores limitados a 100, filtro de acceso pendiente, componentes faltantes,
   código muerto, permiso de Event Hooks, indicador de entorno.
-- [ ] **UI-10** Advertencia de React "uncontrolled → controlled" en reglas de enrutamiento.
+- [x] **UI-10** Advertencia de React "uncontrolled → controlled" en reglas de enrutamiento.
+  *Resuelto:* la advertencia venía del editor de proveedores (al cargar un proveedor SAML React reutilizaba el panel OIDC y un input no controlado pasaba a controlado); cada panel de protocolo tiene su propia `key`. Verificado sin advertencias en los e2e de federación.
 - [ ] **UI-11** Pantallas para recursos de API, proveedores de servicio SAML, nuevos campos de
   clientes OAuth y gobierno.
 - [x] **UI-12** *(nuevo)* E2E intermitente "creates, rotates and revokes a scoped provisioning
@@ -219,3 +233,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | F5: logout global — `end_session_endpoint` con confirmación hospedada, fin de sesión SSO en cascada (grants OAuth y back-channel logout por outbox), configuración de logout por cliente (API y consola), cierre global y receptor back-channel en el SDK; E2E intermitente corregido. | LOG-01, DISC-01, UI-12 |
 | 2026-09-26 | F6: catálogo de APIs (RFC 8707) con audiencia y permisos de la aplicación dueña, token exchange (RFC 8693), introspección (RFC 7662), SDK y samples alineados; la consola acepta scopes de API y el grant de token exchange (el editor del catálogo queda en UI-11). | TOK-02, OIDC-01, OIDC-02, DISC-01 |
 | 2026-09-26 | F7: límites de tasa por IP, cuenta y cliente OAuth con reglas configurables; CORS por endpoint con orígenes por cliente y sin CORS para la sesión hospedada. | RL-01, CORS-01 |
+| 2026-09-26 | F8: federación empresarial conectada al login hospedado y a `/oauth/authorize` (descubrimiento por dominio, `idp`/`domain_hint`, callback OIDC y ACS con resultado ligado al navegador, compuerta de política y MFA), interoperabilidad OIDC/SAML (issuer, `email_verified`, firmas de aserción, cifrado), mapeo de grupos y MFA del IdP, prueba de conexión, consola y SDK; hallazgos nuevos SEC-10 (federación sin MFA/política) y ACS con sesión existente. | FED-01, FED-02, SEC-03, SEC-04, SEC-06, SEC-10, ADM-04, ADM-08, UI-10 |

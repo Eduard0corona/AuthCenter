@@ -245,3 +245,5 @@ tbody tr:hover { background: #fcfcfd; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.check-list { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 8px; }
+.check-list li { line-height: 1.5; overflow-wrap: anywhere; }

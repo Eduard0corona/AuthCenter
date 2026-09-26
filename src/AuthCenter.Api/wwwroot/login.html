@@ -26,6 +26,7 @@
       <form id="login-form" class="stack" novalidate>
         <input id="application" name="application" type="hidden" value="AUTHCENTER">
         <label>Correo electrónico <input id="email" name="email" type="email" autocomplete="username webauthn" required></label>
+        <p id="federation-hint" class="muted" hidden>Si tu organización usa inicio de sesión único, te llevaremos a su página al continuar.</p>
         <label>Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required></label>
         <button type="submit">Continuar</button>
         <div class="divider" aria-hidden="true">o</div>

@@ -20,7 +20,8 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
 
         // The documented query parameter is return_url; returnUrl is accepted for callers that
         // relied on minimal-API name binding. Only local paths are honoured. prompt, max_age,
-        // login_hint and acr_values are forwarded to AuthCenter when they are well formed.
+        // login_hint, acr_values, idp and domain_hint are forwarded to AuthCenter when they are
+        // well formed.
         Func<HttpContext, Task> loginHandler = async context =>
         {
             var query = context.Request.Query;
@@ -34,6 +35,10 @@ public static class AuthCenterBffEndpointRouteBuilderExtensions
                 properties.SetParameter(OpenIdConnectParameterNames.LoginHint, loginHint);
             if (AuthCenterChallengeParameters.AcrValues(query["acr_values"].FirstOrDefault()) is { } acrValues)
                 properties.SetParameter(OpenIdConnectParameterNames.AcrValues, acrValues);
+            if (AuthCenterChallengeParameters.IdentityProvider(query[AuthCenterChallengeParameters.IdentityProviderParameter].FirstOrDefault()) is { } identityProvider)
+                properties.SetParameter(AuthCenterChallengeParameters.IdentityProviderParameter, identityProvider);
+            if (AuthCenterChallengeParameters.DomainHint(query[AuthCenterChallengeParameters.DomainHintParameter].FirstOrDefault()) is { } domainHint)
+                properties.SetParameter(AuthCenterChallengeParameters.DomainHintParameter, domainHint);
             await context.ChallengeAsync(AuthCenterBffDefaults.OpenIdConnectScheme, properties);
         };
         endpoints.MapGet(options.LoginPath, loginHandler).AllowAnonymous();

@@ -65,6 +65,8 @@ public class OAuthController : ControllerBase
             Prompt = Value("prompt"),
             MaxAge = Value("max_age"),
             LoginHint = Value("login_hint"),
+            IdentityProvider = Value("idp"),
+            DomainHint = Value("domain_hint"),
             IdTokenHint = Value("id_token_hint"),
             AcrValues = Value("acr_values"),
             ResponseMode = Value("response_mode"),

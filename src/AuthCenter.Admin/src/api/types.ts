@@ -357,8 +357,35 @@ export interface FederationProvider {
   samlSigningCertificateThumbprint: string | null;
   jitProvisioningEnabled: boolean;
   accountLinkingMode: AccountLinkingMode;
+  /** OIDC only: the upstream must assert email_verified (otherwise only its routed domains are trusted). */
+  requireVerifiedEmail?: boolean;
+  /** An MFA reported by the upstream satisfies AuthCenter's MFA. */
+  trustUpstreamMfa?: boolean;
+  groupsClaim?: string | null;
+  groupMappings?: FederationGroupMapping[];
   isActive: boolean;
   version: number;
+}
+
+export interface FederationGroupMapping {
+  upstreamValue: string;
+  directoryGroupId: string;
+  directoryGroupName: string | null;
+}
+
+export interface FederationServiceProvider {
+  oidcCallbackUrl: string | null;
+  samlEntityId: string | null;
+  samlAssertionConsumerServiceUrl: string | null;
+}
+
+export type FederationCheckStatus = "Pass" | "Warning" | "Fail";
+
+export interface FederationConnectionTest {
+  providerId: string;
+  protocol: FederationProtocol;
+  succeeded: boolean;
+  checks: { name: string; status: FederationCheckStatus; detail: string }[];
 }
 
 export interface FederationRoutingRule {
@@ -379,4 +406,6 @@ export interface FederationRouteResult {
   providerId: string;
   providerName: string;
   protocol: FederationProtocol;
+  matchedRuleId?: string | null;
+  matchedRulePriority?: number | null;
 }

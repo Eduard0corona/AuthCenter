@@ -43,7 +43,7 @@ El SDK publica:
 
 | Método | Ruta | Uso |
 |---|---|---|
-| GET | `/auth/login?return_url=/ruta-local` | Inicia OIDC; rechaza redirecciones externas. Acepta `prompt`, `max_age`, `login_hint` y `acr_values` |
+| GET | `/auth/login?return_url=/ruta-local` | Inicia OIDC; rechaza redirecciones externas. Acepta `prompt`, `max_age`, `login_hint`, `acr_values`, `idp` y `domain_hint` |
 | GET | `/auth/session` | Devuelve usuario autorizado y token CSRF, nunca tokens OAuth |
 | POST | `/auth/refresh` | Rota el refresh token; requiere `X-AuthCenter-CSRF` |
 | POST | `/auth/logout` | Cierre local: revoca la familia de refresh y elimina la sesión de la aplicación; requiere CSRF |
@@ -77,6 +77,13 @@ aplicación, `/auth/login` vuelve con la sesión creada sin mostrar el login. Pa
 | `prompt=login`, `max_age=N` | Exige reautenticación (o una autenticación de hace menos de `N` segundos). La sesión SSO y su `sid` se conservan. |
 | `login_hint=correo` | Prellena el correo en el login hospedado. |
 | `acr_values=urn:authcenter:acr:mfa` | Solicita el nivel de autenticación; el ID token informa `acr`, `amr`, `auth_time` y `sid`. |
+| `idp=<id del proveedor>` | Federación empresarial: el login hospedado envía al usuario directamente a ese IdP (OIDC o SAML) de la aplicación. |
+| `domain_hint=empresa.com` | El login hospedado busca el IdP de ese dominio (descubrimiento de dominio) y, si existe, redirige a él. |
+
+Tras volver del IdP, AuthCenter aplica la política de acceso y el MFA de la aplicación antes de
+emitir la sesión; el ID token informa `amr` `fed` (y `mfa` si el MFA del IdP es de confianza o el
+usuario completó el segundo factor). `AuthCenterClient.BuildAuthorizationUri` acepta los mismos
+valores con `identityProvider` y `domainHint`.
 
 El navegador debe llamar `/auth/session` con credenciales incluidas y conservar el `csrfToken`
 sólo en memoria. En cada POST anterior debe enviarlo en `X-AuthCenter-CSRF`. La cookie tiene

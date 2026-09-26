@@ -5,4 +5,6 @@ public sealed class FederationRouteResponse
     public Guid ProviderId { get; init; }
     public string ProviderName { get; init; } = string.Empty;
     public string Protocol { get; init; } = string.Empty;
+    public Guid? MatchedRuleId { get; init; }
+    public int? MatchedRulePriority { get; init; }
 }
