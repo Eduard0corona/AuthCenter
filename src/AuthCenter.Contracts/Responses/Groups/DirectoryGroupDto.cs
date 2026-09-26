@@ -12,6 +12,10 @@ public class DirectoryGroupDto
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
     public int MemberCount { get; init; }
+
+    /// <summary>Active group rules decide the members, so they cannot be added or removed by hand.</summary>
+    public bool IsRuleManaged { get; init; }
+
     public IReadOnlyList<DirectoryGroupApplicationDto> Applications { get; init; } = [];
     public IReadOnlyList<DirectoryGroupRoleDto> Roles { get; init; } = [];
 }

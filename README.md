@@ -126,10 +126,13 @@ proofs; historical token values cannot be retrieved.
 Lifecycle automation is managed at `/admin-v2/profile-mappings` and `/admin-v2/group-rules`. Profile
 mappings bind a dot-separated SCIM path (URN extensions included) to an active universal-profile
 attribute, can be validated before they are created, and expose a simulation panel that resolves the
-path against an operator-supplied SCIM document without persisting anything. Group rules evaluate an
-equality condition on a profile attribute; the expected value is converted to the attribute's JSON
-type before it is sent, and the editor shows a server-paginated preview of the active users that
-currently match. Both editors send the loaded version on update and surface a `409
+path against an operator-supplied SCIM document without persisting anything. Group rules compare a
+profile attribute with an expected value (`eq`, `ne`, `in`, `contains`, `startsWith`, `gt`, `gte`,
+`lt`, `lte`, `exists`), offering only the operators of the attribute's type; the expected value is
+converted to that type before it is sent, and the editor shows a server-paginated preview of the
+active users that currently match. A group with active rules is managed by them: a user belongs when
+any rule matches, the membership is recomputed when a rule or a profile changes, and manual member
+changes are refused with `GROUP_MANAGED_BY_RULES`. Both editors send the loaded version on update and surface a `409
 CONCURRENCY_CONFLICT` with a reload action instead of overwriting newer changes.
 
 Federation is managed at `/admin-v2/federation`, scoped to one application at a time. Operators
@@ -675,7 +678,10 @@ recover an existing raw token.
 
 Profile mappings and dynamic group rules are managed under `/api/lifecycle`. The administrative
 contract supports paginated list/detail, validation, versioned update, JSON-path simulation and a
-paginated preview of users affected by a group rule. An authoritative
+paginated preview of users affected by a group rule. Rules store their operator and the expected
+value in the attribute's canonical JSON; creating, editing, deactivating or deleting one recomputes the
+group for the whole directory, and every profile change (SCIM or administrator) recomputes the user's
+rule-managed groups. Rules read the stored profile value: a schema default does not count. An authoritative
 mapping prevents other sources from overwriting its target attribute. Group membership immediately
 feeds existing application/role assignments and invalidates stale entitlement sessions.
 

@@ -109,6 +109,21 @@ public sealed class UserProfileSchemaTests : IClassFixture<AuthCenterWebApplicat
             "PROFILE_VALUE_OUT_OF_RANGE",
             (await invalidAge.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
 
+        // A number in quotes is text, refused like any other mismatch (it used to fail with a 500).
+        var quotedAge = await admin.PutAsJsonAsync(
+            $"/api/users/{user.Id}/profile",
+            new UpdateUserProfileRequest
+            {
+                Attributes = new Dictionary<string, JsonElement?>
+                {
+                    [ageKey] = JsonSerializer.SerializeToElement("33")
+                }
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, quotedAge.StatusCode);
+        Assert.Equal(
+            "PROFILE_VALUE_TYPE_MISMATCH",
+            (await quotedAge.Content.ReadFromJsonAsync<ApiResponse<object>>())?.ErrorCode);
+
         var breakingSchemaChange = await admin.PutAsJsonAsync(
             $"/api/profile-schema/{department.Id}",
             new UpdateProfileAttributeDefinitionRequest

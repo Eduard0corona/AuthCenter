@@ -422,6 +422,18 @@ test("removes a group member with an explicit session-revocation warning", async
   expect(removedUserId).toBe("user-1");
 });
 
+test("leaves the members of a rule-managed group to its rules", async ({ page }) => {
+  await page.unroute(`**/api/groups/${groupId}`);
+  await page.route(`**/api/groups/${groupId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ...group, isRuleManaged: true } }) }));
+
+  await page.goto(`/admin-v2/groups/${groupId}`);
+  await expect(page.getByText("Grace Hopper")).toBeVisible();
+  await expect(page.getByText(/Las reglas del grupo deciden sus miembros/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver las reglas del grupo" })).toHaveAttribute("href", `/admin-v2/group-rules?groupId=${groupId}`);
+  await expect(page.getByLabel("Agregar usuario")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retirar" })).toHaveCount(0);
+});
+
 test("shows direct and inherited user access with universal profile", async ({ page }) => {
   await page.goto("/admin-v2/users/user-1");
   await expect(page.getByRole("heading", { level: 1, name: "Grace Hopper" })).toBeFocused();
@@ -795,6 +807,50 @@ test("creates a typed group rule and previews the affected members", async ({ pa
   await expect(page.getByRole("link", { name: "Ver usuario" })).toBeVisible();
   await expect(page.getByText("1 usuario", { exact: true })).toBeVisible();
   expect(previewPayload).toEqual({ page: 1, pageSize: 20 });
+});
+
+test("offers the operators of the attribute's type and sends typed lists", async ({ page }) => {
+  const groupRuleId = "fafafafa-fafa-4afa-8afa-fafafafafafa";
+  const levelDefinition = { ...profileSchema[0], id: "12121212-1212-4121-8121-121212121212", key: "level", displayName: "Nivel", dataType: "Integer", allowedValues: [], defaultValue: null };
+  const groupRule = { id: groupRuleId, directoryGroupId: groupId, groupName: group.name, profileAttributeDefinitionId: levelDefinition.id, attributeName: "level", operator: "in", expectedValue: [2, 3], isActive: true, createdAt: "2026-08-13T00:00:00Z", version: 1 };
+  let createPayload: Record<string, unknown> | null = null;
+  await page.unroute("**/api/profile-schema");
+  await page.route("**/api/profile-schema", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [...profileSchema, levelDefinition] }) }));
+  await page.route("**/api/lifecycle/group-rules", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) });
+  });
+  await page.route(`**/api/lifecycle/group-rules/${groupRuleId}/preview`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { ruleId: groupRuleId, users: { items: [], totalCount: 0, page: 1, pageSize: 20, totalPages: 0 } } }) }));
+  await page.route(`**/api/lifecycle/group-rules/${groupRuleId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) }));
+
+  await page.goto("/admin-v2/group-rules/new");
+  await page.getByLabel("Grupo").selectOption(groupId);
+  const operator = page.getByLabel("Operador");
+  await page.getByLabel("Atributo del perfil").selectOption(profileSchema[0].id);
+  await expect(operator.locator("option")).toHaveText(["Es igual a", "Es distinto de", "Es uno de", "Contiene", "Empieza por", "Tiene un valor"]);
+  await operator.selectOption("contains");
+
+  // An attribute of another type drops the operator it does not support.
+  await page.getByLabel("Atributo del perfil").selectOption(levelDefinition.id);
+  await expect(operator).toHaveValue("eq");
+  await expect(operator.locator("option")).toHaveText(["Es igual a", "Es distinto de", "Es uno de", "Mayor que", "Mayor o igual que", "Menor que", "Menor o igual que", "Tiene un valor"]);
+
+  await operator.selectOption("exists");
+  await expect(page.getByText("No hace falta: basta con que el perfil tenga el atributo con cualquier valor.")).toBeVisible();
+  await expect(page.getByLabel("Valor esperado")).toHaveCount(0);
+
+  await operator.selectOption("in");
+  await page.getByLabel("Valores esperados").fill("2\nmuchos");
+  await page.getByRole("button", { name: "Crear regla" }).click();
+  await expect(page.getByText("muchos: El atributo es entero; usa solo dígitos.")).toBeVisible();
+  expect(createPayload).toBeNull();
+
+  await page.getByLabel("Valores esperados").fill("2\n3\n3");
+  await page.getByRole("button", { name: "Crear regla" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/group-rules/${groupRuleId}$`));
+  expect(createPayload).toEqual({ directoryGroupId: groupId, profileAttributeDefinitionId: levelDefinition.id, operator: "in", expectedValue: [2, 3] });
+  await expect(page.getByRole("heading", { level: 1, name: `${group.name}: level en [2, 3]` })).toBeVisible();
+  await expect(page.getByLabel("Valores esperados")).toHaveValue("2\n3");
 });
 
 const oidcProviderId = "13131313-1313-4131-8131-131313131313";

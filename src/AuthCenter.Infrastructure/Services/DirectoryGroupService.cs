@@ -18,17 +18,20 @@ public class DirectoryGroupService : IDirectoryGroupService
     private readonly IDateTimeProvider _clock;
     private readonly ICurrentUserService _currentUser;
     private readonly IRefreshTokenService _refreshTokens;
+    private readonly DynamicGroupMembershipService _dynamicGroups;
 
     public DirectoryGroupService(
         AuthCenterDbContext db,
         IDateTimeProvider clock,
         ICurrentUserService currentUser,
-        IRefreshTokenService refreshTokens)
+        IRefreshTokenService refreshTokens,
+        DynamicGroupMembershipService dynamicGroups)
     {
         _db = db;
         _clock = clock;
         _currentUser = currentUser;
         _refreshTokens = refreshTokens;
+        _dynamicGroups = dynamicGroups;
     }
 
     public async Task<PagedResult<DirectoryGroupDto>> GetAllAsync(DirectoryGroupQuery query, CancellationToken ct = default)
@@ -50,14 +53,15 @@ public class DirectoryGroupService : IDirectoryGroupService
             .Take(query.PageSize)
             .ToListAsync(ct);
 
+        var ruleManaged = await _dynamicGroups.RuleManagedAsync(items.Select(group => group.Id).ToList(), ct);
         return PagedResult<DirectoryGroupDto>.Create(
-            items.Select(Map).ToList(), totalCount, query.Page, query.PageSize);
+            items.Select(group => Map(group, ruleManaged.Contains(group.Id))).ToList(), totalCount, query.Page, query.PageSize);
     }
 
     public async Task<DirectoryGroupDto?> GetByIdAsync(Guid groupId, CancellationToken ct = default)
     {
         var group = await BaseQuery().FirstOrDefaultAsync(candidate => candidate.Id == groupId, ct);
-        return group is null ? null : Map(group);
+        return group is null ? null : Map(group, await _dynamicGroups.IsRuleManagedAsync(group.Id, ct));
     }
 
     public async Task<PagedResult<DirectoryGroupMemberDto>?> GetMembersAsync(
@@ -119,7 +123,7 @@ public class DirectoryGroupService : IDirectoryGroupService
             return OperationResult<DirectoryGroupDto>.Failure("GROUP_EXISTS", "A group with this name already exists.");
         }
 
-        return OperationResult<DirectoryGroupDto>.Success(Map(group));
+        return OperationResult<DirectoryGroupDto>.Success(Map(group, isRuleManaged: false));
     }
 
     public async Task<OperationResult<DirectoryGroupDto>> UpdateAsync(
@@ -143,7 +147,7 @@ public class DirectoryGroupService : IDirectoryGroupService
         group.UpdatedAt = _clock.UtcNow;
         AddAudit("DIRECTORY_GROUP_UPDATED", group);
         await _db.SaveChangesAsync(ct);
-        return OperationResult<DirectoryGroupDto>.Success(Map(group));
+        return OperationResult<DirectoryGroupDto>.Success(Map(group, await _dynamicGroups.IsRuleManagedAsync(group.Id, ct)));
     }
 
     public async Task<OperationResult> ActivateAsync(Guid groupId, CancellationToken ct = default) =>
@@ -159,6 +163,8 @@ public class DirectoryGroupService : IDirectoryGroupService
             return OperationResult.Failure("GROUP_NOT_FOUND", "Group not found.");
         if (!group.IsActive)
             return OperationResult.Failure("GROUP_INACTIVE", "Members cannot be added to an inactive group.");
+        if (await _dynamicGroups.IsRuleManagedAsync(groupId, ct))
+            return RuleManaged();
         if (!await _db.Users.AnyAsync(user => user.Id == userId, ct))
             return OperationResult.Failure("USER_NOT_FOUND", "User not found.");
         if (await _db.UserGroupMemberships.AnyAsync(membership => membership.GroupId == groupId && membership.UserId == userId, ct))
@@ -183,6 +189,8 @@ public class DirectoryGroupService : IDirectoryGroupService
             .FirstOrDefaultAsync(item => item.GroupId == groupId && item.UserId == userId, ct);
         if (membership is null)
             return OperationResult.Failure("MEMBER_NOT_FOUND", "User is not a member of this group.");
+        if (await _dynamicGroups.IsRuleManagedAsync(groupId, ct))
+            return RuleManaged();
 
         await _refreshTokens.RevokeAllForUserAsync(userId, ct);
         _db.UserGroupMemberships.Remove(membership);
@@ -371,7 +379,7 @@ public class DirectoryGroupService : IDirectoryGroupService
             await transaction.CommitAsync(ct);
 
         var updated = await BaseQuery().SingleAsync(candidate => candidate.Id == group.Id, ct);
-        return OperationResult<DirectoryGroupDto>.Success(Map(updated));
+        return OperationResult<DirectoryGroupDto>.Success(Map(updated, await _dynamicGroups.IsRuleManagedAsync(updated.Id, ct)));
     }
 
     private IQueryable<DirectoryGroup> BaseQuery(bool tracking = false)
@@ -449,9 +457,13 @@ public class DirectoryGroupService : IDirectoryGroupService
         });
     }
 
-    private static DirectoryGroupDto Map(DirectoryGroup group) => new()
+    private static OperationResult RuleManaged() => OperationResult.Failure(
+        "GROUP_MANAGED_BY_RULES", "The group's members follow its rules; change the rules or the users' profiles instead.");
+
+    private static DirectoryGroupDto Map(DirectoryGroup group, bool isRuleManaged) => new()
     {
         Version = group.Version,
+        IsRuleManaged = isRuleManaged,
         Id = group.Id,
         Name = group.Name,
         Description = group.Description,

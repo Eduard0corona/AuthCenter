@@ -158,6 +158,8 @@ export interface DirectoryGroupSummary {
   createdAt: string;
   updatedAt: string | null;
   memberCount: number;
+  /** Active group rules decide the members; the API refuses manual changes (GROUP_MANAGED_BY_RULES). */
+  isRuleManaged?: boolean;
   applications: DirectoryGroupApplication[];
   roles: DirectoryGroupRole[];
 }
@@ -370,7 +372,9 @@ export interface ProfileMappingSimulation {
   errors: string[];
 }
 
-export type GroupRuleExpectedValue = string | number | boolean;
+export type GroupRuleScalar = string | number | boolean;
+/** A value of the attribute's type; a list of them for the in operator, true for exists. */
+export type GroupRuleExpectedValue = GroupRuleScalar | GroupRuleScalar[];
 
 export interface DynamicGroupRule {
   id: string;

@@ -154,6 +154,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IDirectoryGroupService, DirectoryGroupService>();
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
+        services.AddScoped<DynamicGroupMembershipService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();
