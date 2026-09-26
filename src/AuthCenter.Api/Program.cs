@@ -223,7 +223,11 @@ try
     builder.Services.AddAuthRateLimiting(distributedRateLimiting);
 
     // Controllers. Every bound request contract is validated before the action runs.
-    builder.Services.AddControllers(options => options.Filters.Add<RequestValidationFilter>());
+    builder.Services.AddControllers(options =>
+    {
+        options.Filters.Add<RequestValidationFilter>();
+        options.Filters.Add<ConcurrencyConflictResultFilter>();
+    });
 
     // CORS: the policy is chosen per endpoint (AuthCenterCorsPolicyProvider).
     builder.Services.AddCors();

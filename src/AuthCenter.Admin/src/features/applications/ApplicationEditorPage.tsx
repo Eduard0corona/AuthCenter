@@ -11,6 +11,7 @@ import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { HistoryLink } from "../../components/HistoryLink";
+import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -114,7 +115,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         actions={<>{create ? null : <HistoryLink entityName="ApplicationSystem" entityId={current?.id} />}<Link className="button button--secondary" to="/applications">Volver al listado</Link></>}
       />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-      {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
+      <SaveError error={save.error} onReload={() => { save.reset(); void application.refetch().then((fresh) => { if (fresh.data) form.reset(applicationDefaults(fresh.data)); }); }} />
       <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
         <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="application-identity">

@@ -1,9 +1,12 @@
+using AuthCenter.Domain.Common;
 using AuthCenter.Domain.Enums;
 
 namespace AuthCenter.Domain.Entities;
 
-public class OAuthClient
+public class OAuthClient : IVersionedEntity
 {
+    public long Version { get; set; }
+
     public Guid Id { get; set; }
     public Guid ApplicationSystemId { get; set; }
     public string ClientId { get; set; } = string.Empty;

@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Permissions;
@@ -45,6 +46,7 @@ public class PermissionsController : ControllerBase
         return Ok(ApiResponse<object>.Ok(result));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.PermissionsWrite)]
     public async Task<IActionResult> Create([FromBody] CreatePermissionRequest request, CancellationToken ct)

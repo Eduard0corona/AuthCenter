@@ -145,6 +145,8 @@ public sealed class UserProfileService : IUserProfileService
                     "PROFILE_EXISTING_VALUES_INVALID",
                     "The schema change would invalidate existing profile values. Update those profiles before changing the definition.");
         }
+        if (!definition.TryAdvance(request.Version))
+            return Failure(VersionedUpdates.ConflictCode, "The attribute definition changed after it was loaded.");
 
         definition.DisplayName = request.DisplayName.Trim();
         definition.Description = NormalizeOptional(request.Description);
@@ -501,6 +503,7 @@ public sealed class UserProfileService : IUserProfileService
 
     private static ProfileAttributeDefinitionDto MapDefinition(UserProfileAttributeDefinition definition) => new()
     {
+        Version = definition.Version,
         Id = definition.Id,
         Key = definition.Key,
         DisplayName = definition.DisplayName,

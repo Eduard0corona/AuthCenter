@@ -61,7 +61,7 @@ export default function AccessPolicyEditorPage() {
     onSuccess: async (created) => { await queryClient.invalidateQueries({ queryKey: ["access-policy-versions", applicationId] }); setParams({ version: created.id }); setFeedback(`Se creó el draft v${created.versionNumber}.`); }
   });
   const saveRule = useMutation({
-    mutationFn: ({ values, rule }: { values: PolicyRuleFormValues; rule: AccessPolicyRule | undefined }) => apiRequest<AccessPolicyRule>(rule ? `/api/access-policies/${rule.id}` : "/api/access-policies", { method: rule ? "PUT" : "POST", body: JSON.stringify(policyRulePayload(values, applicationId, selectedVersionId, !rule)) }),
+    mutationFn: ({ values, rule }: { values: PolicyRuleFormValues; rule: AccessPolicyRule | undefined }) => apiRequest<AccessPolicyRule>(rule ? `/api/access-policies/${rule.id}` : "/api/access-policies", { method: rule ? "PUT" : "POST", body: JSON.stringify(rule ? { ...policyRulePayload(values, applicationId, selectedVersionId, false), version: rule.version } : policyRulePayload(values, applicationId, selectedVersionId, true)) }),
     onSuccess: async () => { setEditor(null); setFeedback("La regla del draft quedó guardada."); await Promise.all([queryClient.invalidateQueries({ queryKey: ["access-policy-rules", applicationId, selectedVersionId] }), queryClient.invalidateQueries({ queryKey: ["access-policy-versions", applicationId] })]); }
   });
   const removeRule = useMutation({

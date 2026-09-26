@@ -2,6 +2,9 @@ namespace AuthCenter.Contracts.Responses.Applications;
 
 public class ApplicationDto
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public string Code { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;

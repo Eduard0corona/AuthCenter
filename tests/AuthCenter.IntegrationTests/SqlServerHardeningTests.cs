@@ -197,6 +197,37 @@ public sealed class SqlServerHardeningTests
     }
 
     [RelationalFact]
+    public async Task VersionedRecords_RefuseTheSecondOfTwoConcurrentSaves()
+    {
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        await using (var migrationDb = new AuthCenterDbContext(options))
+            await migrationDb.Database.MigrateAsync();
+        try
+        {
+            await using var first = new AuthCenterDbContext(options);
+            await using var second = new AuthCenterDbContext(options);
+            var fromFirst = await first.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER");
+            var fromSecond = await second.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER");
+
+            fromFirst.Description = "Saved first";
+            await first.SaveChangesAsync();
+            fromSecond.Description = "Saved second";
+
+            // Any change advances the version, and the version is checked by the UPDATE itself.
+            Assert.Equal(fromSecond.Version + 1, fromFirst.Version);
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+            await using var verify = new AuthCenterDbContext(options);
+            Assert.Equal("Saved first", (await verify.ApplicationSystems.SingleAsync(application => application.Code == "AUTHCENTER")).Description);
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [RelationalFact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {
         var connectionString = BuildIsolatedConnectionString();

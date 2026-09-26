@@ -91,6 +91,8 @@ public class PermissionService : IPermissionService
     {
         var permission = await _db.Permissions.FindAsync([id], ct)
             ?? throw new NotFoundException(nameof(Permission), id);
+        if (!permission.TryAdvance(request.Version))
+            return OperationResult<PermissionDto>.Failure(VersionedUpdates.ConflictCode, "The permission changed after it was loaded.");
 
         permission.Name = request.Name;
         permission.Description = request.Description;
@@ -124,6 +126,7 @@ public class PermissionService : IPermissionService
 
     private static PermissionDto MapToDto(Permission p) => new()
     {
+        Version = p.Version,
         Id = p.Id,
         ApplicationSystemId = p.ApplicationSystemId,
         Code = p.Code,

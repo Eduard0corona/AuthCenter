@@ -10,6 +10,9 @@ public class ApiScopeResponse
 
 public class ApiResourceResponse
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public Guid ApplicationSystemId { get; init; }
     public string ApplicationCode { get; init; } = string.Empty;

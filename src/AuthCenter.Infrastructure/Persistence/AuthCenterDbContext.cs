@@ -1,3 +1,4 @@
+using AuthCenter.Domain.Common;
 using System.Text.Json;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Domain.Events;
@@ -59,11 +60,17 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
         // passkey enablement must not truncate unrelated existing identity data.
         builder.Entity<ApplicationUser>().Property(user => user.PhoneNumber).HasColumnType("nvarchar(max)");
         builder.ApplyConfigurationsFromAssembly(typeof(AuthCenterDbContext).Assembly);
+
+        // Optimistic concurrency for every versioned record: an update whose row changed after it
+        // was read affects no row and fails, instead of silently overwriting the newer change.
+        foreach (var entityType in builder.Model.GetEntityTypes().Where(type => typeof(IVersionedEntity).IsAssignableFrom(type.ClrType) && type.BaseType is null))
+            builder.Entity(entityType.ClrType).Property(nameof(IVersionedEntity.Version)).IsConcurrencyToken();
         builder.Entity<ApplicationUser>().HasQueryFilter(user => user.DeletedAt == null);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        AdvanceVersions();
         AttachTraceId();
         QueueEventHookDeliveriesAsync(CancellationToken.None).GetAwaiter().GetResult();
         return base.SaveChanges(acceptAllChangesOnSuccess);
@@ -71,9 +78,28 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        AdvanceVersions();
         AttachTraceId();
         await QueueEventHookDeliveriesAsync(cancellationToken);
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// Any change to a versioned record moves it to the next version, whichever code path made it,
+    /// unless that code already advanced the version itself (after checking the caller's).
+    /// </summary>
+    private void AdvanceVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<IVersionedEntity>())
+        {
+            if (entry.State != EntityState.Modified)
+                continue;
+            // Compared by value: Update() marks every property modified, the version included.
+            var version = entry.Property(item => item.Version);
+            if (version.CurrentValue == version.OriginalValue &&
+                entry.Properties.Any(property => property.IsModified && property.Metadata.Name != nameof(IVersionedEntity.Version)))
+                entry.Entity.Version++;
+        }
     }
 
     /// <summary>

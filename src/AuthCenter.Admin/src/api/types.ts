@@ -31,6 +31,8 @@ export interface SessionResponse {
 }
 
 export interface UserSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   fullName: string;
   email: string;
@@ -65,7 +67,7 @@ export interface UserRoleAssignment { roleId: string; roleName: string; applicat
 export interface UserGroupMembership { groupId: string; groupName: string; isGroupActive: boolean; addedAt: string; }
 export interface UserProfile { userId: string; isValid: boolean; missingRequiredAttributes: string[]; attributes: UserProfileAttributeValue[]; }
 export interface UserProfileAttributeValue { key: string; value: string | number | boolean; isDefault: boolean; }
-export interface ProfileAttributeDefinition { id: string; key: string; displayName: string; description: string | null; dataType: "String" | "Integer" | "Decimal" | "Boolean" | "Date" | "DateTime"; isRequired: boolean; isActive: boolean; defaultValue: string | number | boolean | null; minLength: number | null; maxLength: number | null; minimumNumber: number | null; maximumNumber: number | null; validationPattern: string | null; allowedValues: Array<string | number | boolean>; createdAt: string; updatedAt: string | null; }
+export interface ProfileAttributeDefinition { id: string; version?: number; key: string; displayName: string; description: string | null; dataType: "String" | "Integer" | "Decimal" | "Boolean" | "Date" | "DateTime"; isRequired: boolean; isActive: boolean; defaultValue: string | number | boolean | null; minLength: number | null; maxLength: number | null; minimumNumber: number | null; maximumNumber: number | null; validationPattern: string | null; allowedValues: Array<string | number | boolean>; createdAt: string; updatedAt: string | null; }
 
 export interface ApplicationBranding {
   applicationCode: string;
@@ -95,6 +97,8 @@ export interface ApplicationRegistrationSettings {
 }
 
 export interface ApplicationSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   code: string;
   name: string;
@@ -107,6 +111,8 @@ export interface ApplicationSummary {
 }
 
 export interface RoleSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   name: string;
   description: string | null;
@@ -118,6 +124,8 @@ export interface RoleSummary {
 }
 
 export interface PermissionSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   applicationSystemId: string;
   code: string;
@@ -141,6 +149,8 @@ export interface DirectoryGroupRole {
 }
 
 export interface DirectoryGroupSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   name: string;
   description: string | null;
@@ -225,6 +235,8 @@ export interface EventHookSecret {
 }
 
 export interface OAuthClientSummary {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   applicationSystemId: string;
   applicationCode: string;
@@ -290,6 +302,8 @@ export interface AccessPolicyVersion {
 }
 
 export interface AccessPolicyRule {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   applicationSystemId: string;
   policyVersionId: string;
@@ -490,6 +504,8 @@ export interface ApiScope {
 }
 
 export interface ApiResource {
+  /** Sent back on update; a newer version on the server answers 409. */
+  version?: number;
   id: string;
   applicationSystemId: string;
   applicationCode: string;

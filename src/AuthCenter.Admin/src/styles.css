@@ -267,6 +267,9 @@ a.metric-card:hover { border-color: var(--blue-700); background: var(--white); }
 .user-picker__option span { color: var(--slate-600); font-size: .78rem; }
 .user-picker__option--active, .user-picker__option:hover { background: var(--blue-100); }
 
+.save-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.save-error p { margin: 0; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1100px) {

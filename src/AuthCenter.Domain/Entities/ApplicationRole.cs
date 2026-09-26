@@ -1,9 +1,12 @@
+using AuthCenter.Domain.Common;
 using Microsoft.AspNetCore.Identity;
 
 namespace AuthCenter.Domain.Entities;
 
-public class ApplicationRole : IdentityRole<Guid>
+public class ApplicationRole : IdentityRole<Guid>, IVersionedEntity
 {
+    public long Version { get; set; }
+
     public string DisplayName { get; set; } = string.Empty;
     public string? Description { get; set; }
     public Guid? ApplicationSystemId { get; set; }

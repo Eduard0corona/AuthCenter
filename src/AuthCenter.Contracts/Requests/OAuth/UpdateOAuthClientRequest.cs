@@ -2,6 +2,9 @@ namespace AuthCenter.Contracts.Requests.OAuth;
 
 public class UpdateOAuthClientRequest
 {
+    /// <summary>The version the caller loaded; when sent, a record changed since then is not overwritten (409).</summary>
+    public long? Version { get; init; }
+
     public string DisplayName { get; init; } = string.Empty;
     public IList<string> RedirectUris { get; init; } = [];
     public IList<string> AllowedScopes { get; init; } = [];

@@ -134,6 +134,8 @@ public class DirectoryGroupService : IDirectoryGroupService
         var normalizedName = Normalize(request.Name);
         if (await _db.DirectoryGroups.AnyAsync(candidate => candidate.Id != groupId && candidate.NormalizedName == normalizedName, ct))
             return OperationResult<DirectoryGroupDto>.Failure("GROUP_EXISTS", "A group with this name already exists.");
+        if (!group.TryAdvance(request.Version))
+            return OperationResult<DirectoryGroupDto>.Failure(VersionedUpdates.ConflictCode, "The group changed after it was loaded.");
 
         group.Name = request.Name.Trim();
         group.NormalizedName = normalizedName;
@@ -449,6 +451,7 @@ public class DirectoryGroupService : IDirectoryGroupService
 
     private static DirectoryGroupDto Map(DirectoryGroup group) => new()
     {
+        Version = group.Version,
         Id = group.Id,
         Name = group.Name,
         Description = group.Description,

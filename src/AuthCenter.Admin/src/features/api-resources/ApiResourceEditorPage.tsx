@@ -12,6 +12,7 @@ import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Field } from "../../components/Field";
 import { HistoryLink } from "../../components/HistoryLink";
+import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -52,7 +53,7 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
   const save = useMutation({
     mutationFn: (values: ApiResourceFormValues) => create
       ? apiRequest<ApiResource>("/api/api-resources", { method: "POST", body: JSON.stringify(createApiResourcePayload(values)) })
-      : apiRequest<ApiResource>(`/api/api-resources/${resourceId}`, { method: "PUT", body: JSON.stringify(updateApiResourcePayload(values)) }),
+      : apiRequest<ApiResource>(`/api/api-resources/${resourceId}`, { method: "PUT", body: JSON.stringify({ ...updateApiResourcePayload(values), version: current?.version }) }),
     onSuccess: async (saved) => {
       setPending(null);
       await queryClient.invalidateQueries({ queryKey: ["api-resources"] });
@@ -84,7 +85,7 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
       actions={<>{create ? null : <HistoryLink entityName="ApiResource" entityId={resourceId} />}<Link className="button button--secondary" to="/api-resources">Volver al listado</Link></>}
     />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error, RESOURCE_ERRORS)}</p> : null}
+    <SaveError error={save.error} messages={RESOURCE_ERRORS} onReload={() => { save.reset(); void resource.refetch().then((fresh) => { if (fresh.data) reset(apiResourceDefaults(fresh.data)); }); }} />
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit(submit)(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="api-identity">

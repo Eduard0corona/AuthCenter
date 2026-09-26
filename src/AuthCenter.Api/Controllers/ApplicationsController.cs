@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Applications;
 using AuthCenter.Contracts.Requests.Common;
@@ -58,6 +59,7 @@ public class ApplicationsController : ControllerBase
         return Ok(ApiResponse<object>.Ok(app));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
     public async Task<IActionResult> Create([FromBody] CreateApplicationRequest request, CancellationToken ct)

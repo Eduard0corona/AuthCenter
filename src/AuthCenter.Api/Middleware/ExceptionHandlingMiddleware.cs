@@ -58,6 +58,13 @@ public class ExceptionHandlingMiddleware
                 nfe.Message,
                 (IList<string>)[]),
 
+            // Two saves raced on a versioned record: the second one did not overwrite the first.
+            Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException => (
+                HttpStatusCode.Conflict,
+                "CONCURRENCY_CONFLICT",
+                "The resource changed after it was loaded. Reload it and try again.",
+                (IList<string>)[]),
+
             ConflictException ce => (
                 HttpStatusCode.Conflict,
                 "CONFLICT",

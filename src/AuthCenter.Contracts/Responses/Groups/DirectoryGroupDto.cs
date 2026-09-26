@@ -2,6 +2,9 @@ namespace AuthCenter.Contracts.Responses.Groups;
 
 public class DirectoryGroupDto
 {
+    /// <summary>Send it back when updating: an update of an older version is rejected with 409.</summary>
+    public long Version { get; init; }
+
     public Guid Id { get; init; }
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }

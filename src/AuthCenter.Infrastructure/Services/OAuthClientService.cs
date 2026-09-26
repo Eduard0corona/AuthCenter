@@ -156,6 +156,8 @@ public class OAuthClientService : IOAuthClientService
             return OperationResult<OAuthClientResponse>.Failure("INVALID_GRANT_CONFIGURATION", "Public clients cannot use token exchange.");
         if (await UnknownApiScopesAsync(request.AllowedScopes, ct) is { } unknown)
             return OperationResult<OAuthClientResponse>.Failure("UNKNOWN_SCOPE", unknown);
+        if (!client.TryAdvance(request.Version))
+            return OperationResult<OAuthClientResponse>.Failure(VersionedUpdates.ConflictCode, "The OAuth client changed after it was loaded.");
 
         var statusChanged = client.IsActive != request.IsActive;
         client.DisplayName = request.DisplayName;
@@ -220,6 +222,7 @@ public class OAuthClientService : IOAuthClientService
 
     internal static OAuthClientResponse MapToResponse(OAuthClient client) => new()
     {
+        Version = client.Version,
         Id = client.Id,
         ApplicationSystemId = client.ApplicationSystemId,
         ApplicationCode = client.ApplicationSystem.Code,

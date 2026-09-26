@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Common;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Groups;
@@ -49,6 +50,7 @@ public class GroupsController : ControllerBase
             : Ok(ApiResponse<object>.Ok(members));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.GroupsWrite)]
     public async Task<IActionResult> Create([FromBody] CreateDirectoryGroupRequest request, CancellationToken ct)

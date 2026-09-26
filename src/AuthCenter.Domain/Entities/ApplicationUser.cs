@@ -4,6 +4,9 @@ namespace AuthCenter.Domain.Entities;
 
 public class ApplicationUser : IdentityUser<Guid>
 {
+    /// <summary>Version of the administrable identity fields (name, picture), for optimistic concurrency.</summary>
+    public long Version { get; set; }
+
     public string FullName { get; set; } = string.Empty;
     public string? PictureUrl { get; set; }
     public bool IsExternalUser { get; set; }

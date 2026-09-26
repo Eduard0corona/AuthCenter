@@ -51,7 +51,7 @@ export function applicationDefaults(application?: ApplicationSummary): Applicati
 
 export function applicationPayload(values: ApplicationFormValues, application?: ApplicationSummary) {
   return {
-    ...(application ? {} : { code: values.code.trim().toUpperCase() }),
+    ...(application ? { version: application.version } : { code: values.code.trim().toUpperCase() }),
     name: values.name.trim(),
     description: values.description.trim() || null,
     registrationMode: values.registrationMode,

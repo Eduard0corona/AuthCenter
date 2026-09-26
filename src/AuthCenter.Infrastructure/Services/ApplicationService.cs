@@ -218,6 +218,10 @@ public class ApplicationService : IApplicationService
                     role.IsActive, ct))
             return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_INVALID", "Default role must be active and belong to this application.");
 
+        // The registration settings live in their own row: the application's version covers both.
+        if (!app.TryAdvance(request.Version))
+            return OperationResult<ApplicationDto>.Failure(VersionedUpdates.ConflictCode, "The application changed after it was loaded.");
+
         app.Name = request.Name;
         app.Description = request.Description;
         app.UpdatedAt = _dateTimeProvider.UtcNow;
@@ -292,6 +296,7 @@ public class ApplicationService : IApplicationService
 
     private static ApplicationDto MapToDto(ApplicationSystem app) => new()
     {
+        Version = app.Version,
         Id = app.Id,
         Code = app.Code,
         Name = app.Name,

@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.Common;
 using AuthCenter.Contracts.Requests.Users;
@@ -52,6 +53,7 @@ public class UsersController : ControllerBase
         return Ok(ApiResponse<object>.Ok(user));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken ct)
@@ -82,6 +84,7 @@ public class UsersController : ControllerBase
             : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 
+    [Idempotent]
     [HttpPost("invitations")]
     [Authorize(Policy = DomainConstants.Permissions.UsersWrite)]
     public async Task<IActionResult> Invite([FromBody] InviteUserRequest request, CancellationToken ct)

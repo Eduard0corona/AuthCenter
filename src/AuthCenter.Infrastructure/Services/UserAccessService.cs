@@ -294,12 +294,18 @@ public class UserAccessService : IUserAccessService
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null)
             return OperationResult<UserDto>.Failure("USER_NOT_FOUND", "User not found.");
+        if (request.Version.HasValue && request.Version.Value != user.Version)
+            return OperationResult<UserDto>.Failure(VersionedUpdates.ConflictCode, "The user changed after it was loaded.");
 
         user.FullName = request.FullName;
         user.PictureUrl = request.PictureUrl;
         user.UpdatedAt = _dateTimeProvider.UtcNow;
+        user.Version++;
 
+        // The concurrency stamp Identity checks on save refuses a change made after this read.
         var result = await _userManager.UpdateAsync(user);
+        if (!result.Succeeded && result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.ConcurrencyFailure)))
+            return OperationResult<UserDto>.Failure(VersionedUpdates.ConflictCode, "The user changed after it was loaded.");
         if (!result.Succeeded)
             return OperationResult<UserDto>.Failure("USER_UPDATE_FAILED", string.Join(", ", result.Errors.Select(e => e.Description)));
 
@@ -685,6 +691,7 @@ public class UserAccessService : IUserAccessService
     private static UserDto MapToDto(ApplicationUser user, IList<string> roles) => new()
     {
         Id = user.Id,
+        Version = user.Version,
         FullName = user.FullName,
         Email = user.Email ?? string.Empty,
         PictureUrl = user.PictureUrl,
@@ -793,6 +800,7 @@ public class UserAccessService : IUserAccessService
         return new UserDto
         {
             Id = user.Id,
+            Version = user.Version,
             FullName = user.FullName,
             Email = user.Email ?? string.Empty,
             PictureUrl = user.PictureUrl,

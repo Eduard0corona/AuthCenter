@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Api.Extensions;
 using AuthCenter.Api.Middleware;
 using AuthCenter.Application.Common;
@@ -47,6 +48,7 @@ public sealed class FederationController : ControllerBase
         Ok(ApiResponse<object>.Ok(await _federation.GetProvidersAsync(applicationSystemId, ct)));
 
     [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
+    [Idempotent]
     [HttpPost("providers")]
     public async Task<IActionResult> CreateProvider(UpsertFederationProviderRequest request, CancellationToken ct)
     {
@@ -74,6 +76,7 @@ public sealed class FederationController : ControllerBase
     }
 
     [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
+    [Idempotent]
     [HttpPost("routing-rules")]
     public async Task<IActionResult> CreateRoutingRule(CreateFederationRoutingRuleRequest request, CancellationToken ct)
     {

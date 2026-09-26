@@ -35,6 +35,13 @@ export function getCsrfTokenForTests(): string {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // A creation sent twice (a network retry, the CSRF renewal below) must act once: every POST
+  // carries one key, reused by its own retries.
+  if ((init.method ?? "GET").toUpperCase() === "POST") {
+    const headers = new Headers(init.headers);
+    if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
+    init = { ...init, headers };
+  }
   return send<T>(path, init, true);
 }
 

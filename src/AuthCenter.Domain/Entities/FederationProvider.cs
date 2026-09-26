@@ -1,8 +1,9 @@
+using AuthCenter.Domain.Common;
 using AuthCenter.Domain.Enums;
 
 namespace AuthCenter.Domain.Entities;
 
-public sealed class FederationProvider
+public sealed class FederationProvider : IVersionedEntity
 {
     public Guid Id { get; set; }
     public Guid ApplicationSystemId { get; set; }

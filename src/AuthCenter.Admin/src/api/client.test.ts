@@ -69,5 +69,28 @@ describe("apiRequest", () => {
     expect(error).toMatchObject({ status: 400, code: "INVALID_CSRF_TOKEN" });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("sends one idempotency key per creation, reused by its retry", async () => {
+    setCsrfToken("stale-token");
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json({ success: false, errorCode: "INVALID_CSRF_TOKEN", message: "Invalid" }, 400))
+      .mockResolvedValueOnce(json({ success: true, data: { csrfToken: "fresh-token" } }))
+      .mockResolvedValueOnce(json({ success: true, data: { id: "created" } }, 201));
+
+    await apiRequest("/api/roles", { method: "POST", body: "{}" });
+
+    const first = new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Idempotency-Key");
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get("Idempotency-Key")).toBe(first);
+  });
+
+  it("keeps an explicit idempotency key", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    await apiRequest("/api/event-hooks/deliveries/1/replay", { method: "POST", headers: { "Idempotency-Key": "chosen-key" } });
+
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBe("chosen-key");
+  });
 });
 

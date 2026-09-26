@@ -11,6 +11,7 @@ import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Field } from "../../components/Field";
 import { HistoryLink } from "../../components/HistoryLink";
+import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -53,7 +54,7 @@ function ProfileSchemaEditorPage({ create }: { create: boolean }) {
   const save = useMutation({
     mutationFn: (values: ProfileAttributeFormValues) => create
       ? apiRequest<ProfileAttributeDefinition>("/api/profile-schema", { method: "POST", body: JSON.stringify(profileAttributePayload(values, true)) })
-      : apiRequest<ProfileAttributeDefinition>(`/api/profile-schema/${definitionId}`, { method: "PUT", body: JSON.stringify(profileAttributePayload(values, false)) }),
+      : apiRequest<ProfileAttributeDefinition>(`/api/profile-schema/${definitionId}`, { method: "PUT", body: JSON.stringify({ ...profileAttributePayload(values, false), version: current?.version }) }),
     onSuccess: async (definition) => {
       await queryClient.invalidateQueries({ queryKey: ["profile-schema"] });
       if (create) { navigate(`/profile-schema/${definition.id}`, { replace: true }); return; }
@@ -87,7 +88,7 @@ function ProfileSchemaEditorPage({ create }: { create: boolean }) {
       actions={<>{create ? null : <HistoryLink entityName="UserProfileAttributeDefinition" entityId={definitionId} />}<Link className="button button--secondary" to="/profile-schema">Volver al listado</Link></>}
     />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error, SCHEMA_ERRORS)}</p> : null}
+    <SaveError error={save.error} messages={SCHEMA_ERRORS} onReload={() => { save.reset(); void schema.refetch().then((fresh) => { const loaded = fresh.data?.find((definition) => definition.id === definitionId); if (loaded) form.reset(profileAttributeDefaults(loaded)); }); }} />
     {deactivate.error ? <p className="alert alert--error" role="alert">{errorMessage(deactivate.error, SCHEMA_ERRORS)}</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => { setFeedback(""); return save.mutateAsync(values); })(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>

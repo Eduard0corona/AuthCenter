@@ -1,3 +1,4 @@
+using AuthCenter.Api.Filters;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Contracts.Requests.ApiResources;
 using AuthCenter.Contracts.Responses;
@@ -32,6 +33,7 @@ public class ApiResourcesController : ControllerBase
             : Ok(ApiResponse<object>.Ok(resource));
     }
 
+    [Idempotent]
     [HttpPost]
     [Authorize(Policy = DomainConstants.Permissions.OAuthClientsWrite)]
     public async Task<IActionResult> Create([FromBody] CreateApiResourceRequest request, CancellationToken ct)

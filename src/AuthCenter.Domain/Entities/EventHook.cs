@@ -1,6 +1,7 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
-public sealed class EventHook
+public sealed class EventHook : IVersionedEntity
 {
     public Guid Id { get; set; }
     public Guid? ApplicationSystemId { get; set; }

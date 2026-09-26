@@ -10,6 +10,7 @@ import type { ApplicationSummary, OAuthClientCreated, OAuthClientSecret, OAuthCl
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
+import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
@@ -53,7 +54,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
         const created = await apiRequest<OAuthClientCreated>("/api/oauth/clients", { method: "POST", body: JSON.stringify(oauthClientPayload(values, true)) });
         return { client: created.client, secret: created.clientSecret };
       }
-      const updated = await apiRequest<OAuthClientSummary>(`/api/oauth/clients/${encodeURIComponent(decodedClientId)}`, { method: "PUT", body: JSON.stringify(oauthClientPayload(values, false)) });
+      const updated = await apiRequest<OAuthClientSummary>(`/api/oauth/clients/${encodeURIComponent(decodedClientId)}`, { method: "PUT", body: JSON.stringify({ ...oauthClientPayload(values, false), version: client.data?.version }) });
       return { client: updated, secret: null };
     },
     onSuccess: async (result) => {
@@ -79,7 +80,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
         await apiRequest<OAuthClientSummary>(`/api/oauth/clients/${encodeURIComponent(decodedClientId)}`, {
           method: "PUT",
           headers: { "X-AuthCenter-Reauthentication": proofToken },
-          body: JSON.stringify(oauthClientPayload({ ...oauthClientDefaults(current), isActive: true }, false))
+          body: JSON.stringify({ ...oauthClientPayload({ ...oauthClientDefaults(current), isActive: true }, false), version: current.version })
         });
         return;
       }
@@ -110,7 +111,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
     <Breadcrumbs items={[{ label: "OAuth clients", to: "/oauth-clients" }, { label: title }]} />
     <PageHeader eyebrow={create ? "Alta" : current?.applicationCode ?? "Integraciones"} title={title} description={create ? "Registra redirects exactos y la superficie mínima de grants y scopes." : canWrite ? "Configura el contrato OAuth. Los secretos existentes nunca se recuperan." : "Consulta la configuración efectiva. Tu acceso actual es de sólo lectura."} actions={<>{create ? null : <HistoryLink entityName="OAuthClient" entityId={clientId} />}<Link className="button button--secondary" to="/oauth-clients">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
+    <SaveError error={save.error} onReload={() => { save.reset(); void client.refetch().then((fresh) => { if (fresh.data) form.reset(oauthClientDefaults(fresh.data)); }); }} />
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="oauth-identity">

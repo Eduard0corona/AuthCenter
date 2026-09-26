@@ -1,11 +1,14 @@
+using AuthCenter.Domain.Common;
 namespace AuthCenter.Domain.Entities;
 
 /// <summary>
 /// An API protected by AuthCenter (an RFC 8707 resource). Access tokens for it carry its identifier
 /// as the audience and the roles and permissions its owning application grants the user.
 /// </summary>
-public class ApiResource
+public class ApiResource : IVersionedEntity
 {
+    public long Version { get; set; }
+
     public Guid Id { get; set; }
     public Guid ApplicationSystemId { get; set; }
 

@@ -92,6 +92,9 @@ public sealed class ApiResourceService : IApiResourceService
         var taken = await TakenScopeNamesAsync(request.Scopes.Select(scope => scope.Name), resource.Id, ct);
         if (taken.Count > 0)
             return OperationResult<ApiResourceResponse>.Failure("API_SCOPE_TAKEN", $"Scope names are unique across APIs; already used: {string.Join(", ", taken)}.");
+        // The scopes live in their own rows: the API's version covers them.
+        if (!resource.TryAdvance(request.Version))
+            return OperationResult<ApiResourceResponse>.Failure(VersionedUpdates.ConflictCode, "The API changed after it was loaded.");
 
         var now = _clock.UtcNow;
         resource.DisplayName = request.DisplayName.Trim();
@@ -136,6 +139,7 @@ public sealed class ApiResourceService : IApiResourceService
 
     private static ApiResourceResponse Map(ApiResource resource) => new()
     {
+        Version = resource.Version,
         Id = resource.Id,
         ApplicationSystemId = resource.ApplicationSystemId,
         ApplicationCode = resource.ApplicationSystem.Code,
