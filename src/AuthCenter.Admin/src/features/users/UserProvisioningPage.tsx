@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, RoleSummary, UserSummary } from "../../api/types";
+import type { ApplicationSummary, RoleSummary, UserSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { PageHeader } from "../../components/PageHeader";
@@ -27,12 +28,12 @@ export default function UserProvisioningPage({ mode }: { mode: UserProvisioningM
   const applications = useQuery({
     queryKey: ["applications", "user-provisioning"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100&isActive=true", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications?isActive=true", signal)
   });
   const roles = useQuery({
     queryKey: ["roles", "user-provisioning", applicationId],
     enabled: canReadRoles && Boolean(applicationId),
-    queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?page=1&pageSize=100&isActive=true&applicationSystemId=${encodeURIComponent(applicationId)}`, { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>(`/api/roles?isActive=true&applicationSystemId=${encodeURIComponent(applicationId)}`, signal)
   });
   const save = useMutation({
     mutationFn: (values: UserProvisioningForm) => apiRequest<UserSummary>(mode === "invite" ? "/api/users/invitations" : "/api/users", {

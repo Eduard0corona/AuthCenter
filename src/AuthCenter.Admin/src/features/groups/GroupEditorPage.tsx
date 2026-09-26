@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, DirectoryGroupMember, DirectoryGroupSummary, PagedResult, RoleSummary, UserSummary } from "../../api/types";
@@ -41,8 +42,8 @@ export default function GroupEditorPage({ create = false }: { create?: boolean }
   const group = useQuery({ queryKey: ["group", groupId], enabled: !create && Boolean(groupId), queryFn: ({ signal }) => apiRequest<DirectoryGroupSummary>(`/api/groups/${groupId}`, { signal }) });
   const members = useQuery({ queryKey: ["group-members", groupId, memberPage, memberPageSize], enabled: !create && Boolean(groupId), queryFn: ({ signal }) => apiRequest<PagedResult<DirectoryGroupMember>>(`/api/groups/${groupId}/members?${buildQuery({ page: memberPage, pageSize: memberPageSize })}`, { signal }) });
   const candidates = useQuery({ queryKey: ["users", "group-candidates", debouncedMemberSearch], enabled: !create && canReadUsers && debouncedMemberSearch.length >= 2, queryFn: ({ signal }) => apiRequest<PagedResult<UserSummary>>(`/api/users?${buildQuery({ page: 1, pageSize: 20, search: debouncedMemberSearch, isActive: true })}`, { signal }) });
-  const applications = useQuery({ queryKey: ["applications", "group-access"], enabled: !create && canReadApplications, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
-  const roles = useQuery({ queryKey: ["roles", "group-access"], enabled: !create && canReadRoles, queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>("/api/roles?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "group-access"], enabled: !create && canReadApplications, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
+  const roles = useQuery({ queryKey: ["roles", "group-access"], enabled: !create && canReadRoles, queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>("/api/roles", signal) });
   const form = useForm<GroupFormValues>({ resolver: zodResolver(groupSchema), defaultValues: groupDefaults() });
   useEffect(() => { if (group.data) form.reset(groupDefaults(group.data)); }, [form, group.data]);
 

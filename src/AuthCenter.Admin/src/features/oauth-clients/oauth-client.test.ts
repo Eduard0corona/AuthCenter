@@ -81,4 +81,9 @@ describe("OAuth client form", () => {
     const result = oauthClientSchema.safeParse({ ...valid, grantTypes: ["client_credentials"], allowedScopes: ["openid", "email"], redirectUris: "", requirePkce: false });
     expect(result.success).toBe(false);
   });
+
+  it("keeps the back-channel session setting chosen for the client", () => {
+    expect(oauthClientPayload(oauthClientSchema.parse({ ...valid, backchannelLogoutSessionRequired: false }), false).backchannelLogoutSessionRequired).toBe(false);
+    expect(oauthClientPayload(oauthClientSchema.parse(valid), false).backchannelLogoutSessionRequired).toBe(true);
+  });
 });

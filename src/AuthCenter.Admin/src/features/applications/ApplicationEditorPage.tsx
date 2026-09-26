@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationBranding, ApplicationSummary, PagedResult, RoleSummary } from "../../api/types";
+import type { ApplicationBranding, ApplicationSummary, RoleSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -37,7 +38,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   const availableRoles = useQuery({
     queryKey: ["roles", "application-default", applicationId],
     enabled: !create && canReadRoles && Boolean(applicationId),
-    queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?page=1&pageSize=100&applicationSystemId=${encodeURIComponent(applicationId ?? "")}`, { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>(`/api/roles?applicationSystemId=${encodeURIComponent(applicationId ?? "")}`, signal)
   });
 
   useEffect(() => {

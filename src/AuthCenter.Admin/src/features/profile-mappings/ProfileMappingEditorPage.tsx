@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, ProfileAttributeDefinition, ProfileMapping, ProfileMappingSimulation } from "../../api/types";
+import type { ApplicationSummary, ProfileAttributeDefinition, ProfileMapping, ProfileMappingSimulation } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -37,7 +38,7 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
   const applications = useQuery({
     queryKey: ["applications", "profile-mapping-editor"],
     enabled: create && canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const schema = useQuery({
     queryKey: ["profile-schema", "active"],

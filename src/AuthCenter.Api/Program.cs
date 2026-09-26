@@ -398,8 +398,7 @@ try
             ctx.Request.Path.Equals("/logout.html") ||
             ctx.Request.Path.StartsWithSegments("/portal") ||
             ctx.Request.Path.Equals("/portal.html") ||
-            ctx.Request.Path.StartsWithSegments("/admin") ||
-            ctx.Request.Path.Equals("/admin.html") ||
+            ctx.Request.Path.StartsWithSegments("/admin-v2") ||
             ctx.Request.Path.StartsWithSegments("/ui"))
         {
             ctx.Response.Headers.Append("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; script-src 'self'; style-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
@@ -496,9 +495,9 @@ try
             return Results.File(Path.Combine(app.Environment.WebRootPath, page), "text/html; charset=utf-8");
         });
     }
-    app.MapGet("/admin", () => Results.File(
-        Path.Combine(app.Environment.WebRootPath, "admin.html"),
-        "text/html; charset=utf-8"));
+    // The first console was retired; its bookmarks open the current one.
+    app.MapGet("/admin", () => Results.Redirect("/admin-v2/"));
+    app.MapGet("/admin.html", () => Results.Redirect("/admin-v2/"));
     app.MapFallback("/admin-v2/{*path:nonfile}", () =>
     {
         IResult result = adminFrontendRoot is not null

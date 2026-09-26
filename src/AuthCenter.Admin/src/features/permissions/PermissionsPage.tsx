@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, PermissionSummary } from "../../api/types";
@@ -18,7 +19,7 @@ export default function PermissionsPage() {
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = [20, 50, 100].includes(Number(params.get("pageSize"))) ? Number(params.get("pageSize")) : 20;
   const applicationId = params.get("applicationId") ?? "";
-  const applications = useQuery({ queryKey: ["applications", "permission-filter"], enabled: canReadApplications, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "permission-filter"], enabled: canReadApplications, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
   const permissions = useQuery({ queryKey: ["permissions", page, pageSize, applicationId], queryFn: ({ signal }) => apiRequest<PagedResult<PermissionSummary>>(applicationId ? `/api/applications/${applicationId}/permissions?${buildQuery({ page, pageSize })}` : `/api/permissions?${buildQuery({ page, pageSize })}`, { signal }) });
   const appNames = new Map(applications.data?.items.map((application) => [application.id, application.name]) ?? []);
   function update(name: string, value: string): void { setParams((current) => { const next = new URLSearchParams(current); if (value) next.set(name, value); else next.delete(name); if (name !== "page") next.set("page", "1"); return next; }); }

@@ -75,7 +75,14 @@ public static class InfrastructureServiceExtensions
         services.AddHttpClient(FederationMetadataCache.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddSingleton<FederationMetadataCache>();
-        services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10));
+        // Hooks call administrator-configured URLs: never a redirect, and only public addresses at the
+        // moment of connecting, so neither a redirect nor a DNS answer that changes reaches an internal host.
+        services.AddHttpClient("EventHooks", client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                ConnectCallback = OutboundUrlSafety.ConnectToPublicAddressAsync
+            });
         // Logout tokens are posted to the exact registered URI; a redirect is a failed delivery.
         services.AddHttpClient(BackchannelLogoutQueue.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10))
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });

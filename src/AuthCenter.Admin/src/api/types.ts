@@ -481,3 +481,25 @@ export interface AdminDashboard {
   failedLoginsLast24Hours: number;
   highRiskObservationsLast24Hours: number;
 }
+
+export interface ApiScope {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string | null;
+}
+
+export interface ApiResource {
+  id: string;
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  /** RFC 8707 resource indicator; also the audience of the access tokens. */
+  identifier: string;
+  displayName: string;
+  description: string | null;
+  isActive: boolean;
+  scopes: ApiScope[];
+  createdAt: string;
+  updatedAt: string | null;
+}

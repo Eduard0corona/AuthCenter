@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "../auth/session";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -63,7 +63,19 @@ const navigation: NavigationGroup[] = [
 export function AppShell() {
   const { user, permissions, signOut, signingOut } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const location = useLocation();
+  // On small screens the navigation is a drawer: Escape closes it and focus returns to its button.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButton.current?.focus();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
   const environment = describeEnvironment(useAdminMetadata().data?.environmentName);
   const version = describeVersion(useVersion().data);
 
@@ -98,14 +110,14 @@ export function AppShell() {
       {menuOpen ? <button className="sidebar-scrim" aria-label="Cerrar navegación" onClick={() => setMenuOpen(false)} /> : null}
       <div className="workspace">
         <header className="topbar">
-          <button className="icon-button mobile-only" type="button" onClick={() => setMenuOpen(true)} aria-expanded={menuOpen} aria-controls="admin-navigation">☰<span className="sr-only">Abrir navegación</span></button>
+          <button ref={menuButton} className="icon-button mobile-only" type="button" onClick={() => setMenuOpen(true)} aria-expanded={menuOpen} aria-controls="admin-navigation">☰<span className="sr-only">Abrir navegación</span></button>
           {environment ? <div className={`environment-pill environment-pill--${environment.tone}`}><span aria-hidden="true" /> <span className="sr-only">Entorno: </span>{environment.label}</div> : <div />}
           <div className="topbar__actions">
             <a className="button button--quiet" href="/portal">Mi cuenta</a>
             <button className="button button--secondary" type="button" onClick={signOut} disabled={signingOut}>{signingOut ? "Cerrando…" : "Cerrar sesión"}</button>
           </div>
         </header>
-        <main id="main-content" className="content" key={location.pathname}>
+        <main id="main-content" className="content" key={location.pathname} tabIndex={-1}>
           <GlobalErrorBanner />
           <ErrorBoundary resetKey={location.pathname}><Outlet /></ErrorBoundary>
         </main>

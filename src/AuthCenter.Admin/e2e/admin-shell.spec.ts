@@ -162,6 +162,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/admin-metadata", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { errorCodes: {}, stepUpPurposes: {}, operationPermissions: {}, maximumPageSize: 100, environmentName: "Staging" } }) }));
   await page.route("**/api/version", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { version: "1.4.0", commit: "0123456789abcdef", adminFrontendBasePath: "/admin-v2", contractVersion: 1 } }) }));
   await page.route("**/api/admin-dashboard", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: dashboardMetrics }) }));
+  await page.route("**/api/api-resources?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [], totalCount: 0, page: 1, pageSize: 100, totalPages: 0 } }) }));
 });
 
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
@@ -674,7 +675,8 @@ test("creates, simulates and publishes an access policy draft with step-up", asy
   await expect(page.getByText("Agregada")).toBeVisible();
   expect(rulePayload).toMatchObject({ applicationSystemId: applicationId, policyVersionId: draftVersionId, name: "Block high risk", priority: 10, action: "Deny", minimumRiskLevel: "High" });
 
-  await page.getByLabel("Usuario").selectOption("user-1");
+  await page.getByRole("combobox", { name: "Usuario", exact: true }).fill("gra");
+  await page.getByRole("option", { name: /Grace Hopper/ }).click();
   await page.getByRole("button", { name: "Simular decisión" }).click();
   const decision = page.locator(".decision-panel");
   await expect(decision).toContainText("Acceso denegado");

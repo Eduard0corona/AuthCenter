@@ -31,19 +31,7 @@ public sealed class EventHooksController : ControllerBase
     [HttpGet("deliveries/{id:guid}"), Authorize(Policy = DomainConstants.Permissions.EventHooksRead)] public async Task<IActionResult> Delivery(Guid id, CancellationToken ct) { var item = await _hooks.GetDeliveryAsync(id, ct); return item is null ? NotFound(ApiResponse<object>.Fail("DELIVERY_NOT_FOUND", "Delivery not found.")) : Ok(ApiResponse<object>.Ok(item)); }
     [HttpPost("deliveries/{id:guid}/replay"), Authorize(Policy = DomainConstants.Permissions.EventHooksWrite)] public async Task<IActionResult> Replay(Guid id, CancellationToken ct) { var key = Request.Headers["Idempotency-Key"].ToString(); if (string.IsNullOrWhiteSpace(key)) key = $"legacy:{id:N}"; return Map(await _hooks.ReplayDeadLetterAsync(id, key, ct)); }
     [HttpGet("deliveries"), Authorize(Policy = DomainConstants.Permissions.EventHooksRead)]
-    public async Task<IActionResult> Deliveries([FromQuery] EventHookDeliveryQuery query, [FromQuery] bool? deadLettersOnly, CancellationToken ct)
-    {
-        if (!deadLettersOnly.HasValue)
-            return Ok(ApiResponse<object>.Ok(await _hooks.GetDeliveriesAsync(query, ct)));
-
-        // Legacy array shape kept for the retiring /admin console. Without an explicit page size it
-        // returns the largest page and always reports the full count so truncation is visible.
-        var pageSize = Request.Query.ContainsKey("pageSize") ? query.PageSize : 100;
-        var legacy = new EventHookDeliveryQuery { Page = query.Page, PageSize = pageSize, HookId = query.HookId, EventId = query.EventId, EventType = query.EventType, FromUtc = query.FromUtc, ToUtc = query.ToUtc, Status = deadLettersOnly.Value ? "dead-letter" : query.Status };
-        var result = await _hooks.GetDeliveriesAsync(legacy, ct);
-        Response.Headers["X-Total-Count"] = result.TotalCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        return Ok(ApiResponse<object>.Ok(result.Items));
-    }
+    public async Task<IActionResult> Deliveries([FromQuery] EventHookDeliveryQuery query, CancellationToken ct) => Ok(ApiResponse<object>.Ok(await _hooks.GetDeliveriesAsync(query, ct)));
     private IActionResult Map(OperationResult r) => r.IsSuccess ? Ok(ApiResponse.Ok()) : Failure(r.ErrorCode, r.Message);
     private IActionResult Map<T>(OperationResult<T> r) => r.IsSuccess ? Ok(ApiResponse<object>.Ok(r.Data!)) : Failure(r.ErrorCode, r.Message);
     private IActionResult Failure(string code, string message) => code == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse.Fail(code, message)) : BadRequest(ApiResponse.Fail(code, message));

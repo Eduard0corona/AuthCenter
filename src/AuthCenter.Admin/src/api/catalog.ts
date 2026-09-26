@@ -20,6 +20,12 @@ export async function fetchAllPages<T>(path: string, signal?: AbortSignal): Prom
   return items;
 }
 
+/** Every item as a single page, for selectors written against the paged shape. */
+export async function fetchAllAsPage<T>(path: string, signal?: AbortSignal): Promise<PagedResult<T>> {
+  const items = await fetchAllPages<T>(path, signal);
+  return { items, totalCount: items.length, page: 1, pageSize: items.length, totalPages: 1 };
+}
+
 // The keys start with the list's own key, so the invalidation after a create or an update of that
 // resource refreshes the selectors too.
 

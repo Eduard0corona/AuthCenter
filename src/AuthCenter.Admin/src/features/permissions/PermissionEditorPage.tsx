@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, PermissionSummary } from "../../api/types";
+import type { ApplicationSummary, PermissionSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -25,7 +26,7 @@ export default function PermissionEditorPage({ create = false }: { create?: bool
   const [confirmStatus, setConfirmStatus] = useState(false);
   const [feedback, setFeedback] = useState("");
   const permission = useQuery({ queryKey: ["permission", permissionId], enabled: !create && Boolean(permissionId), queryFn: ({ signal }) => apiRequest<PermissionSummary>(`/api/permissions/${permissionId}`, { signal }) });
-  const applications = useQuery({ queryKey: ["applications", "permission-editor"], enabled: canReadApplications, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "permission-editor"], enabled: canReadApplications, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
   const form = useForm<PermissionFormValues>({ resolver: zodResolver(permissionSchema), defaultValues: permissionDefaults() });
   useEffect(() => { if (permission.data) form.reset(permissionDefaults(permission.data)); }, [form, permission.data]);
   const save = useMutation({

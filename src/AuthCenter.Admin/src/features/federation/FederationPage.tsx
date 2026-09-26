@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, DirectoryGroupSummary, FederationProvider, FederationRouteResult, FederationRoutingRule, PagedResult, ProfileAttributeDefinition } from "../../api/types";
+import type { ApplicationSummary, DirectoryGroupSummary, FederationProvider, FederationRouteResult, FederationRoutingRule, ProfileAttributeDefinition } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
@@ -32,12 +33,12 @@ export default function FederationPage() {
   const [draft, setDraft] = useState<{ source: FederationRoutingRule[]; order: FederationRoutingRule[] } | null>(null);
   const [email, setEmail] = useState("");
 
-  const applications = useQuery({ queryKey: ["applications", "federation"], queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "federation"], queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
   const applicationId = params.get("applicationId") ?? applications.data?.items.find((application) => application.isActive)?.id ?? "";
   const application = applications.data?.items.find((item) => item.id === applicationId);
   const providers = useQuery({ queryKey: ["federation-providers", applicationId], enabled: Boolean(applicationId), queryFn: ({ signal }) => apiRequest<FederationProvider[]>(`/api/federation/providers?applicationSystemId=${applicationId}`, { signal }) });
   const rules = useQuery({ queryKey: ["federation-routing-rules", applicationId], enabled: Boolean(applicationId), queryFn: ({ signal }) => apiRequest<FederationRoutingRule[]>(`/api/federation/routing-rules?applicationSystemId=${applicationId}`, { signal }) });
-  const groups = useQuery({ queryKey: ["groups", "federation"], enabled: canReadGroups, queryFn: ({ signal }) => apiRequest<PagedResult<DirectoryGroupSummary>>("/api/groups?page=1&pageSize=100&isActive=true", { signal }) });
+  const groups = useQuery({ queryKey: ["groups", "federation"], enabled: canReadGroups, queryFn: ({ signal }) => fetchAllAsPage<DirectoryGroupSummary>("/api/groups?isActive=true", signal) });
   const schema = useQuery({ queryKey: ["profile-schema", "active"], enabled: canReadSchema, queryFn: ({ signal }) => apiRequest<ProfileAttributeDefinition[]>("/api/profile-schema", { signal }) });
   const serverRules = rules.data;
   const order = draft && draft.source === serverRules ? draft.order : serverRules ?? [];

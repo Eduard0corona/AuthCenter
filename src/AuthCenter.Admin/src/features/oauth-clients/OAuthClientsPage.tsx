@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, OAuthClientSummary, PagedResult } from "../../api/types";
@@ -24,7 +25,7 @@ export default function OAuthClientsPage() {
   const applications = useQuery({
     queryKey: ["applications", "oauth-client-filter"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const clients = useQuery({
     queryKey: ["oauth-clients", page, pageSize, search, applicationId, clientType, status],

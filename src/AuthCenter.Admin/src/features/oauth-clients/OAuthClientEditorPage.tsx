@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
-import { useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
+import { Controller, useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, OAuthClientCreated, OAuthClientSecret, OAuthClientSummary, PagedResult } from "../../api/types";
+import type { ApplicationSummary, OAuthClientCreated, OAuthClientSecret, OAuthClientSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
@@ -14,6 +15,7 @@ import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
 import { StatusBadge } from "../../components/StatusBadge";
 import { oauthClientDefaults, oauthClientPayload, oauthClientSchema, oauthGrants, oauthScopes, tokenExchangeGrant, type OAuthClientFormValues } from "./oauth-client";
+import { ApiScopePicker } from "./ApiScopePicker";
 import { SecretRevealDialog } from "./SecretRevealDialog";
 
 type SensitiveAction = "rotate" | "deactivate" | "activate" | null;
@@ -38,7 +40,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
   const applications = useQuery({
     queryKey: ["applications", "oauth-client-editor"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const form = useForm<OAuthClientFormValues>({ resolver: zodResolver(oauthClientSchema), defaultValues: oauthClientDefaults() });
   const selectedGrants = useWatch({ control: form.control, name: "grantTypes" });
@@ -124,7 +126,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
           <div className="settings-panel__heading"><div><h2 id="oauth-flow">Flujos y scopes</h2><p>Concede únicamente lo necesario. Authorization code siempre exige PKCE.</p></div></div>
           <fieldset className="check-group"><legend>Grant types</legend><div className="checkbox-grid">{oauthGrants.map((grant) => <Checkbox key={grant} label={grant === tokenExchangeGrant ? "token exchange (RFC 8693)" : grant} registration={form.register("grantTypes")} value={grant} />)}</div>{form.formState.errors.grantTypes ? <p className="field-error">{form.formState.errors.grantTypes.message}</p> : null}</fieldset>
           <fieldset className="check-group"><legend>Allowed scopes</legend><div className="checkbox-grid">{oauthScopes.map((scope) => <Checkbox key={scope} label={scope} registration={form.register("allowedScopes")} value={scope} />)}</div>{form.formState.errors.allowedScopes ? <p className="field-error">{form.formState.errors.allowedScopes.message}</p> : null}</fieldset>
-          <Field label="Scopes de APIs" error={form.formState.errors.apiScopes?.message} help="Uno por línea, tal como están registrados en el catálogo de APIs (por ejemplo orders.read). El token tendrá como audiencia la API de esos scopes."><textarea {...form.register("apiScopes")} rows={3} placeholder="orders.read" /></Field>
+          <Controller control={form.control} name="apiScopes" render={({ field, fieldState }) => <ApiScopePicker value={field.value} onChange={field.onChange} disabled={!canWrite} error={fieldState.error?.message} />} />
           <Field label="Redirect URIs exactos" error={form.formState.errors.redirectUris?.message} help="Uno por línea. No se aceptan comodines, fragmentos ni credenciales."><textarea {...form.register("redirectUris")} rows={4} disabled={!hasAuthorizationCode && !form.getValues("redirectUris")} placeholder="https://app.example.com/oauth/callback" /></Field>
           <div className="form-grid">
             <Field label="Login URL" error={form.formState.errors.loginUrl?.message}><input {...form.register("loginUrl")} type="url" placeholder="https://app.example.com/login" /></Field>
@@ -137,6 +139,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
           <div className="settings-panel__heading"><div><h2 id="oauth-logout">Cierre de sesión</h2><p>Registra a dónde puede volver el usuario tras cerrar sesión y dónde AuthCenter avisa a la aplicación cuando la sesión termina.</p></div></div>
           <Field label="Post-logout redirect URIs" error={form.formState.errors.postLogoutRedirectUris?.message} help="Uno por línea. Con AuthCenter.Client registra https://tu-app/signout-callback-authcenter."><textarea {...form.register("postLogoutRedirectUris")} rows={3} disabled={!hasAuthorizationCode && !form.getValues("postLogoutRedirectUris")} placeholder="https://app.example.com/signout-callback-authcenter" /></Field>
           <Field label="Back-channel logout URI" error={form.formState.errors.backchannelLogoutUri?.message} help="AuthCenter publica aquí un logout token firmado cuando termina la sesión. Con AuthCenter.Client: https://tu-app/auth/backchannel-logout."><input {...form.register("backchannelLogoutUri")} type="url" disabled={!hasAuthorizationCode && !form.getValues("backchannelLogoutUri")} placeholder="https://app.example.com/auth/backchannel-logout" /></Field>
+          <Checkbox label="Incluir sid en el logout token (backchannel_logout_session_required)" registration={form.register("backchannelLogoutSessionRequired")} />
         </section>
       </fieldset>
       {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/oauth-clients">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear OAuth client" : "Guardar configuración"}</button></div> : <p className="muted">Solicita AUTHCENTER_OAUTH_CLIENTS_WRITE para modificar esta configuración.</p>}

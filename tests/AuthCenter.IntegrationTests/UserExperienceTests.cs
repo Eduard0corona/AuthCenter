@@ -26,8 +26,8 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
     [InlineData("/login.html")]
     [InlineData("/portal")]
     [InlineData("/portal.html")]
-    [InlineData("/admin")]
-    [InlineData("/admin.html")]
+    [InlineData("/admin-v2/")]
+    [InlineData("/admin-v2/event-hooks")]
     public async Task FirstPartyUiDocuments_AlwaysApplyContentSecurityPolicy(string path)
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -43,6 +43,24 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
         Assert.True(response.Headers.TryGetValues("Content-Security-Policy", out var values));
         Assert.Contains(values, value => value.Contains("default-src 'self'", StringComparison.Ordinal));
         Assert.Contains(values, value => value.Contains("frame-ancestors 'none'", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("/admin")]
+    [InlineData("/admin.html")]
+    public async Task RetiredConsole_RedirectsToTheCurrentOne(string path)
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false
+        });
+
+        var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("/admin-v2/", response.Headers.Location?.OriginalString);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/assets/admin.js")).StatusCode);
     }
 
     [Fact]

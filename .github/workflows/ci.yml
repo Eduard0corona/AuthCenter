@@ -221,7 +221,7 @@ jobs:
             sleep 10
           done
 
-          for ui_path in login portal admin login.html portal.html admin.html reset-password magic-link; do
+          for ui_path in login portal login.html portal.html reset-password magic-link admin-v2/; do
             headers="$(curl --silent --show-error --dump-header - --output /dev/null \
               --max-time 20 "${APP_URL%/}/${ui_path}")"
             if ! grep --quiet --ignore-case '^content-type: text/html' <<< "$headers"; then
@@ -233,6 +233,13 @@ jobs:
               exit 1
             fi
           done
+
+          # The retired /admin console redirects to the current one.
+          admin_redirect="$(curl --silent --show-error --output /dev/null --write-out '%{http_code} %{redirect_url}' --max-time 20 "${APP_URL%/}/admin")"
+          if [ "${admin_redirect%% *}" != "302" ] || [[ "${admin_redirect#* }" != */admin-v2/ ]]; then
+            echo "The retired /admin console does not redirect to /admin-v2/ (${admin_redirect})." >&2
+            exit 1
+          fi
 
           admin_v2_html="$(curl --fail --silent --show-error --max-time 20 "${APP_URL%/}/admin-v2/")"
           admin_v2_asset="$(grep --only-matching --max-count=1 '/admin-v2/assets/[^\" ]*\.js' <<< "$admin_v2_html")"

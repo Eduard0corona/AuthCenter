@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, ProvisioningTokenMetadata } from "../../api/types";
@@ -20,7 +21,7 @@ export default function ProvisioningTokensPage() {
   const status = params.get("status") ?? "";
   const applications = useQuery({
     queryKey: ["applications", "provisioning-token-filter"],
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const tokens = useQuery({
     queryKey: ["provisioning-tokens", page, pageSize, applicationId, status],

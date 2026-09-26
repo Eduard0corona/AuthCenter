@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, RoleSummary } from "../../api/types";
@@ -18,7 +19,7 @@ export default function RolesPage() {
   const page = Math.max(1, Number(params.get("page")) || 1);
   const pageSize = [20, 50, 100].includes(Number(params.get("pageSize"))) ? Number(params.get("pageSize")) : 20;
   const applicationId = params.get("applicationId") ?? "";
-  const applications = useQuery({ queryKey: ["applications", "role-filter"], enabled: canReadApplications, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "role-filter"], enabled: canReadApplications, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
   const roles = useQuery({
     queryKey: ["roles", page, pageSize, applicationId],
     queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>(`/api/roles?${buildQuery({ page, pageSize, applicationSystemId: applicationId || null })}`, { signal })

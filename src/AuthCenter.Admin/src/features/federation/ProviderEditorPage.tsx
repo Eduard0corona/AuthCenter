@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, DirectoryGroupSummary, FederationConnectionTest, FederationProvider, FederationServiceProvider, PagedResult } from "../../api/types";
+import type { ApplicationSummary, DirectoryGroupSummary, FederationConnectionTest, FederationProvider, FederationServiceProvider } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
@@ -34,7 +35,7 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
   });
   const applications = useQuery({
     queryKey: ["applications", "federation-provider-editor"],
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   // The values to register at the upstream IdP (hosted OIDC callback, SAML entity ID and ACS).
   const serviceProvider = useQuery({
@@ -44,7 +45,7 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
   const groups = useQuery({
     queryKey: ["groups", "federation-provider-editor"],
     enabled: canReadGroups,
-    queryFn: ({ signal }) => apiRequest<PagedResult<DirectoryGroupSummary>>("/api/groups?page=1&pageSize=100&isActive=true", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<DirectoryGroupSummary>("/api/groups?isActive=true", signal)
   });
   const current = providers.data?.find((provider) => provider.id === providerId);
   const form = useForm<FederationProviderFormValues>({ resolver: zodResolver(federationProviderSchema), defaultValues: { ...federationProviderDefaults(), applicationSystemId: params.get("applicationId") ?? "" } });

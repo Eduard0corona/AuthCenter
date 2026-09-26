@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { apiRequest } from "../../api/client";
+import { fetchAllAsPage } from "../../api/catalog";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult } from "../../api/types";
+import type { ApplicationSummary } from "../../api/types";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -10,7 +10,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 export default function AccessPoliciesPage() {
   const applications = useQuery({
     queryKey: ["applications", "access-policies"],
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
 
   return <>

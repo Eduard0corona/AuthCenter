@@ -79,7 +79,28 @@ The development server exposes `/admin-v2/` and proxies `/ui-api` to the local A
 change is submitted, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:e2e`, and
 `npm run build`. A normal `dotnet publish` performs a reproducible `npm ci` and frontend build;
 CI may set `SkipAdminFrontendBuild=true` only after producing the same assets in its quality gate.
-The existing `/admin` console remains available during the progressive route migration.
+The first console (`/admin`) was retired and its URL redirects to `/admin-v2/`.
+
+The console shows the environment it is connected to (`AdminConsole:EnvironmentName`, else the
+host environment) and the server version; errors quote the request's `traceId` as a reference for
+support. Its overview reads `GET /api/admin-dashboard` (operators with `AUTHCENTER_AUDIT_LOGS_READ`)
+and each indicator opens the matching filtered page. Selectors load every page of applications,
+roles, groups and permissions, and users are searched by name or email.
+
+The System Log (`/admin-v2/system-log`) filters by action, application, entity, actor, trace and
+local dates (kept in the URL), names the actor of each event, links to the affected entity, shows
+the event's IP, user agent and metadata, and exports the matching events as CSV. Entity pages link
+to their own history.
+
+Event Hooks are managed at `/admin-v2/event-hooks`: scope (platform or one application), endpoint,
+event types picked from the catalog by area (or `*` for every event), endpoint verification, secret
+rotation with step-up and a 24-hour dual-signature window, activation, and a deliveries view with
+filters, the signed payload and dead-letter replay.
+
+The universal profile schema is edited at `/admin-v2/profile-schema` (types, defaults, ranges,
+patterns and allowed values; a change that would invalidate stored values is refused), and the API
+catalog at `/admin-v2/api-resources` (resource indicator, owning application and scopes). The OAuth
+client editor picks API scopes from that catalog.
 
 The directory module supports `/admin-v2/users/new` for local identities and
 `/admin-v2/users/invite` for email invitations. Local creation generates the temporary password in
@@ -258,8 +279,7 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 | `/login` | Hosted sign-in with application branding: password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); OAuth consent and step-up; an authorization request that expires tells the user to go back to the application |
 | `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications, linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
 | `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link` | Pages the links in AuthCenter's emails open when `ActionLinks` point at AuthCenter. The single-use token leaves the address bar at once, the pages send no referrer and each action needs a click |
-| `/admin` | Permission-aware users, applications, branding, System Log and hook operations console |
-| `/admin-v2/` | React administrative console under progressive migration |
+| `/admin-v2/` | Administrative console: directory and profile schema, applications, OAuth clients and API catalog, lifecycle, federation, roles, permissions and access policies, System Log and Event Hooks. `/admin` redirects here |
 
 These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
 written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
@@ -606,7 +626,7 @@ CSRF) signs nobody in. Access an administrator revoked is never granted again by
 conditions. Rules with group or profile-attribute conditions are evaluated only for the user the
 browser is already signed in as, so the login page cannot be used to probe directory membership.
 `POST /api/federation/route` (the administrative simulation that evaluates every condition) now
-requires `AUTHCENTER_APPLICATIONS_READ`.
+requires `AUTHCENTER_FEDERATION_READ`.
 
 **Interoperability.** OIDC issuers are compared ignoring a trailing slash; ID tokens must be
 signed with RSA/ECDSA algorithms; `client_secret_basic` is used when the provider only supports
@@ -659,21 +679,31 @@ paginated preview of users affected by a group rule. An authoritative
 mapping prevents other sources from overwriting its target attribute. Group membership immediately
 feeds existing application/role assignments and invalidates stale entitlement sessions.
 
-Event hooks are managed at `/api/event-hooks`. The endpoint must be public HTTPS and echo the
-verification challenge before delivery is enabled. Deliveries include `X-AuthCenter-Event-Id`,
-`X-AuthCenter-Idempotency-Key`, `X-AuthCenter-Timestamp`, and
-`X-AuthCenter-Signature: v1=<hex-hmac-sha256>`. Consumers should verify the signature over
-`<timestamp>.<raw-body>`, reject stale timestamps, and deduplicate by event ID. Failed deliveries
-retry and appear in `/api/event-hooks/deliveries?deadLettersOnly=true` for controlled replay.
-The full administrative API also supports paginated hook list/detail/update and delivery filters by
-hook, status, event, type and UTC range. Replay accepts `Idempotency-Key`; repeating the same key is
-safe. The legacy `deadLettersOnly` shape remains available while `/admin` is being migrated.
+Event hooks are managed at `/api/event-hooks` (`AUTHCENTER_EVENT_HOOKS_READ`/`_WRITE`). A hook
+subscribes to event types from `GET /api/event-hooks/event-types` (the audited actions, grouped by
+area) or to `*`; an unknown type is rejected with `UNKNOWN_EVENT_TYPE`. Every audit record, whichever
+service writes it, queues a delivery for the active, verified hooks subscribed to it, in the same
+transaction. The endpoint must be public HTTPS and echo the verification challenge before delivery
+is enabled. Deliveries include `X-AuthCenter-Event-Id`, `X-AuthCenter-Idempotency-Key`,
+`X-AuthCenter-Timestamp`, and `X-AuthCenter-Signature: v1=<hex-hmac-sha256>`. Consumers should
+verify the signature over `<timestamp>.<raw-body>`, reject stale timestamps, and deduplicate by
+event ID. `POST /api/event-hooks/{id}/rotate-secret` (step-up `admin.event-hook.rotate-secret`)
+returns the new secret once; for 24 hours each delivery carries both signatures
+(`v1=<new>,v1=<previous>`) so receivers can switch without dropping events. Failed deliveries retry
+and end in dead letter (`GET /api/event-hooks/deliveries?status=dead-letter`), filterable by hook,
+status, event, type and UTC range; `GET /api/event-hooks/deliveries/{id}` adds the signed payload.
+Replay accepts `Idempotency-Key`; repeating the same key is safe.
 
 ### Administrative operations and System Log
 
 `GET /api/admin-dashboard` aggregates directory, integration, delivery and security-posture
-indicators without returning user-level data. `GET /api/audit-logs/export` exports one bounded,
-filtered CSV page and records `SYSTEM_LOG_EXPORTED`. Administrative successes and rejected writes
+indicators without returning user-level data: pending access requests, rejected sign-ins of the
+last 24 hours (passwords, lockouts, MFA codes, passkeys and federation) and high-risk sign-ins among
+them. `GET /api/audit-logs` filters by user, application, action, trace, entity
+(`entityName`/`entityId`) and UTC range and names each event's actor. `GET /api/audit-logs/export`
+exports the newest 10,000 matching events as CSV (paging is ignored; `X-Total-Count` gives the
+number of matches and `X-AuthCenter-Export-Truncated: true` marks a capped export), neutralizes
+spreadsheet formulas and records `SYSTEM_LOG_EXPORTED`. Administrative successes and rejected writes
 record actor, target, application, result and trace without request bodies or secrets.
 
 Every supported JSON API response exposes `traceId`. `GET /api/admin-metadata` publishes the stable
@@ -731,8 +761,11 @@ curl -X POST https://localhost:7001/api/auth/google \
 
 The `AUTHCENTER` application is seeded automatically with:
 - **SuperAdmin** role (all permissions)
-- **Admin** role (read + write users, read apps/roles/permissions)
-- All permissions enumerated under `AUTHCENTER_*`
+- **Admin** role: manages users, groups, access policies and the profile schema; reads
+  applications, roles, permissions, the System Log, event hooks, federation and provisioning tokens
+- All permissions enumerated under `AUTHCENTER_*`. Event hooks, federation and provisioning have
+  their own `AUTHCENTER_EVENT_HOOKS_*`, `AUTHCENTER_FEDERATION_*` and `AUTHCENTER_PROVISIONING_*`
+  permissions; roles that held `AUTHCENTER_APPLICATIONS_*` before them received them on upgrade
 
 ## Running Tests
 
@@ -743,11 +776,14 @@ cd tests/AuthCenter.HostedUi.Tests && npm ci && npm test
 AUTHCENTER_RELATIONAL_TEST_CONNECTION="Server=localhost,1433;User Id=sa;Password=...;TrustServerCertificate=true" npx playwright test
 ```
 
-The end-to-end suite builds nothing: run `dotnet build -c Release` first. It starts the API in
-Development on `http://localhost:5071` with a new database, an RSA key generated for the run, rate
-limiting off and emails written to a pickup directory, and drives the login, the portal and the
-emailed-link pages with a virtual WebAuthn authenticator (`HOSTED_UI_CHROMIUM` can point at a
-local Chromium). The same variable runs the SQL Server integration tests of `dotnet test`.
+The end-to-end suite builds nothing: run `dotnet build -c Release` and, for the console specs,
+`npm run build` in `src/AuthCenter.Admin` first. It starts the API in Development on
+`http://localhost:5071` with a new database, an RSA key generated for the run, rate limiting off
+and emails written to a pickup directory, and drives the login, the portal, the emailed-link pages
+(with a virtual WebAuthn authenticator) and the administration console against the real API, with
+axe checks (`HOSTED_UI_CHROMIUM` can point at a local Chromium). The same variable runs the SQL
+Server integration tests of `dotnet test`. The console's own Playwright suite (`npm run test:e2e`)
+uses mocked responses and checks every route with axe on desktop and mobile.
 
 ## Repository Notes
 

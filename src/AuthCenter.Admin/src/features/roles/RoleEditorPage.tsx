@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, PermissionSummary, RoleSummary } from "../../api/types";
+import type { ApplicationSummary, PermissionSummary, RoleSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -28,10 +29,10 @@ export default function RoleEditorPage({ create = false }: { create?: boolean })
   const [feedback, setFeedback] = useState("");
   const [confirmStatus, setConfirmStatus] = useState(false);
   const role = useQuery({ queryKey: ["role", roleId], enabled: !create && Boolean(roleId), queryFn: ({ signal }) => apiRequest<RoleSummary>(`/api/roles/${roleId}`, { signal }) });
-  const applications = useQuery({ queryKey: ["applications", "role-editor"], enabled: canReadApplications, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "role-editor"], enabled: canReadApplications, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
   const form = useForm<RoleFormValues>({ resolver: zodResolver(roleSchema), defaultValues: roleDefaults() });
   const applicationId = useWatch({ control: form.control, name: "applicationSystemId" });
-  const availablePermissions = useQuery({ queryKey: ["permissions", "role-editor", applicationId], enabled: !create && canReadPermissions && Boolean(applicationId), queryFn: ({ signal }) => apiRequest<PagedResult<PermissionSummary>>(`/api/applications/${applicationId}/permissions?page=1&pageSize=100`, { signal }) });
+  const availablePermissions = useQuery({ queryKey: ["permissions", "role-editor", applicationId], enabled: !create && canReadPermissions && Boolean(applicationId), queryFn: ({ signal }) => fetchAllAsPage<PermissionSummary>(`/api/applications/${applicationId}/permissions`, signal) });
   useEffect(() => { if (role.data) form.reset(roleDefaults(role.data)); }, [form, role.data]);
   const selectedPermissions = useMemo(() => {
     const selected = new Set(role.data?.permissions ?? []);

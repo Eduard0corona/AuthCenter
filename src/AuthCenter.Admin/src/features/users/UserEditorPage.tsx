@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, ProfileAttributeDefinition, RoleSummary, UserProfile, UserSummary } from "../../api/types";
+import type { ApplicationSummary, ProfileAttributeDefinition, RoleSummary, UserProfile, UserSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -31,8 +32,8 @@ export default function UserEditorPage() {
   const user = useQuery({ queryKey: ["user", userId], enabled: Boolean(userId), queryFn: ({ signal }) => apiRequest<UserSummary>(`/api/users/${userId}`, { signal }) });
   const profile = useQuery({ queryKey: ["user-profile", userId], enabled: Boolean(userId), queryFn: ({ signal }) => apiRequest<UserProfile>(`/api/users/${userId}/profile`, { signal }) });
   const schema = useQuery({ queryKey: ["profile-schema", "active"], enabled: canReadSchema, queryFn: ({ signal }) => apiRequest<ProfileAttributeDefinition[]>("/api/profile-schema", { signal }) });
-  const applications = useQuery({ queryKey: ["applications", "user-access"], enabled: canReadCatalog, queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal }) });
-  const roles = useQuery({ queryKey: ["roles", "user-access"], enabled: canReadCatalog, queryFn: ({ signal }) => apiRequest<PagedResult<RoleSummary>>("/api/roles?page=1&pageSize=100", { signal }) });
+  const applications = useQuery({ queryKey: ["applications", "user-access"], enabled: canReadCatalog, queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal) });
+  const roles = useQuery({ queryKey: ["roles", "user-access"], enabled: canReadCatalog, queryFn: ({ signal }) => fetchAllAsPage<RoleSummary>("/api/roles", signal) });
   const identity = useForm<UserIdentityForm>({ resolver: zodResolver(userIdentitySchema), defaultValues: userIdentityDefaults() });
   useEffect(() => { if (user.data) identity.reset(userIdentityDefaults(user.data)); }, [identity, user.data]);
 

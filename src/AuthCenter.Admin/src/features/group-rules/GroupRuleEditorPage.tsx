@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { DirectoryGroupSummary, DynamicGroupRule, GroupRulePreview, PagedResult, ProfileAttributeDefinition } from "../../api/types";
+import type { DirectoryGroupSummary, DynamicGroupRule, GroupRulePreview, ProfileAttributeDefinition } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -46,7 +47,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
   const groups = useQuery({
     queryKey: ["groups", "group-rule-editor"],
     enabled: create,
-    queryFn: ({ signal }) => apiRequest<PagedResult<DirectoryGroupSummary>>("/api/groups?page=1&pageSize=100&isActive=true", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<DirectoryGroupSummary>("/api/groups?isActive=true", signal)
   });
   const schema = useQuery({
     queryKey: ["profile-schema", "active"],

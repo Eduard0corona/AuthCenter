@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { DirectoryGroupSummary, DynamicGroupRule, PagedResult } from "../../api/types";
@@ -21,7 +22,7 @@ export default function GroupRulesPage() {
   const active = params.get("active") ?? "";
   const groups = useQuery({
     queryKey: ["groups", "group-rule-filter"],
-    queryFn: ({ signal }) => apiRequest<PagedResult<DirectoryGroupSummary>>("/api/groups?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<DirectoryGroupSummary>("/api/groups", signal)
   });
   const rules = useQuery({
     queryKey: ["group-rules", page, pageSize, groupId, active],

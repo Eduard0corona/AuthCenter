@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, ProfileMapping } from "../../api/types";
@@ -22,7 +23,7 @@ export default function ProfileMappingsPage() {
   const applications = useQuery({
     queryKey: ["applications", "profile-mapping-filter"],
     enabled: canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const mappings = useQuery({
     queryKey: ["profile-mappings", page, pageSize, applicationId, active],

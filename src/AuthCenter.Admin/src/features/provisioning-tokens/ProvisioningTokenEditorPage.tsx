@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationSummary, PagedResult, ProvisioningTokenCreated, ProvisioningTokenMetadata } from "../../api/types";
+import type { ApplicationSummary, ProvisioningTokenCreated, ProvisioningTokenMetadata } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
@@ -45,7 +46,7 @@ function ProvisioningTokenEditorPage({ create }: { create: boolean }) {
   const applications = useQuery({
     queryKey: ["applications", "provisioning-token-editor"],
     enabled: create && canReadApplications,
-    queryFn: ({ signal }) => apiRequest<PagedResult<ApplicationSummary>>("/api/applications?page=1&pageSize=100", { signal })
+    queryFn: ({ signal }) => fetchAllAsPage<ApplicationSummary>("/api/applications", signal)
   });
   const form = useForm<ProvisioningTokenFormValues>({ resolver: zodResolver(provisioningTokenSchema), defaultValues: provisioningTokenDefaults() });
   const rotationForm = useForm<ProvisioningTokenRotationValues>({ resolver: zodResolver(provisioningTokenRotationSchema), defaultValues: { expiresAt: defaultExpiration() } });

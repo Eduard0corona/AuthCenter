@@ -29,6 +29,10 @@ const PermissionEditorPage = lazy(() => import("../features/permissions/Permissi
 const GroupsPage = lazy(() => import("../features/groups/GroupsPage"));
 const GroupEditorPage = lazy(() => import("../features/groups/GroupEditorPage"));
 const SystemLogPage = lazy(() => import("../features/system-log/SystemLogPage"));
+const ProfileSchemaPage = lazy(() => import("../features/profile-schema/ProfileSchemaPage"));
+const ProfileSchemaEditorPage = lazy(() => import("../features/profile-schema/ProfileSchemaEditorPage"));
+const ApiResourcesPage = lazy(() => import("../features/api-resources/ApiResourcesPage"));
+const ApiResourceEditorPage = lazy(() => import("../features/api-resources/ApiResourceEditorPage"));
 const EventHooksPage = lazy(() => import("../features/event-hooks/EventHooksPage"));
 const EventHookEditorPage = lazy(() => import("../features/event-hooks/EventHookEditorPage"));
 const EventDeliveriesPage = lazy(() => import("../features/event-hooks/EventDeliveriesPage"));
@@ -51,6 +55,12 @@ export function AppRouter() {
           <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
           <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
           <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />
+          <Route path="api-resources" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><ApiResourcesPage /></PermissionRoute>} />
+          <Route path="api-resources/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><ApiResourceEditorPage create /></PermissionRoute>} />
+          <Route path="api-resources/:resourceId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><ApiResourceEditorPage /></PermissionRoute>} />
+          <Route path="profile-schema" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_READ"><ProfileSchemaPage /></PermissionRoute>} />
+          <Route path="profile-schema/new" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_WRITE"><ProfileSchemaEditorPage create /></PermissionRoute>} />
+          <Route path="profile-schema/:definitionId" element={<PermissionRoute permission="AUTHCENTER_PROFILE_SCHEMAS_READ"><ProfileSchemaEditorPage /></PermissionRoute>} />
           <Route path="provisioning-tokens" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_READ"><ProvisioningTokensPage /></PermissionRoute>} />
           <Route path="provisioning-tokens/new" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_WRITE"><ProvisioningTokenEditorPage create /></PermissionRoute>} />
           <Route path="provisioning-tokens/:tokenId" element={<PermissionRoute permission="AUTHCENTER_PROVISIONING_READ"><ProvisioningTokenEditorPage /></PermissionRoute>} />

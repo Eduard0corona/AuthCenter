@@ -45,6 +45,8 @@ export const oauthClientSchema = z.object({
   allowedCorsOrigins: z.string(),
   postLogoutRedirectUris: z.string(),
   backchannelLogoutUri: z.string().trim(),
+  // Optional so a form built before the field existed still parses; the default keeps the server's.
+  backchannelLogoutSessionRequired: z.boolean().optional(),
   accessTokenLifetimeSeconds: z.coerce.number().int().min(60, "El mínimo es 60 segundos.").max(3600, "El máximo es 3600 segundos."),
   requirePkce: z.boolean(),
   autoConsent: z.boolean(),
@@ -126,11 +128,17 @@ export function oauthClientDefaults(client?: OAuthClientSummary): OAuthClientFor
     allowedCorsOrigins: client?.allowedCorsOrigins?.join("\n") ?? "",
     postLogoutRedirectUris: client?.postLogoutRedirectUris?.join("\n") ?? "",
     backchannelLogoutUri: client?.backchannelLogoutUri ?? "",
+    backchannelLogoutSessionRequired: client?.backchannelLogoutSessionRequired ?? true,
     accessTokenLifetimeSeconds: client?.accessTokenLifetimeSeconds ?? 900,
     requirePkce: client?.requirePkce ?? true,
     autoConsent: client?.autoConsent ?? false,
     isActive: client?.isActive ?? true
   };
+}
+
+/** The API scopes of the form, one per line. */
+export function splitApiScopes(value: string): string[] {
+  return uriLines.parse(value);
 }
 
 export function oauthClientPayload(values: OAuthClientFormValues, create: boolean) {
@@ -149,6 +157,8 @@ export function oauthClientPayload(values: OAuthClientFormValues, create: boolea
     allowedCorsOrigins: uriLines.parse(parsed.allowedCorsOrigins),
     postLogoutRedirectUris: uriLines.parse(parsed.postLogoutRedirectUris),
     backchannelLogoutUri: parsed.backchannelLogoutUri || null,
+    // Sent explicitly: omitting it made every console save turn the setting back on.
+    backchannelLogoutSessionRequired: parsed.backchannelLogoutSessionRequired ?? true,
     accessTokenLifetimeSeconds: parsed.accessTokenLifetimeSeconds,
     requirePkce: parsed.requirePkce,
     autoConsent: parsed.autoConsent,
