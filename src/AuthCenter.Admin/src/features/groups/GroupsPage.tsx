@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { DirectoryGroupSummary, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
@@ -26,8 +27,7 @@ export default function GroupsPage() {
   return <>
     <PageHeader eyebrow="Directorio" title="Grupos" description="Administra membresías y acceso heredado sin operar asignaciones una por una." actions={canWrite ? <Link className="button" to="/groups/new">Nuevo grupo</Link> : undefined} />
     <section className="toolbar" aria-label="Filtros de grupos"><label className="field"><span>Buscar</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre del grupo" /></label><label className="field"><span>Estado</span><select value={active} onChange={(event) => update("active", event.target.value)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Inactivos</option></select></label></section>
-    {groups.isPending ? <PageState title="Cargando grupos" busy /> : null}{groups.isError ? <PageState title="No pudimos cargar los grupos" detail={message(groups.error)} tone="error" /> : null}{groups.data && groups.data.items.length === 0 ? <PageState title="No hay grupos" detail="Ajusta los filtros o crea un grupo." /> : null}
+    {groups.isPending ? <PageState title="Cargando grupos" busy /> : null}{groups.isError ? <PageState title="No pudimos cargar los grupos" detail={errorMessage(groups.error)} tone="error" /> : null}{groups.data && groups.data.items.length === 0 ? <PageState title="No hay grupos" detail="Ajusta los filtros o crea un grupo." /> : null}
     {groups.data?.items.length ? <><div className="data-table" tabIndex={0} role="region" aria-label="Grupos, desplazamiento horizontal"><table><caption className="sr-only">Grupos</caption><thead><tr><th>Grupo</th><th>Miembros</th><th>Aplicaciones</th><th>Roles heredados</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{groups.data.items.map((group) => <tr key={group.id}><td><strong>{group.name}</strong><span className="cell-detail">{group.description ?? "Sin descripción"}</span></td><td>{group.memberCount}</td><td>{group.applications.length}</td><td>{group.roles.length}</td><td><StatusBadge active={group.isActive} /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/groups/${group.id}`}>{canWrite ? "Administrar" : "Consultar"}</Link></td></tr>)}</tbody></table></div><Pagination page={groups.data.page} pageSize={groups.data.pageSize} totalCount={groups.data.totalCount} totalPages={groups.data.totalPages} onPageChange={(value) => update("page", String(value))} onPageSizeChange={(value) => update("pageSize", String(value))} /></> : null}
   </>;
 }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

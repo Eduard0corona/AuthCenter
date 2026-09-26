@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "../auth/session";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { GlobalErrorBanner } from "../components/GlobalErrorBanner";
+import { describeEnvironment, describeVersion, useAdminMetadata, useVersion } from "../hooks/usePlatform";
 
 interface NavigationItem {
   label: string;
@@ -19,25 +22,27 @@ const navigation: NavigationGroup[] = [
     label: "Directorio",
     items: [
       { label: "Usuarios", to: "/users", permission: "AUTHCENTER_USERS_READ" },
-      { label: "Grupos", to: "/groups", permission: "AUTHCENTER_GROUPS_READ" }
+      { label: "Grupos", to: "/groups", permission: "AUTHCENTER_GROUPS_READ" },
+      { label: "Esquema de perfil", to: "/profile-schema", permission: "AUTHCENTER_PROFILE_SCHEMAS_READ" }
     ]
   },
   {
     label: "Aplicaciones",
     items: [
       { label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" },
-      { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" }
+      { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
+      { label: "Recursos de API", to: "/api-resources", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" }
     ]
   },
   {
     label: "Lifecycle",
     items: [
-      { label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_APPLICATIONS_READ" },
+      { label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_PROVISIONING_READ" },
       { label: "Profile mappings", to: "/profile-mappings", permission: "AUTHCENTER_USERS_READ" },
       { label: "Group rules", to: "/group-rules", permission: "AUTHCENTER_GROUPS_READ" }
     ]
   },
-  { label: "Federación", items: [{ label: "Proveedores y routing", to: "/federation", permission: "AUTHCENTER_APPLICATIONS_READ" }] },
+  { label: "Federación", items: [{ label: "Proveedores y routing", to: "/federation", permission: "AUTHCENTER_FEDERATION_READ" }] },
   {
     label: "Seguridad",
     items: [
@@ -49,7 +54,7 @@ const navigation: NavigationGroup[] = [
   {
     label: "Operación",
     items: [
-      { label: "Event Hooks", to: "/event-hooks", permission: "AUTHCENTER_APPLICATIONS_WRITE" },
+      { label: "Event Hooks", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ" },
       { label: "System Log", to: "/system-log", permission: "AUTHCENTER_AUDIT_LOGS_READ" }
     ]
   }
@@ -59,6 +64,8 @@ export function AppShell() {
   const { user, permissions, signOut, signingOut } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
+  const environment = describeEnvironment(useAdminMetadata().data?.environmentName);
+  const version = describeVersion(useVersion().data);
 
   return (
     <div className="admin-shell">
@@ -85,21 +92,22 @@ export function AppShell() {
         </nav>
         <div className="sidebar__footer">
           <span className="avatar" aria-hidden="true">{initials(user.name ?? user.email ?? "AC")}</span>
-          <div><strong>{user.name ?? user.email}</strong><span>Sesión administrativa</span></div>
+          <div><strong>{user.name ?? user.email}</strong><span>Sesión administrativa</span>{version ? <span className="sidebar__version">AuthCenter {version}</span> : null}</div>
         </div>
       </aside>
       {menuOpen ? <button className="sidebar-scrim" aria-label="Cerrar navegación" onClick={() => setMenuOpen(false)} /> : null}
       <div className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-only" type="button" onClick={() => setMenuOpen(true)} aria-expanded={menuOpen} aria-controls="admin-navigation">☰<span className="sr-only">Abrir navegación</span></button>
-          <div className="environment-pill"><span aria-hidden="true" /> Producción</div>
+          {environment ? <div className={`environment-pill environment-pill--${environment.tone}`}><span aria-hidden="true" /> <span className="sr-only">Entorno: </span>{environment.label}</div> : <div />}
           <div className="topbar__actions">
             <a className="button button--quiet" href="/portal">Mi cuenta</a>
             <button className="button button--secondary" type="button" onClick={signOut} disabled={signingOut}>{signingOut ? "Cerrando…" : "Cerrar sesión"}</button>
           </div>
         </header>
         <main id="main-content" className="content" key={location.pathname}>
-          <Outlet />
+          <GlobalErrorBanner />
+          <ErrorBoundary resetKey={location.pathname}><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>

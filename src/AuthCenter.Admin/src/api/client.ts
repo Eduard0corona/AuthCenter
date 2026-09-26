@@ -35,6 +35,10 @@ export function getCsrfTokenForTests(): string {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return send<T>(path, init, true);
+}
+
+async function send<T>(path: string, init: RequestInit, mayRenewCsrf: boolean): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
@@ -43,18 +47,42 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   const response = await fetch(path, { ...init, method, headers, credentials: "same-origin" });
   const envelope = await readEnvelope<T>(response);
   if (response.status === 401) redirectToLoginOnce();
+  // The double-submit cookie is replaced whenever another tab (the portal, another console) reads
+  // the session, and expires with it. Renew it once and repeat the request.
+  if (mayRenewCsrf && !isSafeMethod(method) && response.status === 400 && envelope?.errorCode === "INVALID_CSRF_TOKEN" && await renewCsrfToken())
+    return send<T>(path, init, false);
   if (!response.ok || envelope?.success === false) {
     throw new ApiError(
       response.status,
       envelope?.errorCode ?? "REQUEST_FAILED",
       envelope?.message ?? fallbackMessage(response.status),
       envelope?.details ?? [],
-      response.headers.get("x-correlation-id") ?? response.headers.get("x-trace-id")
+      envelope?.traceId ?? response.headers.get("x-correlation-id") ?? response.headers.get("x-trace-id")
     );
   }
 
   if (envelope && "data" in envelope) return envelope.data as T;
   return undefined as T;
+}
+
+let renewal: Promise<boolean> | null = null;
+
+/** Reads the session again for a fresh CSRF token; concurrent failures share one renewal. */
+function renewCsrfToken(): Promise<boolean> {
+  renewal ??= (async () => {
+    try {
+      const response = await fetch("/ui-api/session", { credentials: "same-origin", headers: { Accept: "application/json" } });
+      const token = response.ok ? (await readEnvelope<{ csrfToken?: string }>(response))?.data?.csrfToken : undefined;
+      if (!token) return false;
+      csrfToken = token;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      renewal = null;
+    }
+  })();
+  return renewal;
 }
 
 function isSafeMethod(method: string): boolean {

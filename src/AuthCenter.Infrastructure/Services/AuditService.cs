@@ -76,8 +76,33 @@ public class AuditService : IAuditService
     public async Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var logs = db.AuditLogs.AsNoTracking();
+        var logs = Filter(db.AuditLogs.AsNoTracking(), query).OrderByDescending(a => a.CreatedAt);
 
+        var totalCount = await logs.CountAsync(ct);
+        var items = await Project(db, logs.Skip(query.Skip).Take(query.PageSize)).ToListAsync(ct);
+
+        return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
+    }
+
+    public async Task<AuditLogExport> ExportAsync(AuditLogQuery query, int maxRows, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var logs = Filter(db.AuditLogs.AsNoTracking(), query).OrderByDescending(a => a.CreatedAt);
+        var totalCount = await logs.CountAsync(ct);
+        var items = await Project(db, logs.Take(maxRows)).ToListAsync(ct);
+
+        await LogAsync("SYSTEM_LOG_EXPORTED", entityName: nameof(AuditLog), metadata: new
+        {
+            result = "Success",
+            rows = items.Count,
+            truncated = totalCount > items.Count,
+            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc, query.EntityName, query.EntityId }
+        }, ct: ct);
+        return new AuditLogExport(items, totalCount);
+    }
+
+    private static IQueryable<AuditLog> Filter(IQueryable<AuditLog> logs, AuditLogQuery query)
+    {
         if (query.UserId.HasValue)
             logs = logs.Where(a => a.UserId == query.UserId.Value);
 
@@ -102,46 +127,29 @@ public class AuditService : IAuditService
         if (!string.IsNullOrWhiteSpace(query.EntityId))
             logs = logs.Where(a => a.EntityId == query.EntityId.Trim());
 
-        logs = logs.OrderByDescending(a => a.CreatedAt);
-
-        var totalCount = await logs.CountAsync(ct);
-        var page = logs.Skip(query.Skip).Take(query.PageSize);
-        var items = await (
-            from a in page
-            join user in db.Users on a.UserId equals user.Id into actors
-            from actor in actors.DefaultIfEmpty()
-            orderby a.CreatedAt descending
-            select new AuditLogDto
-            {
-                Id = a.Id,
-                UserId = a.UserId,
-                UserEmail = actor != null ? actor.Email : null,
-                UserName = actor != null ? actor.FullName : null,
-                ApplicationCode = a.ApplicationCode,
-                Action = a.Action,
-                EntityName = a.EntityName,
-                EntityId = a.EntityId,
-                IpAddress = a.IpAddress,
-                UserAgent = a.UserAgent,
-                MetadataJson = a.MetadataJson,
-                TraceId = a.TraceId,
-                CreatedAt = a.CreatedAt
-            })
-            .ToListAsync(ct);
-
-        return PagedResult<AuditLogDto>.Create(items, totalCount, query.Page, query.PageSize);
+        return logs;
     }
 
-    public async Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default)
-    {
-        var page = await GetAsync(query, ct);
-        await LogAsync("SYSTEM_LOG_EXPORTED", entityName: nameof(AuditLog), metadata: new
+    // The actor's email and name when the account still exists.
+    private static IQueryable<AuditLogDto> Project(AuthCenterDbContext db, IQueryable<AuditLog> page) =>
+        from a in page
+        join user in db.Users on a.UserId equals user.Id into actors
+        from actor in actors.DefaultIfEmpty()
+        orderby a.CreatedAt descending
+        select new AuditLogDto
         {
-            result = "Success",
-            query.Page,
-            query.PageSize,
-            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc, query.EntityName, query.EntityId }
-        }, ct: ct);
-        return page.Items;
-    }
+            Id = a.Id,
+            UserId = a.UserId,
+            UserEmail = actor != null ? actor.Email : null,
+            UserName = actor != null ? actor.FullName : null,
+            ApplicationCode = a.ApplicationCode,
+            Action = a.Action,
+            EntityName = a.EntityName,
+            EntityId = a.EntityId,
+            IpAddress = a.IpAddress,
+            UserAgent = a.UserAgent,
+            MetadataJson = a.MetadataJson,
+            TraceId = a.TraceId,
+            CreatedAt = a.CreatedAt
+        };
 }

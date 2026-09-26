@@ -29,7 +29,11 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
         await next(context);
     }
 
-    public static string IssueToken(HttpResponse response)
+    /// <summary>
+    /// Issues the double-submit token. It lives as long as the hosted-login session, so a console or
+    /// portal left open keeps working until the session itself ends.
+    /// </summary>
+    public static string IssueToken(HttpResponse response, int sessionLifetimeMinutes)
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -40,7 +44,7 @@ public sealed class UiCsrfMiddleware(RequestDelegate next)
             SameSite = SameSiteMode.Strict,
             Path = "/",
             IsEssential = true,
-            MaxAge = TimeSpan.FromMinutes(30)
+            MaxAge = TimeSpan.FromMinutes(sessionLifetimeMinutes)
         });
         return token;
     }

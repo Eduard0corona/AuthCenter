@@ -57,8 +57,3 @@ export function useSession(): SessionContextValue {
   if (!value) throw new Error("useSession must be used inside SessionProvider.");
   return value;
 }
-
-export function PermissionGate({ permission, children }: PropsWithChildren<{ permission: string }>) {
-  const { permissions } = useSession();
-  return permissions.has(permission) ? children : null;
-}

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationBranding, ApplicationSummary, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
@@ -58,7 +59,7 @@ export default function ApplicationsPage() {
       <PageHeader eyebrow="Aplicaciones" title="Aplicaciones y branding" description="Administra identidad, registro y autenticación desde rutas que puedes compartir." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       {applications.isPending ? <PageState title="Cargando aplicaciones" busy /> : null}
-      {applications.isError ? <PageState title="No pudimos cargar aplicaciones" detail={message(applications.error)} tone="error" action={<button className="button" type="button" onClick={() => void applications.refetch()}>Reintentar</button>} /> : null}
+      {applications.isError ? <PageState title="No pudimos cargar aplicaciones" detail={errorMessage(applications.error)} tone="error" action={<button className="button" type="button" onClick={() => void applications.refetch()}>Reintentar</button>} /> : null}
       {applications.data ? <><div className="application-grid">{applications.data.items.map((application) => (
         <article className="application-card" key={application.id}>
           <div className="application-card__heading"><span className="application-logo" style={{ background: application.branding?.backgroundColor ?? "#f8fafc", color: application.branding?.primaryColor ?? "#2563eb" }}>{application.branding?.logoUrl ? <img src={application.branding.logoUrl} alt="" /> : application.code.slice(0, 2)}</span><StatusBadge active={application.isActive} activeLabel="Activa" inactiveLabel="Inactiva" /></div>
@@ -67,9 +68,8 @@ export default function ApplicationsPage() {
           <div className="application-card__actions"><Link className="button button--secondary" to={`/applications/${application.id}`}>Ver configuración</Link>{canWrite ? <button className="button button--quiet" type="button" onClick={() => { updateBranding.reset(); setSelected(application); }}>Branding</button> : null}</div>
         </article>
       ))}</div><Pagination page={applications.data.page} pageSize={applications.data.pageSize} totalCount={applications.data.totalCount} totalPages={applications.data.totalPages} onPageChange={(value) => updatePage("page", value)} onPageSizeChange={(value) => updatePage("pageSize", value)} /></> : null}
-      {selected ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? message(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { await updateBranding.mutateAsync({ id: selected.id, values }); }} /></Suspense> : null}
+      {selected ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { await updateBranding.mutateAsync({ id: selected.id, values }); }} /></Suspense> : null}
     </>
   );
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

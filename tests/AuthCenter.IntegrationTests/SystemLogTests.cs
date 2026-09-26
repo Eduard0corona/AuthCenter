@@ -59,6 +59,26 @@ public sealed class SystemLogTests : IClassFixture<AuthCenterWebApplicationFacto
         Assert.Contains("\"'=HYPERLINK(\"\"https://evil.example\"\")\"", csv);
     }
 
+    [Fact]
+    public async Task Export_IncludesEveryMatchingEvent_NotJustOnePage()
+    {
+        var entityId = Guid.NewGuid().ToString();
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
+            for (var index = 0; index < 3; index++)
+                await audit.LogAsync("EVENT_HOOK_UPDATED", entityName: "EventHook", entityId: entityId);
+        }
+        using var admin = await CreateAdminClientAsync();
+
+        var response = await admin.GetAsync($"/api/audit-logs/export?entityName=EventHook&entityId={entityId}&page=1&pageSize=1");
+        var rows = (await response.Content.ReadAsStringAsync()).Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(4, rows.Length);
+        Assert.Equal("3", response.Headers.GetValues("X-Total-Count").Single());
+        Assert.False(response.Headers.Contains("X-AuthCenter-Export-Truncated"));
+    }
+
     private async Task<Guid> AdminIdAsync()
     {
         await using var scope = _factory.Services.CreateAsyncScope();

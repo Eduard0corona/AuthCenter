@@ -1,66 +1,72 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { apiRequest, ApiError } from "../../api/client";
-import type { EventDelivery, PagedResult } from "../../api/types";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
+import type { EventHook, PagedResult } from "../../api/types";
+import { useSession } from "../../auth/session";
+import { DebouncedTextField } from "../../components/DebouncedTextField";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { Pagination } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
-import { formatDate } from "../../utils/format";
-
-interface ReplayRequest {
-  delivery: EventDelivery;
-  idempotencyKey: string;
-}
+import { buildQuery, formatDate } from "../../utils/format";
+import { describeSubscription } from "./event-hook";
 
 export default function EventHooksPage() {
-  const [deadOnly, setDeadOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [target, setTarget] = useState<EventDelivery | null>(null);
-  const [feedback, setFeedback] = useState("");
-  const queryClient = useQueryClient();
-  const deliveries = useQuery({
-    queryKey: ["event-deliveries", deadOnly, page, pageSize],
+  const { permissions } = useSession();
+  const canWrite = permissions.has("AUTHCENTER_EVENT_HOOKS_WRITE");
+  const [params, setParams] = useSearchParams();
+  const page = Math.max(1, Number(params.get("page")) || 1);
+  const pageSize = [20, 50, 100].includes(Number(params.get("pageSize"))) ? Number(params.get("pageSize")) : 20;
+  const search = params.get("search") ?? "";
+  const active = params.get("active") ?? "";
+  const verified = params.get("verified") ?? "";
+  const hooks = useQuery({
+    queryKey: ["event-hooks", search, active, verified, page, pageSize],
     placeholderData: keepPreviousData,
-    queryFn: ({ signal }) => {
-      const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-      if (deadOnly) query.set("status", "dead-letter");
-      return apiRequest<PagedResult<EventDelivery>>(`/api/event-hooks/deliveries?${query.toString()}`, { signal });
-    }
+    queryFn: ({ signal }) => apiRequest<PagedResult<EventHook>>(`/api/event-hooks?${buildQuery({ page, pageSize, search, isActive: active || null, isVerified: verified || null })}`, { signal })
   });
-  // The key is created when the operator confirms, so an automatic retry of the same request is
-  // idempotent while a later, deliberate replay of a delivery that failed again is not.
-  const replay = useMutation({
-    mutationFn: ({ delivery, idempotencyKey }: ReplayRequest) => apiRequest<void>(`/api/event-hooks/deliveries/${delivery.id}/replay`, {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey }
-    }),
-    onSuccess: async (_, { delivery }) => {
-      setFeedback(`El evento ${delivery.eventId} volvió a la cola.`);
-      setTarget(null);
-      await queryClient.invalidateQueries({ queryKey: ["event-deliveries"] });
-    }
-  });
-  const selectFilter = (value: boolean) => { setDeadOnly(value); setPage(1); };
+  const update = useCallback((name: string, value: string, replace = true) => setParams((current) => {
+    const next = new URLSearchParams(current);
+    if (value) next.set(name, value); else next.delete(name);
+    if (name !== "page") next.delete("page");
+    return next;
+  }, { replace }), [setParams]);
+  const commitSearch = useCallback((value: string) => update("search", value), [update]);
 
   return (
     <>
-      <PageHeader eyebrow="Workflows" title="Entregas de Event Hooks" description="Diagnostica entregas y reintenta dead letters con confirmación explícita." actions={<div className="segmented"><button type="button" aria-pressed={!deadOnly} onClick={() => selectFilter(false)}>Todas</button><button type="button" aria-pressed={deadOnly} onClick={() => selectFilter(true)}>Dead letters</button></div>} />
-      {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-      {replay.error ? <p className="alert alert--error" role="alert">{message(replay.error)}</p> : null}
-      {deliveries.isPending ? <PageState title="Cargando entregas" busy /> : null}
-      {deliveries.isError ? <PageState title="No pudimos cargar entregas" detail={message(deliveries.error)} tone="error" action={<button className="button" type="button" onClick={() => void deliveries.refetch()}>Reintentar</button>} /> : null}
-      {deliveries.data?.items.length === 0 ? <PageState title="Sin entregas" detail={deadOnly ? "No existen dead letters pendientes." : "Todavía no hay eventos entregados."} /> : null}
-      {deliveries.data && deliveries.data.items.length > 0 ? <div className="delivery-grid">{deliveries.data.items.map((delivery) => {
-        const state = delivery.deliveredAt ? "Entregado" : delivery.deadLetteredAt ? "Dead letter" : "Pendiente";
-        return <article className="delivery-card" key={delivery.id}><div className="delivery-card__heading"><StatusBadge active={state === "Entregado"} activeLabel={state} inactiveLabel={state} /><span>{delivery.hookName}</span></div><h2>{delivery.eventType}</h2><p className="mono">{delivery.eventId}</p><dl><div><dt>Intentos</dt><dd>{delivery.attemptCount}</dd></div><div><dt>Próximo intento</dt><dd>{formatDate(delivery.nextAttemptAt)}</dd></div></dl>{delivery.lastError ? <p className="delivery-error">{delivery.lastError}</p> : null}{delivery.deadLetteredAt ? <button className="button button--danger-quiet" type="button" onClick={() => setTarget(delivery)}>Reintentar entrega</button> : null}</article>;
-      })}</div> : null}
-      {deliveries.data && deliveries.data.totalCount > 0 ? <Pagination page={deliveries.data.page} pageSize={deliveries.data.pageSize} totalCount={deliveries.data.totalCount} totalPages={deliveries.data.totalPages} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /> : null}
-      <ConfirmDialog open={target !== null} title="Reintentar dead letter" detail={target ? `El evento ${target.eventId} del hook ${target.hookName} volverá a la cola con el contador reiniciado.` : ""} confirmLabel="Reintentar" busy={replay.isPending} onCancel={() => setTarget(null)} onConfirm={() => { if (target) replay.mutate({ delivery: target, idempotencyKey: crypto.randomUUID() }); }} />
+      <PageHeader
+        eyebrow="Operación"
+        title="Event Hooks"
+        description="Envía eventos de seguridad y administración a tus sistemas por HTTPS, firmados con HMAC-SHA256."
+        actions={<><Link className="button button--secondary" to="/event-hooks/deliveries">Ver entregas</Link>{canWrite ? <Link className="button" to="/event-hooks/new">Nuevo hook</Link> : null}</>}
+      />
+      <section className="toolbar toolbar--wide" aria-label="Filtros de Event Hooks">
+        <DebouncedTextField label="Buscar" value={search} onCommit={commitSearch} placeholder="Nombre o URL" />
+        <label className="field"><span>Estado</span><select value={active} onChange={(event) => update("active", event.target.value, false)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Desactivados</option></select></label>
+        <label className="field"><span>Verificación</span><select value={verified} onChange={(event) => update("verified", event.target.value, false)}><option value="">Todas</option><option value="true">Verificados</option><option value="false">Sin verificar</option></select></label>
+      </section>
+      {hooks.isPending ? <PageState title="Cargando Event Hooks" busy /> : null}
+      {hooks.isError ? <PageState title="No pudimos cargar los Event Hooks" detail={errorMessage(hooks.error)} tone="error" action={<button className="button" type="button" onClick={() => void hooks.refetch()}>Reintentar</button>} /> : null}
+      {hooks.data && hooks.data.items.length === 0 ? <PageState title="Sin Event Hooks" detail={search || active || verified ? "No encontramos hooks con estos filtros." : "Crea un hook para recibir eventos en tu SIEM, CRM o flujo de automatización."} action={canWrite && !search && !active && !verified ? <Link className="button" to="/event-hooks/new">Crear el primer hook</Link> : undefined} /> : null}
+      {hooks.data && hooks.data.items.length > 0 ? <>
+        <div className="data-table" tabIndex={0} role="region" aria-label="Event Hooks, desplazamiento horizontal" aria-busy={hooks.isFetching || undefined}>
+          <table>
+            <caption className="sr-only">Event Hooks</caption>
+            <thead><tr><th scope="col">Hook</th><th scope="col">Alcance</th><th scope="col">Eventos</th><th scope="col">Estado</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
+            <tbody>{hooks.data.items.map((hook) => <tr key={hook.id}>
+              <td><strong>{hook.name}</strong><span className="cell-detail mono">{hook.url}</span></td>
+              <td>{hook.applicationName ?? "Toda la plataforma"}</td>
+              <td>{describeSubscription(hook.eventTypes)}</td>
+              <td><StatusBadge active={hook.isActive} activeLabel="Activo" inactiveLabel="Desactivado" /> {hook.isVerified ? <span className="tag tag--direct">Verificado {formatDate(hook.verifiedAt)}</span> : <span className="tag tag--warning">Sin verificar</span>}</td>
+              <td className="table-action"><Link className="button button--small button--secondary" to={`/event-hooks/${hook.id}`}>Abrir<span className="sr-only"> {hook.name}</span></Link></td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <Pagination page={hooks.data.page} pageSize={hooks.data.pageSize} totalCount={hooks.data.totalCount} totalPages={hooks.data.totalPages} onPageChange={(value) => update("page", String(value), false)} onPageSizeChange={(value) => update("pageSize", String(value), false)} />
+      </> : null}
     </>
   );
 }
-
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

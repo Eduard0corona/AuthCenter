@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, OAuthClientCreated, OAuthClientSecret, OAuthClientSummary, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
@@ -89,7 +91,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
   });
 
   if (!create && client.isPending) return <PageState title="Cargando OAuth client" busy />;
-  if (!create && client.isError) return <PageState title="No pudimos cargar el OAuth client" detail={message(client.error)} tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
+  if (!create && client.isError) return <PageState title="No pudimos cargar el OAuth client" detail={errorMessage(client.error)} tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
   if (create && !canReadApplications) return <PageState title="No puedes registrar OAuth clients" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación propietaria." tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
 
   const title = create ? "Nuevo OAuth client" : current?.displayName ?? "OAuth client";
@@ -104,9 +106,9 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
 
   return <>
     <Breadcrumbs items={[{ label: "OAuth clients", to: "/oauth-clients" }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.applicationCode ?? "Integraciones"} title={title} description={create ? "Registra redirects exactos y la superficie mínima de grants y scopes." : canWrite ? "Configura el contrato OAuth. Los secretos existentes nunca se recuperan." : "Consulta la configuración efectiva. Tu acceso actual es de sólo lectura."} actions={<Link className="button button--secondary" to="/oauth-clients">Volver al listado</Link>} />
+    <PageHeader eyebrow={create ? "Alta" : current?.applicationCode ?? "Integraciones"} title={title} description={create ? "Registra redirects exactos y la superficie mínima de grants y scopes." : canWrite ? "Configura el contrato OAuth. Los secretos existentes nunca se recuperan." : "Consulta la configuración efectiva. Tu acceso actual es de sólo lectura."} actions={<>{create ? null : <HistoryLink entityName="OAuthClient" entityId={clientId} />}<Link className="button button--secondary" to="/oauth-clients">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-    {save.error ? <p className="alert alert--error" role="alert">{message(save.error)}</p> : null}
+    {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="oauth-identity">
@@ -139,7 +141,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
       </fieldset>
       {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/oauth-clients">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear OAuth client" : "Guardar configuración"}</button></div> : <p className="muted">Solicita AUTHCENTER_OAUTH_CLIENTS_WRITE para modificar esta configuración.</p>}
     </form>
-    {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="oauth-actions"><div className="settings-panel__heading"><div><h2 id="oauth-actions">Credencial y estado</h2><p>Estas acciones requieren comprobar de nuevo tu identidad y consumen una prueba de un solo uso.</p></div></div><div className="button-group">{current.clientType === 0 ? <button className="button button--secondary" type="button" onClick={() => { rotate.reset(); setSensitiveAction("rotate"); }}>Rotar secreto</button> : null}<button className={current.isActive ? "button button--danger-quiet" : "button button--secondary"} type="button" onClick={() => { changeStatus.reset(); setSensitiveAction(current.isActive ? "deactivate" : "activate"); }}>{current.isActive ? "Desactivar client" : "Activar client"}</button></div>{actionError ? <p className="alert alert--error" role="alert">{message(actionError)}</p> : null}</section> : null}
+    {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="oauth-actions"><div className="settings-panel__heading"><div><h2 id="oauth-actions">Credencial y estado</h2><p>Estas acciones requieren comprobar de nuevo tu identidad y consumen una prueba de un solo uso.</p></div></div><div className="button-group">{current.clientType === 0 ? <button className="button button--secondary" type="button" onClick={() => { rotate.reset(); setSensitiveAction("rotate"); }}>Rotar secreto</button> : null}<button className={current.isActive ? "button button--danger-quiet" : "button button--secondary"} type="button" onClick={() => { changeStatus.reset(); setSensitiveAction(current.isActive ? "deactivate" : "activate"); }}>{current.isActive ? "Desactivar client" : "Activar client"}</button></div>{actionError ? <p className="alert alert--error" role="alert">{errorMessage(actionError)}</p> : null}</section> : null}
     <ReauthenticationDialog open={sensitiveAction !== null} purpose={sensitiveAction === "rotate" ? "admin.oauth-client.rotate-secret" : sensitiveAction === "activate" ? "admin.oauth-client.activate" : "admin.oauth-client.deactivate"} title={sensitiveAction === "rotate" ? "Rotar client secret" : sensitiveAction === "activate" ? "Activar OAuth client" : "Desactivar OAuth client"} detail={sensitiveAction === "rotate" ? "El secreto actual dejará de funcionar de inmediato. Asegura que puedes actualizar el consumidor." : sensitiveAction === "activate" ? "El cliente volverá a poder emitir tokens según sus grants y scopes actuales." : "Se bloqueará la emisión de tokens nuevos para este cliente."} confirmLabel={sensitiveAction === "rotate" ? "Verificar y rotar" : sensitiveAction === "activate" ? "Verificar y activar" : "Verificar y desactivar"} dangerous={sensitiveAction === "deactivate"} onCancel={() => setSensitiveAction(null)} onProof={async (proof) => { if (sensitiveAction === "rotate") await rotate.mutateAsync(proof); else if (sensitiveAction) await changeStatus.mutateAsync({ proofToken: proof, activate: sensitiveAction === "activate" }); }} />
     <SecretRevealDialog open={Boolean(secret)} secret={secret} title={`Secreto para ${secretOwner}`} onClose={closeSecret} />
   </>;
@@ -147,4 +149,3 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
 
 function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }
 function Checkbox({ label, registration, value }: { label: string; registration: UseFormRegisterReturn; value?: string }) { return <label className="checkbox-field"><input type="checkbox" {...registration} value={value} /><span>{label}</span></label>; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

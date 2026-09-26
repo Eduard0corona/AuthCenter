@@ -180,12 +180,16 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 
 ### E. Consola administrativa
 
-- [ ] **UI-01** Gestión completa de Event Hooks.
-- [ ] **UI-02** Dashboard con datos reales.
-- [ ] **UI-03** System Log completo (actor, detalle, exportación, enlaces por entidad, debounce).
+- [x] **UI-01** Gestión completa de Event Hooks.
+  *Resuelto:* lista con búsqueda y filtros; editor con alcance (plataforma o aplicación), catálogo de eventos por área con filtro, selección por área y comodín `*`; secreto de un solo uso al crear; verificación del endpoint con instrucciones; rotación del secreto con reautenticación y aviso del periodo de doble firma; fragmento para verificar la firma en el receptor; activar/desactivar; conflicto de versión con recarga. Entregas con filtros (hook, estado, tipo, evento, fechas), detalle con payload y último error, y replay con `Idempotency-Key`. Permisos `AUTHCENTER_EVENT_HOOKS_*`. E2E: `operations.spec.ts`.
+- [x] **UI-02** Dashboard con datos reales.
+  *Resuelto:* "Estado de la plataforma" con `GET /api/admin-dashboard` (se renueva cada minuto): usuarios, solicitudes de acceso pendientes (nuevo), aplicaciones, grupos, proveedores, tokens por vencer, hooks sin verificar, dead letters, inicios de sesión rechazados (ahora cuenta contraseña, bloqueo, MFA, passkey y federación) y riesgo alto; cada indicador enlaza a la página filtrada y se resalta cuando requiere atención. Sin `AUDIT_LOGS_READ` no se consulta. Prueba: `Dashboard_CountsRejectedSignIns_AndPendingAccessRequests`, e2e.
+- [x] **UI-03** System Log completo (actor, detalle, exportación, enlaces por entidad, debounce).
+  *Resuelto:* filtros por acción, aplicación, entidad, actor, traza y fechas locales, con debounce y en la URL; columna de actor (nombre y correo); enlace a la página de cada entidad; detalle con IP, agente, traza y metadatos, y atajos "eventos de este actor / de esta entidad / de esta traza"; "Ver historial" en las páginas de detalle; exportación CSV de todos los eventos filtrados (antes sólo la página visible; hasta 10 000, con aviso si se trunca). Pruebas: `Export_IncludesEveryMatchingEvent_NotJustOnePage`, e2e.
 - [ ] **UI-04** Editor de esquemas de perfil.
-- [ ] **UI-05** Observabilidad: ErrorBoundary, `traceId` (hoy siempre nulo), versión, errores
+- [x] **UI-05** Observabilidad: ErrorBoundary, `traceId` (hoy siempre nulo), versión, errores
   globales.
+  *Resuelto:* el cliente toma el `traceId` del cuerpo de la respuesta y los mensajes lo muestran como referencia; mensajes en español con los detalles de validación; ErrorBoundary por página (con aviso de versión nueva cuando falta un chunk) y global; aviso de errores fuera de React; versión del servidor en la barra lateral. Hallazgo nuevo corregido: la cookie CSRF duraba 30 min mientras la sesión dura 8 h y cualquier otra pestaña la reemplazaba, así que la consola fallaba con `INVALID_CSRF_TOKEN`; ahora dura lo que la sesión y el cliente la renueva una vez y repite la solicitud.
 - [ ] **UI-06** E2E contra backend real.
 - [ ] **UI-07** Accesibilidad: axe ampliado y navegación por teclado (la revisión manual humana queda
   como acción del propietario).

@@ -3,11 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, ProfileAttributeDefinition, RoleSummary, UserProfile, UserSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
@@ -49,13 +51,13 @@ export default function UserEditorPage() {
   const deleteUser = useMutation({ mutationFn: (proofToken: string) => apiRequest<void>(`/api/users/${userId}`, { method: "DELETE", headers: { "X-AuthCenter-Reauthentication": proofToken } }), onSuccess: async () => { setConfirmation(null); await queryClient.invalidateQueries({ queryKey: ["users"] }); window.location.assign("/admin-v2/users"); } });
 
   if (user.isPending) return <PageState title="Cargando usuario" busy />;
-  if (user.isError || !user.data) return <PageState title="No pudimos cargar el usuario" detail={message(user.error)} tone="error" />;
+  if (user.isError || !user.data) return <PageState title="No pudimos cargar el usuario" detail={errorMessage(user.error)} tone="error" />;
   const current = user.data;
   const error = updateIdentity.error ?? updateProfile.error ?? updateAccess.error ?? changeStatus.error ?? forcePassword.error ?? approveAccess.error ?? revokeAccess.error ?? resetMfa.error ?? deleteUser.error;
   return <>
     <Breadcrumbs items={[{ label: "Usuarios", to: "/users" }, { label: current.fullName }]} />
-    <PageHeader eyebrow="Directorio universal" title={current.fullName} description={`${current.email} · ${current.isExternalUser ? "Identidad federada" : "Identidad local"}`} actions={<Link className="button button--secondary" to="/users">Volver</Link>} />
-    {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}{error ? <p className="alert alert--error" role="alert">{message(error)}</p> : null}
+    <PageHeader eyebrow="Directorio universal" title={current.fullName} description={`${current.email} · ${current.isExternalUser ? "Identidad federada" : "Identidad local"}`} actions={<><HistoryLink entityName="ApplicationUser" entityId={userId} /><Link className="button button--secondary" to="/users">Volver</Link></>} />
+    {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}{error ? <p className="alert alert--error" role="alert">{errorMessage(error)}</p> : null}
     <div className="profile-summary"><div><span>Estado</span><StatusBadge active={current.isActive} /></div><div><span>Último acceso</span><strong>{formatDate(current.lastLoginAt)}</strong></div><div><span>MFA</span><strong>{current.mfaEnabled ? "Configurado" : "Sin configurar"}</strong></div><div><span>Grupos</span><strong>{current.groupMemberships.length}</strong></div></div>
     <form className="settings-form" onSubmit={(event) => void identity.handleSubmit((values) => updateIdentity.mutateAsync(values))(event)}><fieldset className="settings-fieldset" disabled={!canWrite}><section className="settings-panel"><div className="settings-panel__heading"><div><h2>Identidad</h2><p>Datos canónicos visibles en las aplicaciones conectadas.</p></div></div><label className="field"><span>Nombre completo</span><input {...identity.register("fullName")} />{identity.formState.errors.fullName ? <small className="field-error">{identity.formState.errors.fullName.message}</small> : null}</label><label className="field"><span>Fotografía HTTPS</span><input type="url" {...identity.register("pictureUrl")} />{identity.formState.errors.pictureUrl ? <small className="field-error">{identity.formState.errors.pictureUrl.message}</small> : null}</label></section></fieldset>{canWrite ? <div className="form-footer"><button className="button" disabled={updateIdentity.isPending}>Guardar identidad</button></div> : null}</form>
     <ProfilePanel key={`${profile.dataUpdatedAt}-${schema.dataUpdatedAt}`} profile={profile.data} definitions={schema.data ?? []} editable={canWrite && canReadSchema} busy={updateProfile.isPending} onSave={(values) => updateProfile.mutate(profilePayload(schema.data ?? [], values))} />
@@ -94,4 +96,3 @@ function profilePayload(definitions: ProfileAttributeDefinition[], values: Recor
 function mergeApplications(catalog: ApplicationSummary[], assigned: UserSummary["applicationAssignments"]): ApplicationSummary[] { const merged = new Map(catalog.map(item => [item.id, item])); for (const item of assigned) if (!merged.has(item.applicationId)) merged.set(item.applicationId, { id: item.applicationId, code: item.applicationCode, name: item.applicationName, description: "Asignación existente fuera de la primera página del catálogo.", isActive: item.isApplicationActive, createdAt: "", updatedAt: null, branding: null }); return [...merged.values()].sort((left, right) => left.code.localeCompare(right.code)); }
 function mergeRoles(catalog: RoleSummary[], assigned: UserSummary["roleAssignments"]): RoleSummary[] { const merged = new Map(catalog.map(item => [item.id, item])); for (const item of assigned) if (!merged.has(item.roleId)) merged.set(item.roleId, { id: item.roleId, name: item.roleName, description: "Asignación existente fuera de la primera página del catálogo.", applicationSystemId: item.applicationId, isSystemRole: item.isSystemRole, isActive: item.isRoleActive, createdAt: "", permissions: [] }); return [...merged.values()].sort((left, right) => left.name.localeCompare(right.name)); }
 function deriveSelection(initial: string[], overrides: Map<string, boolean>): Set<string> { const selected = new Set(initial); for (const [id, enabled] of overrides) { if (enabled) selected.add(id); else selected.delete(id); } return selected; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

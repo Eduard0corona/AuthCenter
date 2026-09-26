@@ -81,11 +81,10 @@ public class UserAccessService : IUserAccessService
 
         if (pagination.HasPendingAccess.HasValue)
         {
-            // HasPendingAccess=true  → user has at least one inactive (pending) access record
-            // HasPendingAccess=false → user has no inactive access records at all
+            // Pending: requested and not approved yet. A revoked access (inactive with RevokedAt) is not pending.
             query = pagination.HasPendingAccess.Value
-                ? query.Where(u => u.ApplicationAccesses.Any(a => !a.IsActive))
-                : query.Where(u => u.ApplicationAccesses.All(a => a.IsActive));
+                ? query.Where(u => u.ApplicationAccesses.Any(a => !a.IsActive && a.RevokedAt == null))
+                : query.Where(u => !u.ApplicationAccesses.Any(a => !a.IsActive && a.RevokedAt == null));
         }
 
         var descending = string.Equals(pagination.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);

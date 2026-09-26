@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useId } from "react";
+import { useModalDialog } from "../hooks/useModalDialog";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -12,20 +13,16 @@ interface ConfirmDialogProps {
 }
 
 export function ConfirmDialog({ open, title, detail, confirmLabel, dangerous = false, busy = false, onConfirm, onCancel }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+  const dialogRef = useModalDialog(open);
+  const titleId = useId();
+  const detailId = useId();
 
   return (
-    <dialog ref={dialogRef} className="dialog" onCancel={(event) => { event.preventDefault(); if (!busy) onCancel(); }}>
+    <dialog ref={dialogRef} className="dialog" aria-labelledby={titleId} aria-describedby={detailId} onCancel={(event) => { event.preventDefault(); if (!busy) onCancel(); }}>
       <div className="dialog__content">
         <p className="eyebrow">Confirmación requerida</p>
-        <h2>{title}</h2>
-        <p>{detail}</p>
+        <h2 id={titleId}>{title}</h2>
+        <p id={detailId}>{detail}</p>
       </div>
       <div className="dialog__actions">
         <button className="button button--secondary" type="button" onClick={onCancel} disabled={busy}>Cancelar</button>

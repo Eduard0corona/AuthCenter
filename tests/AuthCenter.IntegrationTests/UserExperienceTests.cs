@@ -62,6 +62,8 @@ public sealed class UserExperienceTests : IClassFixture<AuthCenterWebApplication
         });
         login.EnsureSuccessStatusCode();
         Assert.Contains(login.Headers.GetValues("Set-Cookie"), value => value.Contains("__Host-AuthCenter.Ui", StringComparison.Ordinal) && value.Contains("HttpOnly", StringComparison.OrdinalIgnoreCase));
+        // The double-submit token lasts as long as the session (480 minutes by default), not 30 minutes.
+        Assert.Contains(login.Headers.GetValues("Set-Cookie"), value => value.StartsWith("__Host-AuthCenter.Csrf=", StringComparison.Ordinal) && value.Contains("max-age=28800", StringComparison.OrdinalIgnoreCase));
 
         var current = await client.GetAsync("/ui-api/session");
         current.EnsureSuccessStatusCode();

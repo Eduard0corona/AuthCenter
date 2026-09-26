@@ -4,9 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, DirectoryGroupSummary, FederationConnectionTest, FederationProvider, FederationServiceProvider, PagedResult } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { ReauthenticationDialog } from "../../components/ReauthenticationDialog";
@@ -17,7 +19,7 @@ type SensitiveAction = "save" | "delete" | null;
 
 export default function ProviderEditorPage({ create = false }: { create?: boolean }) {
   const { permissions } = useSession();
-  const canWrite = permissions.has("AUTHCENTER_APPLICATIONS_WRITE");
+  const canWrite = permissions.has("AUTHCENTER_FEDERATION_WRITE");
   const canReadGroups = permissions.has("AUTHCENTER_GROUPS_READ");
   const { providerId = "" } = useParams();
   const [params] = useSearchParams();
@@ -76,7 +78,7 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
   });
 
   if (!create && providers.isPending) return <PageState title="Cargando proveedor de federación" busy />;
-  if (!create && providers.isError) return <PageState title="No pudimos cargar el proveedor" detail={message(providers.error)} tone="error" action={<Link className="button" to="/federation">Volver</Link>} />;
+  if (!create && providers.isError) return <PageState title="No pudimos cargar el proveedor" detail={errorMessage(providers.error)} tone="error" action={<Link className="button" to="/federation">Volver</Link>} />;
   if (!create && providers.data && !current) return <PageState title="Proveedor no encontrado" detail="El proveedor no existe o fue eliminado." tone="error" action={<Link className="button" to="/federation">Volver</Link>} />;
   const title = create ? "Nuevo proveedor de federación" : current?.name ?? "Proveedor";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
@@ -86,10 +88,10 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
 
   return <>
     <Breadcrumbs items={[{ label: "Federación", to: backTo }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.protocol === "Saml2" ? "SAML 2.0" : "OpenID Connect"} title={title} description={create ? "Registra un IdP corporativo. Los secretos y certificados se almacenan protegidos y nunca se devuelven." : canWrite ? "Cada cambio requiere reautenticación. El client secret y el certificado solo se reemplazan si escribes uno nuevo." : "Consulta la configuración del proveedor. No tienes permisos de escritura."} actions={<Link className="button button--secondary" to={backTo}>Volver a federación</Link>} />
+    <PageHeader eyebrow={create ? "Alta" : current?.protocol === "Saml2" ? "SAML 2.0" : "OpenID Connect"} title={title} description={create ? "Registra un IdP corporativo. Los secretos y certificados se almacenan protegidos y nunca se devuelven." : canWrite ? "Cada cambio requiere reautenticación. El client secret y el certificado solo se reemplazan si escribes uno nuevo." : "Consulta la configuración del proveedor. No tienes permisos de escritura."} actions={<>{create ? null : <HistoryLink entityName="FederationProvider" entityId={providerId} />}<Link className="button button--secondary" to={backTo}>Volver a federación</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
     {conflict ? <p className="alert alert--error" role="alert">El proveedor cambió desde que lo cargaste. Recarga para ver la versión vigente antes de volver a guardar. <button className="button button--small button--secondary" type="button" onClick={() => { save.reset(); void providers.refetch(); }}>Recargar</button></p> : null}
-    {actionError ? <p className="alert alert--error" role="alert">{message(actionError)}</p> : null}
+    {actionError ? <p className="alert alert--error" role="alert">{errorMessage(actionError)}</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit(() => { save.reset(); setSensitiveAction("save"); })(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="provider-identity">
@@ -164,7 +166,7 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
     </form>
     {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="provider-diagnostics">
       <div className="settings-panel__heading"><div><h2 id="provider-diagnostics">Probar conexión</h2><p>Consulta el discovery, las llaves y los certificados del IdP con la configuración guardada. No cambia nada.</p></div>{connectionTest.data ? <span className={connectionTest.data.succeeded ? "tag" : "tag tag--warning"}>{connectionTest.data.succeeded ? "Sin errores" : "Con errores"}</span> : null}</div>
-      {connectionTest.error ? <p className="alert alert--error" role="alert">{message(connectionTest.error)}</p> : null}
+      {connectionTest.error ? <p className="alert alert--error" role="alert">{errorMessage(connectionTest.error)}</p> : null}
       {connectionTest.data ? <ul className="check-list" aria-label="Resultado de la prueba de conexión">{connectionTest.data.checks.map((check) => <li key={check.name}><span className={check.status === "Pass" ? "tag" : "tag tag--warning"}>{check.status === "Pass" ? "Correcto" : check.status === "Warning" ? "Advertencia" : "Error"}</span> <strong>{connectionCheckLabels[check.name] ?? check.name}</strong>: {check.detail}</li>)}</ul> : null}
       <div className="button-group"><button className="button button--secondary" type="button" disabled={connectionTest.isPending} onClick={() => connectionTest.mutate()}>{connectionTest.isPending ? "Probando…" : "Probar conexión"}</button></div>
     </section> : null}
@@ -177,4 +179,3 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
 }
 
 function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

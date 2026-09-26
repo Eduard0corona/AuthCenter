@@ -4,10 +4,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { DirectoryGroupSummary, DynamicGroupRule, GroupRulePreview, PagedResult, ProfileAttributeDefinition } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { Pagination } from "../../components/Pagination";
@@ -90,7 +92,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
   });
 
   if (!create && rule.isPending) return <PageState title="Cargando group rule" busy />;
-  if (!create && rule.isError) return <PageState title="No pudimos cargar la group rule" detail={message(rule.error)} tone="error" action={<Link className="button" to="/group-rules">Volver</Link>} />;
+  if (!create && rule.isError) return <PageState title="No pudimos cargar la group rule" detail={errorMessage(rule.error)} tone="error" action={<Link className="button" to="/group-rules">Volver</Link>} />;
   if (!canReadSchema) return <PageState title="No puedes administrar group rules" detail="Necesitas AUTHCENTER_PROFILE_SCHEMAS_READ para elegir el atributo evaluado por la regla." tone="forbidden" action={<Link className="button" to="/group-rules">Volver</Link>} />;
   const title = create ? "Nueva group rule" : current ? `${current.groupName}: ${describeRule(current)}` : "Group rule";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
@@ -99,10 +101,10 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
 
   return <>
     <Breadcrumbs items={[{ label: "Group rules", to: "/group-rules" }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.groupName ?? "Lifecycle"} title={title} description={create ? "Cuando el atributo del perfil coincide con el valor esperado, el usuario se incorpora al grupo de forma automática." : canWrite ? "Ajusta la condición y revisa qué usuarios quedarían dentro antes de activar la regla." : "Consulta la condición y la vista previa de usuarios afectados. No tienes permisos de escritura."} actions={<Link className="button button--secondary" to="/group-rules">Volver al listado</Link>} />
+    <PageHeader eyebrow={create ? "Alta" : current?.groupName ?? "Lifecycle"} title={title} description={create ? "Cuando el atributo del perfil coincide con el valor esperado, el usuario se incorpora al grupo de forma automática." : canWrite ? "Ajusta la condición y revisa qué usuarios quedarían dentro antes de activar la regla." : "Consulta la condición y la vista previa de usuarios afectados. No tienes permisos de escritura."} actions={<>{create ? null : <HistoryLink entityName="DynamicGroupRule" entityId={ruleId} />}<Link className="button button--secondary" to="/group-rules">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
     {conflict ? <p className="alert alert--error" role="alert">La regla cambió desde que la cargaste. Recarga para ver la versión vigente antes de volver a guardar. <button className="button button--small button--secondary" type="button" onClick={() => { save.reset(); void rule.refetch(); }}>Recargar</button></p> : null}
-    {formError ? <p className="alert alert--error" role="alert">{message(formError)}</p> : null}
+    {formError ? <p className="alert alert--error" role="alert">{errorMessage(formError)}</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values).catch(() => undefined))(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="group-rule-definition">
@@ -132,7 +134,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
     {current ? <section className="settings-panel settings-panel--actions" aria-labelledby="group-rule-preview">
       <div className="settings-panel__heading"><div><h2 id="group-rule-preview">Vista previa de miembros</h2><p>Usuarios activos cuyo perfil cumple la condición guardada. Los cambios sin guardar no se reflejan aquí.</p></div>{users ? <span className="tag">{users.totalCount} usuario{users.totalCount === 1 ? "" : "s"}</span> : null}</div>
       {preview.isPending ? <PageState title="Calculando vista previa" busy /> : null}
-      {preview.isError ? <PageState title="No pudimos calcular la vista previa" detail={message(preview.error)} tone="error" action={<button className="button" type="button" onClick={() => void preview.refetch()}>Reintentar</button>} /> : null}
+      {preview.isError ? <PageState title="No pudimos calcular la vista previa" detail={errorMessage(preview.error)} tone="error" action={<button className="button" type="button" onClick={() => void preview.refetch()}>Reintentar</button>} /> : null}
       {users && users.items.length === 0 ? <PageState title="Ningún usuario cumple la condición" detail="Revisa el valor esperado o confirma que los perfiles ya tienen el atributo poblado." /> : null}
       {users?.items.length ? <>
         <div className="data-table" tabIndex={0} role="region" aria-label="Usuarios que cumplen la regla, desplazamiento horizontal"><table><caption className="sr-only">Usuarios que cumplen la regla</caption><thead><tr><th>Usuario</th><th>Correo</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{users.items.map((user) => <tr key={user.id}><td><strong>{user.fullName}</strong></td><td>{user.email}</td><td className="table-action"><Link className="button button--small button--secondary" to={`/users/${user.id}`}>Ver usuario</Link></td></tr>)}</tbody></table></div>
@@ -141,7 +143,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
     </section> : null}
     {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="group-rule-danger">
       <div className="settings-panel__heading"><div><h2 id="group-rule-danger">Eliminar regla</h2><p>Las membresías ya otorgadas se conservan; solo dejan de evaluarse nuevas coincidencias.</p></div></div>
-      {remove.error ? <p className="alert alert--error" role="alert">{message(remove.error)}</p> : null}
+      {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar regla</button></div>
     </section> : null}
     <ConfirmDialog open={confirmDelete} title="Eliminar group rule" detail={`Se eliminará la regla ${current ? describeRule(current) : ""} del grupo ${current?.groupName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
@@ -149,4 +151,3 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
 }
 
 function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

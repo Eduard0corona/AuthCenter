@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiRequest, ApiError } from "../../api/client";
+import { apiRequest } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, PermissionSummary } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { PageHeader } from "../../components/PageHeader";
@@ -26,10 +27,9 @@ export default function PermissionsPage() {
     <PageHeader eyebrow="Acceso" title="Permisos" description="Catálogo de capacidades que la API vuelve a autorizar en cada operación." actions={canWrite ? <Link className="button" to="/permissions/new">Nuevo permiso</Link> : undefined} />
     {canReadApplications ? <section className="toolbar" aria-label="Filtros de permisos"><label className="field"><span>Aplicación</span><select value={applicationId} onChange={(event) => update("applicationId", event.target.value)}><option value="">Todas</option>{applications.data?.items.map((application) => <option key={application.id} value={application.id}>{application.name}</option>)}</select></label></section> : null}
     {permissions.isPending ? <PageState title="Cargando permisos" busy /> : null}
-    {permissions.isError ? <PageState title="No pudimos cargar los permisos" detail={message(permissions.error)} tone="error" /> : null}
+    {permissions.isError ? <PageState title="No pudimos cargar los permisos" detail={errorMessage(permissions.error)} tone="error" /> : null}
     {permissions.data?.items.length ? <><div className="data-table" tabIndex={0} role="region" aria-label="Permisos, desplazamiento horizontal"><table><caption className="sr-only">Permisos</caption><thead><tr><th>Código</th><th>Nombre</th><th>Aplicación</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{permissions.data.items.map((permission) => <tr key={permission.id}><td className="mono">{permission.code}</td><td><strong>{permission.name}</strong><span className="cell-detail">{permission.description ?? "Sin descripción"}</span></td><td>{appNames.get(permission.applicationSystemId) ?? "Aplicación"}</td><td><StatusBadge active={permission.isActive} /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/permissions/${permission.id}`}>{canWrite ? "Configurar" : "Consultar"}</Link></td></tr>)}</tbody></table></div><Pagination page={permissions.data.page} pageSize={permissions.data.pageSize} totalCount={permissions.data.totalCount} totalPages={permissions.data.totalPages} onPageChange={(value) => update("page", String(value))} onPageSizeChange={(value) => update("pageSize", String(value))} /></> : null}
     {permissions.data && permissions.data.items.length === 0 ? <PageState title="No hay permisos" detail="Crea una capacidad para esta aplicación." /> : null}
   </>;
 }
 
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

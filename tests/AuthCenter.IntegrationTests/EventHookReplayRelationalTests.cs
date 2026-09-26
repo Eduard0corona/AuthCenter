@@ -98,6 +98,6 @@ public sealed class EventHookReplayRelationalTests
     {
         public Task LogAsync(string action, Guid? userId = null, string? applicationCode = null, string? entityName = null, string? entityId = null, string? ipAddress = null, string? userAgent = null, object? metadata = null, CancellationToken ct = default) => Task.CompletedTask;
         public Task<PagedResult<AuditLogDto>> GetAsync(AuditLogQuery query, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<AuditLogDto>> ExportPageAsync(AuditLogQuery query, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<AuditLogExport> ExportAsync(AuditLogQuery query, int maxRows, CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

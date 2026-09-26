@@ -111,7 +111,7 @@ public sealed class UiSessionController : ControllerBase
         return Ok(ApiResponse<object>.Ok(new
         {
             user = result.Data.Session.User,
-            csrfToken = UiCsrfMiddleware.IssueToken(Response),
+            csrfToken = UiCsrfMiddleware.IssueToken(Response, _sso.SessionLifetimeMinutes),
             backupCodes = result.Data.BackupCodes
         }));
     }
@@ -284,7 +284,7 @@ public sealed class UiSessionController : ControllerBase
         if (!result.IsSuccess)
             return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         await CreateSessionAsync(result.Data!);
-        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response))));
+        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response, _sso.SessionLifetimeMinutes))));
     }
 
     [AllowAnonymous]
@@ -296,7 +296,7 @@ public sealed class UiSessionController : ControllerBase
         if (!result.IsSuccess)
             return Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
         await CreateSessionAsync(result.Data!);
-        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response))));
+        return Ok(ApiResponse<object>.Ok(ToSession(result.Data!.User, UiCsrfMiddleware.IssueToken(Response, _sso.SessionLifetimeMinutes))));
     }
 
     [Authorize]
@@ -317,7 +317,7 @@ public sealed class UiSessionController : ControllerBase
             },
             // Lets the portal mark this browser's own session in the session list.
             sessionId = SessionClaims.SessionId(User),
-            csrfToken = UiCsrfMiddleware.IssueToken(Response)
+            csrfToken = UiCsrfMiddleware.IssueToken(Response, _sso.SessionLifetimeMinutes)
         }));
     }
 

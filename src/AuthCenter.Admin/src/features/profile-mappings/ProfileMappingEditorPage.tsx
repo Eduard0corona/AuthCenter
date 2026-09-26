@@ -4,10 +4,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRequest, ApiError } from "../../api/client";
+import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PagedResult, ProfileAttributeDefinition, ProfileMapping, ProfileMappingSimulation } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -76,7 +78,7 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
   });
 
   if (!create && mapping.isPending) return <PageState title="Cargando profile mapping" busy />;
-  if (!create && mapping.isError) return <PageState title="No pudimos cargar el profile mapping" detail={message(mapping.error)} tone="error" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
+  if (!create && mapping.isError) return <PageState title="No pudimos cargar el profile mapping" detail={errorMessage(mapping.error)} tone="error" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
   if (!canReadSchema) return <PageState title="No puedes administrar profile mappings" detail="Necesitas AUTHCENTER_PROFILE_SCHEMAS_READ para seleccionar el atributo destino del perfil universal." tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
   if (create && !canReadApplications) return <PageState title="No puedes crear profile mappings" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación de origen." tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
   const title = create ? "Nuevo profile mapping" : current ? `${current.sourcePath} → ${current.targetAttributeName}` : "Profile mapping";
@@ -92,10 +94,10 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
 
   return <>
     <Breadcrumbs items={[{ label: "Profile mappings", to: "/profile-mappings" }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.applicationName ?? "Lifecycle"} title={title} description={create ? "Vincula una ruta del documento SCIM con un atributo activo del perfil universal." : canWrite ? "Ajusta la ruta, el atributo destino o la autoridad del mapping y verifica su efecto con una simulación." : "Consulta el mapping y simula la transformación. No tienes permisos de escritura."} actions={<Link className="button button--secondary" to="/profile-mappings">Volver al listado</Link>} />
+    <PageHeader eyebrow={create ? "Alta" : current?.applicationName ?? "Lifecycle"} title={title} description={create ? "Vincula una ruta del documento SCIM con un atributo activo del perfil universal." : canWrite ? "Ajusta la ruta, el atributo destino o la autoridad del mapping y verifica su efecto con una simulación." : "Consulta el mapping y simula la transformación. No tienes permisos de escritura."} actions={<>{create ? null : <HistoryLink entityName="ProfileMapping" entityId={mappingId} />}<Link className="button button--secondary" to="/profile-mappings">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
     {conflict ? <p className="alert alert--error" role="alert">El mapping cambió desde que lo cargaste. Recarga para ver la versión vigente antes de volver a guardar. <button className="button button--small button--secondary" type="button" onClick={() => { save.reset(); void mapping.refetch(); }}>Recargar</button></p> : null}
-    {formError ? <p className="alert alert--error" role="alert">{message(formError)}</p> : null}
+    {formError ? <p className="alert alert--error" role="alert">{errorMessage(formError)}</p> : null}
     {validation ? <p className="alert alert--info" role="status">{validation}</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values).catch(() => undefined))(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
@@ -124,14 +126,14 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
       <div className="settings-panel__heading"><div><h2 id="profile-mapping-simulation">Simulación</h2><p>Pega un documento SCIM de ejemplo y comprueba qué valor recibiría <span className="mono">{current.targetAttributeName}</span>. No se persiste nada.</p></div></div>
       <Field label="Documento SCIM de prueba" error={documentError}><textarea className="mono" rows={10} value={sourceDocument} spellCheck={false} onChange={(event) => setSourceDocument(event.target.value)} /></Field>
       <div className="button-group"><button className="button button--secondary" type="button" disabled={simulate.isPending} onClick={runSimulation}>{simulate.isPending ? "Simulando…" : "Simular transformación"}</button></div>
-      {simulate.error ? <p className="alert alert--error" role="alert">{message(simulate.error)}</p> : null}
+      {simulate.error ? <p className="alert alert--error" role="alert">{errorMessage(simulate.error)}</p> : null}
       {simulate.data ? <div role="status" aria-live="polite" className={`alert ${simulate.data.isValid ? "alert--success" : "alert--error"}`}>
         {simulate.data.isValid ? <><p><strong className="mono">{simulate.data.sourcePath}</strong> → <strong className="mono">{simulate.data.targetAttributeName}</strong></p><pre className="mono">{formatSimulatedValue(simulate.data.value)}</pre></> : <><p>La ruta <span className="mono">{simulate.data.sourcePath}</span> no produjo ningún valor.</p><ul>{simulate.data.errors.map((error) => <li key={error}>{error}</li>)}</ul></>}
       </div> : null}
     </section> : null}
     {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="profile-mapping-danger">
       <div className="settings-panel__heading"><div><h2 id="profile-mapping-danger">Eliminar mapping</h2><p>Las sincronizaciones futuras dejarán de poblar el atributo. Los valores ya escritos se conservan.</p></div></div>
-      {remove.error ? <p className="alert alert--error" role="alert">{message(remove.error)}</p> : null}
+      {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar mapping</button></div>
     </section> : null}
     <ConfirmDialog open={confirmDelete} title="Eliminar profile mapping" detail={`Se eliminará el mapping ${current?.sourcePath ?? ""} → ${current?.targetAttributeName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
@@ -139,4 +141,3 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
 }
 
 function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }
-function message(error: unknown): string { return error instanceof ApiError ? error.message : "Ocurrió un error inesperado."; }

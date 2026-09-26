@@ -100,6 +100,21 @@ const provisioningToken = {
   revokedAt: null
 };
 
+const dashboardMetrics = {
+  generatedAt: "2026-09-26T12:00:00Z",
+  activeUsers: 1280,
+  inactiveUsers: 42,
+  activeApplications: 7,
+  activeGroups: 18,
+  pendingAccessRequests: 3,
+  activeFederationProviders: 2,
+  expiringProvisioningTokens: 1,
+  unverifiedEventHooks: 0,
+  deadLetterDeliveries: 4,
+  failedLoginsLast24Hours: 12,
+  highRiskObservationsLast24Hours: 0
+};
+
 test.beforeEach(async ({ page }) => {
   await page.route("**/ui-api/session", async (route) => route.fulfill({
     status: 200,
@@ -110,7 +125,7 @@ test.beforeEach(async ({ page }) => {
       email: "ada@example.test",
       applications: ["AUTHCENTER"],
       roles: ["Admin"],
-      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ", "AUTHCENTER_OAUTH_CLIENTS_READ", "AUTHCENTER_OAUTH_CLIENTS_WRITE", "AUTHCENTER_ACCESS_POLICIES_READ", "AUTHCENTER_ACCESS_POLICIES_WRITE"]
+      permissions: ["AUTHCENTER_USERS_READ", "AUTHCENTER_USERS_WRITE", "AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_AUDIT_LOGS_READ", "AUTHCENTER_APPLICATIONS_WRITE", "AUTHCENTER_ROLES_READ", "AUTHCENTER_ROLES_WRITE", "AUTHCENTER_PERMISSIONS_READ", "AUTHCENTER_PERMISSIONS_WRITE", "AUTHCENTER_GROUPS_READ", "AUTHCENTER_GROUPS_WRITE", "AUTHCENTER_PROFILE_SCHEMAS_READ", "AUTHCENTER_OAUTH_CLIENTS_READ", "AUTHCENTER_OAUTH_CLIENTS_WRITE", "AUTHCENTER_ACCESS_POLICIES_READ", "AUTHCENTER_ACCESS_POLICIES_WRITE", "AUTHCENTER_FEDERATION_READ", "AUTHCENTER_FEDERATION_WRITE", "AUTHCENTER_PROVISIONING_READ", "AUTHCENTER_PROVISIONING_WRITE", "AUTHCENTER_EVENT_HOOKS_READ", "AUTHCENTER_EVENT_HOOKS_WRITE"]
     }, csrfToken: "e2e-csrf" } })
   }));
   await page.route("**/api/users?**", async (route) => route.fulfill({
@@ -144,6 +159,9 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/federation/service-provider", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { oidcCallbackUrl: "https://authcenter.example.test/api/federation/oidc/callback", samlEntityId: "https://authcenter.example.test/saml", samlAssertionConsumerServiceUrl: "https://authcenter.example.test/api/federation/saml/acs" } }) }));
   await page.route("**/api/oauth/clients?**", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { items: [oauthClient], totalCount: 1, page: 1, pageSize: 20, totalPages: 1 } }) }));
   await page.route(`**/api/oauth/clients/${oauthClient.clientId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: oauthClient }) }));
+  await page.route("**/api/admin-metadata", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { errorCodes: {}, stepUpPurposes: {}, operationPermissions: {}, maximumPageSize: 100, environmentName: "Staging" } }) }));
+  await page.route("**/api/version", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { version: "1.4.0", commit: "0123456789abcdef", adminFrontendBasePath: "/admin-v2", contractVersion: 1 } }) }));
+  await page.route("**/api/admin-dashboard", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: dashboardMetrics }) }));
 });
 
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
@@ -983,7 +1001,7 @@ test("editing a routing rule without directory permissions preserves its group a
   let updatePayload: Record<string, unknown> | null = null;
   let catalogueRequests = 0;
   await page.unroute("**/ui-api/session");
-  await page.route("**/ui-api/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { user: { id: "operator-2", name: "Ada Operadora", email: "ada@example.test", applications: ["AUTHCENTER"], roles: ["Admin"], permissions: ["AUTHCENTER_APPLICATIONS_READ", "AUTHCENTER_APPLICATIONS_WRITE"] }, csrfToken: "e2e-csrf" } }) }));
+  await page.route("**/ui-api/session", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { user: { id: "operator-2", name: "Ada Operadora", email: "ada@example.test", applications: ["AUTHCENTER"], roles: ["Admin"], permissions: ["AUTHCENTER_FEDERATION_READ", "AUTHCENTER_FEDERATION_WRITE"] }, csrfToken: "e2e-csrf" } }) }));
   await page.unroute("**/api/groups?**");
   await page.unroute("**/api/profile-schema");
   await page.route("**/api/groups?**", async (route) => { catalogueRequests += 1; await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ success: false, errorCode: "FORBIDDEN", message: "Forbidden" }) }); });

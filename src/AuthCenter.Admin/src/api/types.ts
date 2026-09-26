@@ -4,6 +4,8 @@ export interface ApiEnvelope<T> {
   errorCode?: string;
   message?: string;
   details?: string[];
+  /** The request's trace, to quote to support. */
+  traceId?: string | null;
 }
 
 export interface PagedResult<T> {
@@ -161,13 +163,21 @@ export interface DirectoryGroupMember {
 export interface AuditLogEntry {
   id: string;
   userId: string | null;
+  /** The actor's email and name while the account exists. */
+  userEmail?: string | null;
+  userName?: string | null;
   applicationCode: string | null;
   action: string;
   entityName: string | null;
   entityId: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  metadataJson?: string | null;
   traceId: string | null;
   createdAt: string;
 }
+
+export type EventDeliveryStatus = "pending" | "delivered" | "dead-letter";
 
 export interface EventDelivery {
   id: string;
@@ -175,11 +185,43 @@ export interface EventDelivery {
   eventType: string;
   hookId: string;
   hookName: string;
+  status?: EventDeliveryStatus;
   attemptCount: number;
+  createdAt?: string;
   nextAttemptAt: string | null;
   deliveredAt: string | null;
   deadLetteredAt: string | null;
   lastError: string | null;
+  /** The signed JSON body; only in the detail of one delivery. */
+  payload?: string | null;
+}
+
+export interface EventHook {
+  id: string;
+  applicationSystemId: string | null;
+  applicationName: string | null;
+  name: string;
+  url: string;
+  eventTypes: string[];
+  isVerified: boolean;
+  isActive: boolean;
+  createdAt: string;
+  verifiedAt: string | null;
+  version: number;
+  /** Until when the secret replaced by the last rotation still signs deliveries. */
+  previousSecretExpiresAt: string | null;
+}
+
+export interface EventTypeInfo {
+  type: string;
+  category: string;
+}
+
+export interface EventHookSecret {
+  id: string;
+  secret: string;
+  isVerified: boolean;
+  previousSecretExpiresAt: string | null;
 }
 
 export interface OAuthClientSummary {
@@ -408,4 +450,34 @@ export interface FederationRouteResult {
   protocol: FederationProtocol;
   matchedRuleId?: string | null;
   matchedRulePriority?: number | null;
+}
+
+export interface AdminMetadata {
+  errorCodes: Record<string, string>;
+  stepUpPurposes: Record<string, string>;
+  operationPermissions: Record<string, string>;
+  maximumPageSize: number;
+  environmentName: string;
+}
+
+export interface VersionManifest {
+  version: string;
+  commit: string | null;
+  adminFrontendBasePath: string;
+  contractVersion: number;
+}
+
+export interface AdminDashboard {
+  generatedAt: string;
+  activeUsers: number;
+  inactiveUsers: number;
+  activeApplications: number;
+  activeGroups: number;
+  pendingAccessRequests: number;
+  activeFederationProviders: number;
+  expiringProvisioningTokens: number;
+  unverifiedEventHooks: number;
+  deadLetterDeliveries: number;
+  failedLoginsLast24Hours: number;
+  highRiskObservationsLast24Hours: number;
 }

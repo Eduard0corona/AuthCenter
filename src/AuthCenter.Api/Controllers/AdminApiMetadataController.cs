@@ -5,12 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 namespace AuthCenter.Api.Controllers;
 
 [ApiController, Route("api/admin-metadata"), Authorize]
-public sealed class AdminApiMetadataController : ControllerBase
+public sealed class AdminApiMetadataController(IHostEnvironment environment, IConfiguration configuration) : ControllerBase
 {
     [HttpGet]
     public IActionResult Get() => Ok(ApiResponse<object>.Ok(new AdminApiMetadataDto
     {
         MaximumPageSize = 100,
+        EnvironmentName = configuration["AdminConsole:EnvironmentName"] is { Length: > 0 } configured ? configured : environment.EnvironmentName,
         ErrorCodes = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["VALIDATION_FAILED"] = "The request failed validation.", ["NOT_FOUND"] = "The resource does not exist.",
