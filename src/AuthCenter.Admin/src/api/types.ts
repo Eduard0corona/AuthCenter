@@ -559,3 +559,68 @@ export interface ApiResource {
   createdAt: string;
   updatedAt: string | null;
 }
+
+export interface SamlCertificate {
+  pem: string;
+  subject: string;
+  thumbprintSha256: string;
+  notBefore: string;
+  notAfter: string;
+}
+
+export interface SamlAttributeMapping {
+  name: string;
+  /** email, name, userId, roles, permissions, groups or profile:<key>. */
+  source: string;
+}
+
+/** An application that signs in with SAML, AuthCenter being its identity provider. */
+export interface SamlServiceProvider {
+  version: number;
+  id: string;
+  applicationSystemId: string;
+  applicationCode: string;
+  applicationName: string;
+  name: string;
+  entityId: string;
+  assertionConsumerServiceUrls: string[];
+  singleLogoutServiceUrl: string | null;
+  nameIdFormat: string;
+  signingCertificate: SamlCertificate | null;
+  requireSignedRequests: boolean;
+  encryptionCertificate: SamlCertificate | null;
+  encryptAssertions: boolean;
+  signResponse: boolean;
+  attributes: SamlAttributeMapping[];
+  allowIdpInitiated: boolean;
+  defaultRelayState: string | null;
+  launchUrl: string | null;
+  assertionLifetimeMinutes: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+/** What a service provider's metadata says; nothing is saved until the form is. */
+export interface SamlServiceProviderMetadata {
+  entityId: string;
+  assertionConsumerServiceUrls: string[];
+  singleLogoutServiceUrl: string | null;
+  nameIdFormat: string | null;
+  signingCertificate: string | null;
+  encryptionCertificate: string | null;
+  requireSignedRequests: boolean;
+  warnings: string[];
+}
+
+export interface SamlIdentityProvider {
+  isConfigured: boolean;
+  problem: string | null;
+  entityId: string;
+  metadataUrl: string;
+  singleSignOnUrl: string;
+  singleLogoutUrl: string;
+  certificate: SamlCertificate | null;
+  nameIdFormats: string[];
+  attributeSources: string[];
+}

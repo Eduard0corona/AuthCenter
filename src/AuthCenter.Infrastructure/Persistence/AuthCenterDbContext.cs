@@ -47,6 +47,7 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public DbSet<ProvisioningToken> ProvisioningTokens => Set<ProvisioningToken>();
     public DbSet<ScimResourceLink> ScimResourceLinks => Set<ScimResourceLink>();
     public DbSet<ScimRequestLog> ScimRequestLogs => Set<ScimRequestLog>();
+    public DbSet<SamlServiceProvider> SamlServiceProviders => Set<SamlServiceProvider>();
     public DbSet<ProfileMapping> ProfileMappings => Set<ProfileMapping>();
     public DbSet<DynamicGroupRule> DynamicGroupRules => Set<DynamicGroupRule>();
     public DbSet<EventHook> EventHooks => Set<EventHook>();

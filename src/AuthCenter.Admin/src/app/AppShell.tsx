@@ -31,7 +31,8 @@ const navigation: NavigationGroup[] = [
     items: [
       { label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" },
       { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
-      { label: "Recursos de API", to: "/api-resources", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" }
+      { label: "Recursos de API", to: "/api-resources", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
+      { label: "Aplicaciones SAML", to: "/saml-apps", permission: "AUTHCENTER_SAML_APPS_READ" }
     ]
   },
   {

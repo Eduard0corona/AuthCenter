@@ -132,7 +132,10 @@ function renderApplications(applications) {
   renderList("applications-list", applications, item => [
     item.name,
     [item.description, item.grantedAt ? `Acceso desde ${formatDate(item.grantedAt)}` : null, item.groups.length ? `Por grupo: ${item.groups.join(", ")}` : null].filter(Boolean).join(" · ")
-  ], item => item.supportUrl ? [externalLink(item.supportUrl, "Soporte")] : [], "Todavía no tienes acceso a aplicaciones.", item => item.logoUrl);
+  ], item => [
+    item.launchUrl ? launchLink(item.launchUrl, item.name) : null,
+    item.supportUrl ? externalLink(item.supportUrl, "Soporte") : null
+  ].filter(Boolean), "Todavía no tienes acceso a aplicaciones.", item => item.logoUrl);
 }
 
 function renderProviders(providers, linkable) {
@@ -197,6 +200,14 @@ function button(label, kind, action) {
   node.type = "button";
   node.addEventListener("click", action);
   return node;
+}
+
+// Signs in to the application from here (a SAML sign-in it accepts without a request of its own).
+function launchLink(path, name) {
+  const link = element("a", "button", "Abrir");
+  link.href = path;
+  link.setAttribute("aria-label", `Abrir ${name}`);
+  return link;
 }
 
 function externalLink(url, label) {

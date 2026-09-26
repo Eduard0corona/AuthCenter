@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +27,25 @@ process.env.HOSTED_UI_SIGNING_KEY ??= generateKeyPairSync("rsa", {
   publicKeyEncoding: { type: "spki", format: "pem" }
 }).privateKey;
 
+process.env.HOSTED_UI_SAML_PASSWORD ??= randomBytes(12).toString("base64url");
+process.env.HOSTED_UI_SAML_CERTIFICATE ??= samlCertificate(process.env.HOSTED_UI_SAML_PASSWORD);
+
 const executablePath = process.env.HOSTED_UI_CHROMIUM || undefined;
+
+/** The PKCS#12 certificate AuthCenter signs its SAML assertions with, made with OpenSSL. */
+function samlCertificate(password) {
+  const directory = mkdtempSync(path.join(tmpdir(), "authcenter-saml-"));
+  const key = path.join(directory, "key.pem");
+  const certificate = path.join(directory, "certificate.pem");
+  const pkcs12 = path.join(directory, "certificate.pfx");
+  try {
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", certificate, "-days", "2", "-subj", "/CN=AuthCenter hosted UI tests"], { stdio: "ignore" });
+    execFileSync("openssl", ["pkcs12", "-export", "-inkey", key, "-in", certificate, "-out", pkcs12, "-passout", `pass:${password}`], { stdio: "ignore" });
+    return readFileSync(pkcs12).toString("base64");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -64,6 +83,8 @@ export default defineConfig({
       Jwt__Issuer: baseURL,
       Oidc__PublicOrigin: baseURL,
       Mfa__EncryptionKey: randomBytes(32).toString("base64"),
+      Saml__SigningCertificateBase64: process.env.HOSTED_UI_SAML_CERTIFICATE,
+      Saml__SigningCertificatePassword: process.env.HOSTED_UI_SAML_PASSWORD,
       Email__DevelopmentPickupDirectory: process.env.HOSTED_UI_MAIL_DIR,
       ActionLinks__DefaultBaseUrl: baseURL,
       ActionLinks__ApplicationBaseUrls__AUTHCENTER: baseURL,

@@ -155,6 +155,10 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IUserProfileService, UserProfileService>();
         services.AddScoped<DynamicGroupMembershipService>();
+        services.AddScoped<ISsoAccessGate, SsoAccessGate>();
+        services.AddSingleton<Services.Saml.SamlIdentityProviderKeys>();
+        services.AddScoped<ISamlIdentityProviderService, Services.Saml.SamlIdentityProviderService>();
+        services.AddScoped<ISamlServiceProviderService, Services.Saml.SamlServiceProviderService>();
         services.AddScoped<IPasskeyService, PasskeyService>();
         services.AddScoped<IReauthenticationService, ReauthenticationService>();
         services.AddScoped<IAuthenticationRiskService, AuthenticationRiskService>();

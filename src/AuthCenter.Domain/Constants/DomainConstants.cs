@@ -50,13 +50,19 @@ public static class DomainConstants
         public const string ProvisioningRead = "AUTHCENTER_PROVISIONING_READ";
         public const string ProvisioningWrite = "AUTHCENTER_PROVISIONING_WRITE";
 
+        // Applications that sign in with SAML, AuthCenter being their identity provider. Migration
+        // AddSamlIdentityProvider grants them to every role that manages OAuth clients.
+        public const string SamlAppsRead = "AUTHCENTER_SAML_APPS_READ";
+        public const string SamlAppsWrite = "AUTHCENTER_SAML_APPS_WRITE";
+
         public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
         {
             UsersRead, UsersWrite, ApplicationsRead, ApplicationsWrite, RolesRead, RolesWrite,
             PermissionsRead, PermissionsWrite, AuditLogsRead, OAuthClientsRead, OAuthClientsWrite,
             GroupsRead, GroupsWrite, AccessPoliciesRead, AccessPoliciesWrite,
             ProfileSchemasRead, ProfileSchemasWrite,
-            EventHooksRead, EventHooksWrite, FederationRead, FederationWrite, ProvisioningRead, ProvisioningWrite
+            EventHooksRead, EventHooksWrite, FederationRead, FederationWrite, ProvisioningRead, ProvisioningWrite,
+            SamlAppsRead, SamlAppsWrite
         };
     }
 

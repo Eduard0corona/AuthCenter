@@ -31,7 +31,10 @@ if (federationResult || federationError || magicLinkPage) {
   history.replaceState(null, "", `${magicLinkPage ? "/login" : location.pathname}${params.size ? `?${params}` : ""}`);
 }
 
-let interactionId = params.get("interaction_id");
+// A SAML sign-in request of an application AuthCenter is the identity provider of continues through
+// the same steps as an OpenID Connect authorization, on its own endpoints and without consent.
+let samlInteraction = params.has("saml_interaction");
+let interactionId = params.get("interaction_id") ?? params.get("saml_interaction");
 let returnUrl = params.get("return_url");
 if (params.get("application")) application.value = params.get("application");
 let mfaPendingToken = "";
@@ -51,6 +54,7 @@ if (magicLinkPage) {
   const pending = readPendingSignIn();
   if (pending) {
     interactionId = pending.interactionId || null;
+    samlInteraction = pending.saml === true && Boolean(interactionId);
     returnUrl = pending.returnUrl || null;
     if (pending.application) application.value = pending.application;
   }
@@ -273,6 +277,7 @@ function savePendingSignIn() {
   try {
     localStorage.setItem(PENDING_KEY, JSON.stringify({
       interactionId,
+      saml: samlInteraction,
       application: application.value,
       returnUrl: interactionId ? null : returnUrl,
       expiresAt: Date.now() + 15 * 60 * 1000
@@ -534,7 +539,7 @@ async function startFederation(provider) {
       body: JSON.stringify({
         providerId: provider.id,
         ...targetOfSignIn(),
-        returnUrl: interactionId ? undefined : returnUrl || undefined,
+        returnUrl: federationReturnUrl(),
         loginHint: email.value || undefined
       })
     });
@@ -547,9 +552,20 @@ async function startFederation(provider) {
   }
 }
 
-// The application of the sign-in: the authorization request's, or the one of a direct visit.
+// The application of the sign-in: the authorization request's, or the one of a direct visit. A
+// SAML request names its application through the context the page already loaded.
 function targetOfSignIn() {
-  return interactionId ? { interactionId } : { applicationCode: application.value };
+  return interactionId && !samlInteraction ? { interactionId } : { applicationCode: application.value };
+}
+
+function interactionPath(suffix = "") {
+  return `${samlInteraction ? "/saml/idp/interactions" : "/oauth/interactions"}/${encodeURIComponent(interactionId)}${suffix}`;
+}
+
+// Where an upstream identity provider sends the browser back: the SAML request continues here.
+function federationReturnUrl() {
+  if (samlInteraction) return `/login?saml_interaction=${encodeURIComponent(interactionId)}`;
+  return interactionId ? undefined : returnUrl || undefined;
 }
 
 // Back from the identity provider: this browser redeems the result, and the application's
@@ -611,7 +627,7 @@ async function startStepUp() {
   showView(null);
   let result;
   try {
-    result = await api(`/oauth/interactions/${encodeURIComponent(interactionId)}/step-up`, { method: "POST" });
+    result = await api(interactionPath("/step-up"), { method: "POST" });
   } catch (error) {
     if (error.code === "PASSKEY_REQUIRED") {
       showView(loginForm, document.querySelector("#passkey"));
@@ -627,7 +643,7 @@ async function startStepUp() {
 }
 
 async function loadInteractionContext() {
-  try { return await api(`/oauth/interactions/${encodeURIComponent(interactionId)}/context`); }
+  try { return await api(interactionPath("/context")); }
   catch { return null; }
 }
 
@@ -647,6 +663,8 @@ function handleInteractionError(error) {
 }
 
 async function showConsent() {
+  // SAML applications are registered by an administrator: there is no consent to ask for.
+  if (samlInteraction) return completeConsent(true);
   let details;
   try { details = await api(`/oauth/interactions/${encodeURIComponent(interactionId)}`); }
   catch (error) { return handleInteractionError(error); }
@@ -665,11 +683,13 @@ async function showConsent() {
 
 async function completeConsent(consent) {
   try {
-    const result = await api("/oauth/authorize/complete", {
-      method: "POST",
-      headers: { "X-AuthCenter-UI": "1" },
-      body: JSON.stringify({ interactionId, consent })
-    });
+    const result = samlInteraction
+      ? await api(interactionPath("/complete"), { method: "POST" })
+      : await api("/oauth/authorize/complete", {
+        method: "POST",
+        headers: { "X-AuthCenter-UI": "1" },
+        body: JSON.stringify({ interactionId, consent })
+      });
     leaving = true;
     location.assign(result.redirectUrl);
   } catch (error) {

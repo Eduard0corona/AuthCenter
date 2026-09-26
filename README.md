@@ -191,12 +191,13 @@ git-ignored and its values are for local use only.
 | `AdaptiveAuth:SignalHashKey` | Key Vault secret used to HMAC minimized network/device signals |
 | `Saml:EntityId` | Stable SAML service-provider entity identifier |
 | `Saml:AssertionConsumerServiceUrl` | Exact public HTTPS SAML POST callback |
-| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate used to sign AuthnRequests/metadata and to decrypt encrypted assertions |
+| `Saml:SigningCertificateBase64` | Key Vault PKCS#12 certificate with its RSA private key. As a service provider, AuthCenter signs AuthnRequests/metadata and decrypts encrypted assertions with it; as an identity provider, it signs the assertions and responses it issues to SAML applications |
+| `Saml:IdentityProviderEntityId` | Entity ID of AuthCenter as a SAML identity provider (default: its metadata URL, `{Jwt:Issuer}/saml/idp/metadata`). Every SAML application registers it, so changing it breaks their sign-in until they are updated |
 | `Saml:SigningCertificatePassword` | Optional Key Vault password for the PKCS#12 certificate |
 | `Cors:AllowedOrigins` | Origins of first-party frontends allowed to call `/api/*` with credentials. OAuth clients register their own browser origins (`AllowedCorsOrigins`) for the token, revocation and UserInfo endpoints; discovery and JWKS are public; the hosted UI (`/ui-api/*`, `/oauth/authorize`, pages) never answers cross-origin |
 | `RateLimiting:Enabled` | Turns rate limiting on or off (default on, except in the `Testing` environment) |
 | `RateLimiting:DistributedEnabled` | Shares the counters of every instance in SQL Server instead of memory |
-| `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client; federation discovery 30/min per address and 10/min per email, federation start and completion 20/min per address |
+| `RateLimiting:Rules:{policy}` | Replaces a policy's rules: an array of `{ Dimension, PermitLimit, WindowSeconds }`, with `Dimension` `Ip`, `Account` (email in the body), `Client` (OAuth client) or `AnonymousIp` (address, only when no client is named). Defaults: login 5/min per address and 20/15 min per account; password reset and magic links also per account; `/oauth/token`, `/oauth/revoke` and `/oauth/introspect` 1200/min per client and 60/min per address without a client; federation discovery 30/min per address and 10/min per email, federation start and completion 20/min per address; the SAML identity provider endpoints (`saml-idp`) 60/min per address |
 | `AllowedHosts` | Host header allow-list. `*` by default; narrow it to your public hostnames when deploying |
 | `Database:MigrateOnStartup` | Apply pending EF Core migrations at startup, creating the database if it does not exist (default: on only in Development). Instances starting together serialize on a SQL Server application lock |
 | `AzureMonitor:ConnectionString` | Versionless Key Vault reference for the Application Insights connection string; mandatory outside Development/Testing |
@@ -282,9 +283,9 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 | Route | Purpose |
 |---|---|
 | `/login` | Hosted sign-in with application branding: password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); OAuth consent and step-up; an authorization request that expires tells the user to go back to the application |
-| `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications, linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
+| `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications (**Abrir** signs in to a SAML application that accepts sign-ins started by AuthCenter), linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
 | `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link` | Pages the links in AuthCenter's emails open when `ActionLinks` point at AuthCenter. The single-use token leaves the address bar at once, the pages send no referrer and each action needs a click |
-| `/admin-v2/` | Administrative console: directory and profile schema, applications, OAuth clients and API catalog, lifecycle, federation, roles, permissions and access policies, System Log and Event Hooks. `/admin` redirects here |
+| `/admin-v2/` | Administrative console: directory and profile schema, applications, OAuth clients and API catalog, SAML applications, lifecycle, federation, roles, permissions and access policies, System Log and Event Hooks. `/admin` redirects here |
 
 These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
 written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
@@ -665,6 +666,66 @@ The JSON API (`/api/federation/oidc/begin|complete`, `/api/federation/saml/begin
 integrations that host their own callback; it runs the same access policy and MFA gate and answers
 `mfaPendingToken` when a second factor is needed.
 
+### SAML applications (AuthCenter as identity provider)
+
+Applications that only speak SAML 2.0 sign in with AuthCenter as their identity provider. Each one
+is registered under `/api/saml/service-providers` (`AUTHCENTER_SAML_APPS_READ`/`_WRITE`; roles that
+held `AUTHCENTER_OAUTH_CLIENTS_*` received them on upgrade) or in the console (**Aplicaciones
+SAML**), usually from its metadata: `POST /api/saml/service-providers/parse-metadata` reads the
+entity ID, the HTTP-POST assertion consumer services, the single logout URL, the NameID format and
+the certificates. A SAML application belongs to an AuthCenter application, and that application's
+access, access policy, risk evaluation and MFA apply to every assertion through the same gate as an
+OAuth authorization. Registrations carry a `version` (a stale update answers `CONCURRENCY_CONFLICT`)
+and their creation accepts `Idempotency-Key`.
+
+What each SAML application registers about AuthCenter (`GET /api/saml/identity-provider`, also
+shown in the console):
+
+| Item | Value |
+|---|---|
+| Metadata | `{Jwt:Issuer}/saml/idp/metadata` |
+| Entity ID | `Saml:IdentityProviderEntityId`, by default the metadata URL |
+| Single sign-on | `{Jwt:Issuer}/saml/idp/sso` (HTTP-Redirect and HTTP-POST bindings) |
+| Single logout | `{Jwt:Issuer}/saml/idp/slo` (HTTP-Redirect and HTTP-POST bindings) |
+| Signing certificate | The `Saml:SigningCertificateBase64` certificate; without it the endpoints answer 503 and the console warns |
+
+- **Requests.** An AuthnRequest must come from a registered, active SAML application (by its
+  `Issuer`), be recent (5 minutes plus `Saml:ClockSkewSeconds`), name AuthCenter's SSO URL as
+  `Destination`, ask for a registered assertion consumer service with the HTTP-POST binding, and it
+  is single-use. When the application requires signed requests, or signs one anyway, the signature
+  must verify with its certificate (RSA with SHA-256 or SHA-512: the query signature of
+  HTTP-Redirect, an enveloped XML signature of the whole request for HTTP-POST). A request that
+  fails these checks is answered on an AuthCenter error page and never posted to the address it
+  names. Once the application is trusted, a refusal goes back to it as a SAML status
+  (`InvalidNameIDPolicy`, `NoPassive`, `RequestDenied`).
+- **Sign-in.** Without a single sign-on session, the browser continues at
+  `/login?saml_interaction=...`: the same hosted login (password, passkeys, emailed links,
+  federation, second factor) with the application's branding and without a consent screen. A
+  `RequestedAuthnContext` with a multi-factor class (the REFEDS MFA profile,
+  `http://schemas.microsoft.com/claims/multipleauthn`, ...) asks for step-up, `ForceAuthn` requires a
+  sign-in made after the request, and `IsPassive` never shows the login (`NoPassive` instead).
+- **Assertions.** Always signed (RSA-SHA256, exclusive canonicalization), and the Response too unless
+  `SignResponse` is off. With `EncryptAssertions`, encrypted to the application's certificate
+  (AES-256-CBC, key wrapped with RSA-OAEP). The NameID is the email, a persistent pseudonym (an HMAC
+  of the user id with a per-application salt: stable for the application, not correlatable across
+  applications) or the user id (unspecified). Attributes map a SAML name to `email`, `name`,
+  `userId`, `roles`, `permissions`, `groups` or `profile:<key>` of the universal directory profile.
+  When the session used a second factor, the authentication context is the multi-factor class the
+  application asked for (by default the REFEDS MFA profile); otherwise it is
+  `PasswordProtectedTransport`. Assertions live `AssertionLifetimeMinutes` (1 to 60,
+  default 5).
+- **Started by AuthCenter.** With `AllowIdpInitiated`, `GET /saml/idp/sso/initiate/{id}` posts an
+  unsolicited response carrying `DefaultRelayState` (after the hosted login when needed); the portal
+  offers it as **Abrir** on the application.
+- **Logout.** A LogoutRequest from the application (signed when the application requires signed
+  requests) ends the AuthCenter session named by its `SessionIndex`, or the browser's, when that
+  session belongs to the NameID, and is answered with a signed LogoutResponse at the application's
+  single logout URL. Logout is not propagated to the other SAML applications signed in with the same
+  session, so each one should also end its own session; OAuth clients of the session still receive
+  their back-channel logout.
+- Audit events (and event hooks): `SAML_ASSERTION_ISSUED`, `SAML_SSO_DENIED`, `SAML_REQUEST_REJECTED`,
+  `SAML_LOGOUT_COMPLETED` and `SAML_SERVICE_PROVIDER_CREATED`/`_UPDATED`/`_DELETED`.
+
 ### SCIM and lifecycle automation
 
 Provisioning tokens are created at `/api/provisioning-tokens`; the raw value is returned once.
@@ -799,7 +860,8 @@ The `AUTHCENTER` application is seeded automatically with:
   applications, roles, permissions, the System Log, event hooks, federation and provisioning tokens
 - All permissions enumerated under `AUTHCENTER_*`. Event hooks, federation and provisioning have
   their own `AUTHCENTER_EVENT_HOOKS_*`, `AUTHCENTER_FEDERATION_*` and `AUTHCENTER_PROVISIONING_*`
-  permissions; roles that held `AUTHCENTER_APPLICATIONS_*` before them received them on upgrade
+  permissions; roles that held `AUTHCENTER_APPLICATIONS_*` before them received them on upgrade. SAML applications have
+  `AUTHCENTER_SAML_APPS_*`, received on upgrade by the roles that held `AUTHCENTER_OAUTH_CLIENTS_*`
 
 ## Running Tests
 
@@ -812,9 +874,10 @@ AUTHCENTER_RELATIONAL_TEST_CONNECTION="Server=localhost,1433;User Id=sa;Password
 
 The end-to-end suite builds nothing: run `dotnet build -c Release` and, for the console specs,
 `npm run build` in `src/AuthCenter.Admin` first. It starts the API in Development on
-`http://localhost:5071` with a new database, an RSA key generated for the run, rate limiting off
+`http://localhost:5071` with a new database, an RSA key and a SAML certificate (made with `openssl`)
+generated for the run, rate limiting off
 and emails written to a pickup directory, and drives the login, the portal, the emailed-link pages
-(with a virtual WebAuthn authenticator) and the administration console against the real API, with
+(with a virtual WebAuthn authenticator), SAML sign-in and the administration console against the real API, with
 axe checks (`HOSTED_UI_CHROMIUM` can point at a local Chromium). The same variable runs the SQL
 Server integration tests of `dotnet test`. The console's own Playwright suite (`npm run test:e2e`)
 uses mocked responses and checks every route with axe on desktop and mobile.

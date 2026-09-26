@@ -12,4 +12,7 @@ public sealed class UserApplicationDto
     /// <summary>When direct access was granted; null when the access only comes from a group.</summary>
     public DateTime? GrantedAt { get; init; }
     public IReadOnlyList<string> Groups { get; init; } = [];
+
+    /// <summary>Opens the application from AuthCenter: a SAML sign-in the application accepts unrequested.</summary>
+    public string? LaunchUrl { get; init; }
 }

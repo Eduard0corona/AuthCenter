@@ -76,6 +76,8 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.FederationWrite, "Manage enterprise federation providers and routing"),
             (DomainConstants.Permissions.ProvisioningRead, "Read provisioning tokens"),
             (DomainConstants.Permissions.ProvisioningWrite, "Manage provisioning tokens"),
+            (DomainConstants.Permissions.SamlAppsRead, "Read SAML applications and the identity provider"),
+            (DomainConstants.Permissions.SamlAppsWrite, "Manage SAML applications"),
         };
 
         var now2 = DateTime.UtcNow;

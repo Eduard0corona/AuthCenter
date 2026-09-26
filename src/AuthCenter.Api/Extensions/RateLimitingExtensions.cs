@@ -32,6 +32,7 @@ public static class RateLimitingExtensions
     public const string FederationDiscover = "federation-discover";
     public const string FederationStart = "federation-start";
     public const string FederationComplete = "federation-complete";
+    public const string SamlIdentityProvider = "saml-idp";
 
     private static RateLimitRule PerIp(int permits, TimeSpan window) => new(RateLimitDimension.Ip, permits, window);
     private static RateLimitRule PerAccount(int permits, TimeSpan window) => new(RateLimitDimension.Account, permits, window);
@@ -42,6 +43,8 @@ public static class RateLimitingExtensions
             // Per account the budget is generous: it stops distributed guessing without letting a
             // stranger lock a user out as easily as a tight limit would.
             [Login] = [PerIp(5, TimeSpan.FromMinutes(1)), PerAccount(20, TimeSpan.FromMinutes(15))],
+            // SAML requests arrive as browser navigations from service providers: generous, but bounded per address.
+            [SamlIdentityProvider] = [PerIp(60, TimeSpan.FromMinutes(1))],
             [Register] = [PerIp(3, TimeSpan.FromMinutes(1)), PerAccount(3, TimeSpan.FromHours(1))],
             [Refresh] = [PerIp(10, TimeSpan.FromMinutes(1))],
             // Per account these stop mail bombing a victim from many addresses.

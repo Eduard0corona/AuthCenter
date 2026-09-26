@@ -8,7 +8,7 @@ import { json, mockShell, paged } from "./support";
 const routes = [
   "/", "/users", "/users/new", "/users/invite", "/groups", "/groups/new", "/profile-schema", "/profile-schema/new",
   "/applications", "/applications/new", "/oauth-clients", "/oauth-clients/new", "/api-resources", "/api-resources/new",
-  "/provisioning-tokens", "/provisioning-tokens/new", "/profile-mappings", "/profile-mappings/new", "/group-rules", "/group-rules/new",
+  "/provisioning-tokens", "/provisioning-tokens/new", "/profile-mappings", "/profile-mappings/new", "/group-rules", "/group-rules/new", "/saml-apps", "/saml-apps/new",
   "/federation", "/federation/providers/new", "/roles", "/roles/new", "/permissions", "/permissions/new", "/access-policies",
   "/event-hooks", "/event-hooks/new", "/event-hooks/deliveries", "/system-log", "/404"
 ];
@@ -23,6 +23,7 @@ async function mockEmptyApi(page: Page) {
     if (path === "/api/admin-dashboard") {
       return json(route, { generatedAt: "2026-09-26T12:00:00Z", activeUsers: 3, inactiveUsers: 0, activeApplications: 1, activeGroups: 0, pendingAccessRequests: 1, activeFederationProviders: 0, expiringProvisioningTokens: 0, unverifiedEventHooks: 1, deadLetterDeliveries: 2, failedLoginsLast24Hours: 0, highRiskObservationsLast24Hours: 1 });
     }
+    if (path === "/api/saml/identity-provider") return json(route, { isConfigured: true, problem: null, entityId: "https://authcenter.example.test/saml/idp/metadata", metadataUrl: "https://authcenter.example.test/saml/idp/metadata", singleSignOnUrl: "https://authcenter.example.test/saml/idp/sso", singleLogoutUrl: "https://authcenter.example.test/saml/idp/slo", certificate: null, nameIdFormats: [], attributeSources: [] });
     if (path === "/api/federation/service-provider") return json(route, { oidcCallbackUrl: "https://authcenter.example.test/api/federation/oidc/callback", samlEntityId: "https://authcenter.example.test/saml", samlAssertionConsumerServiceUrl: "https://authcenter.example.test/api/federation/saml/acs" });
     return json(route, arrayEndpoints.some((pattern) => pattern.test(path)) ? [] : paged([]));
   });

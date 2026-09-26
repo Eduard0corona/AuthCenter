@@ -38,7 +38,11 @@ public sealed class AdminApiMetadataController(IHostEnvironment environment, ICo
             ["GET /api/lifecycle/group-rules"] = "AUTHCENTER_GROUPS_READ", ["PUT /api/lifecycle/group-rules/{id}"] = "AUTHCENTER_GROUPS_WRITE",
             ["GET /api/federation/providers"] = "AUTHCENTER_FEDERATION_READ", ["POST /api/federation/providers"] = "AUTHCENTER_FEDERATION_WRITE",
             ["GET /api/federation/routing-rules"] = "AUTHCENTER_FEDERATION_READ", ["PUT /api/federation/routing-rules/{id}"] = "AUTHCENTER_FEDERATION_WRITE",
-            ["GET /api/admin-dashboard"] = "AUTHCENTER_AUDIT_LOGS_READ", ["GET /api/audit-logs/export"] = "AUTHCENTER_AUDIT_LOGS_READ"
+            ["GET /api/admin-dashboard"] = "AUTHCENTER_AUDIT_LOGS_READ", ["GET /api/audit-logs/export"] = "AUTHCENTER_AUDIT_LOGS_READ",
+            ["GET /api/provisioning-tokens/{id}/diagnostics"] = "AUTHCENTER_PROVISIONING_READ", ["GET /api/provisioning-tokens/{id}/requests"] = "AUTHCENTER_PROVISIONING_READ",
+            ["GET /api/saml/identity-provider"] = "AUTHCENTER_SAML_APPS_READ", ["GET /api/saml/service-providers"] = "AUTHCENTER_SAML_APPS_READ",
+            ["POST /api/saml/service-providers"] = "AUTHCENTER_SAML_APPS_WRITE", ["PUT /api/saml/service-providers/{id}"] = "AUTHCENTER_SAML_APPS_WRITE",
+            ["DELETE /api/saml/service-providers/{id}"] = "AUTHCENTER_SAML_APPS_WRITE", ["POST /api/saml/service-providers/parse-metadata"] = "AUTHCENTER_SAML_APPS_WRITE"
         }
     }));
 }

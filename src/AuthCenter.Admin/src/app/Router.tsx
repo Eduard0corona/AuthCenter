@@ -12,6 +12,8 @@ const ApplicationsPage = lazy(() => import("../features/applications/Application
 const ApplicationEditorPage = lazy(() => import("../features/applications/ApplicationEditorPage"));
 const OAuthClientsPage = lazy(() => import("../features/oauth-clients/OAuthClientsPage"));
 const OAuthClientEditorPage = lazy(() => import("../features/oauth-clients/OAuthClientEditorPage"));
+const SamlAppsPage = lazy(() => import("../features/saml-apps/SamlAppsPage"));
+const SamlAppEditorPage = lazy(() => import("../features/saml-apps/SamlAppEditorPage"));
 const ProvisioningTokensPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokensPage"));
 const ProvisioningTokenEditorPage = lazy(() => import("../features/provisioning-tokens/ProvisioningTokenEditorPage"));
 const ProfileMappingsPage = lazy(() => import("../features/profile-mappings/ProfileMappingsPage"));
@@ -52,6 +54,9 @@ export function AppRouter() {
           <Route path="applications" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationsPage /></PermissionRoute>} />
           <Route path="applications/new" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_WRITE"><ApplicationEditorPage create /></PermissionRoute>} />
           <Route path="applications/:applicationId" element={<PermissionRoute permission="AUTHCENTER_APPLICATIONS_READ"><ApplicationEditorPage /></PermissionRoute>} />
+          <Route path="saml-apps" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_READ"><SamlAppsPage /></PermissionRoute>} />
+          <Route path="saml-apps/new" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_WRITE"><SamlAppEditorPage create /></PermissionRoute>} />
+          <Route path="saml-apps/:providerId" element={<PermissionRoute permission="AUTHCENTER_SAML_APPS_READ"><SamlAppEditorPage /></PermissionRoute>} />
           <Route path="oauth-clients" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientsPage /></PermissionRoute>} />
           <Route path="oauth-clients/new" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_WRITE"><OAuthClientEditorPage create /></PermissionRoute>} />
           <Route path="oauth-clients/:clientId" element={<PermissionRoute permission="AUTHCENTER_OAUTH_CLIENTS_READ"><OAuthClientEditorPage /></PermissionRoute>} />

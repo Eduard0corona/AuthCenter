@@ -169,6 +169,11 @@ public class AccountManagementService : IAccountManagementService
                 SupportUrl = application.BrandingSettings != null ? application.BrandingSettings.SupportUrl : null
             })
             .ToListAsync(ct);
+        var launchable = await _db.SamlServiceProviders.AsNoTracking()
+            .Where(provider => ids.Contains(provider.ApplicationSystemId) && provider.IsActive && provider.AllowIdpInitiated)
+            .OrderBy(provider => provider.Name)
+            .Select(provider => new { provider.ApplicationSystemId, provider.Id })
+            .ToListAsync(ct);
         return applications
             .Select(application => new UserApplicationDto
             {
@@ -178,7 +183,10 @@ public class AccountManagementService : IAccountManagementService
                 LogoUrl = application.LogoUrl,
                 SupportUrl = application.SupportUrl,
                 GrantedAt = direct.Where(item => item.ApplicationSystemId == application.Id).Select(item => (DateTime?)item.CreatedAt).Min(),
-                Groups = viaGroups.Where(item => item.ApplicationSystemId == application.Id).Select(item => item.Group).Distinct().Order().ToList()
+                Groups = viaGroups.Where(item => item.ApplicationSystemId == application.Id).Select(item => item.Group).Distinct().Order().ToList(),
+                LaunchUrl = launchable.FirstOrDefault(provider => provider.ApplicationSystemId == application.Id) is { } provider
+                    ? $"/saml/idp/sso/initiate/{provider.Id}"
+                    : null
             })
             .OrderBy(application => application.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
