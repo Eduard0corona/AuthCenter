@@ -344,7 +344,13 @@ public class UserAccessService : IUserAccessService
         return MapDetailedDto(user, directRoles);
     }
 
-    public async Task<OperationResult<UserDto>> SetDirectAccessAsync(
+    public Task<OperationResult<UserDto>> SetDirectAccessAsync(
+        Guid userId,
+        SetUserDirectAccessRequest request,
+        CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => SetDirectAccessCoreAsync(userId, request, ct));
+
+    private async Task<OperationResult<UserDto>> SetDirectAccessCoreAsync(
         Guid userId,
         SetUserDirectAccessRequest request,
         CancellationToken ct = default)
@@ -473,7 +479,10 @@ public class UserAccessService : IUserAccessService
         return OperationResult.Success();
     }
 
-    public async Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
+    public Task<OperationResult> RevokeAccessAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => RevokeAccessCoreAsync(userId, applicationSystemId, ct));
+
+    private async Task<OperationResult> RevokeAccessCoreAsync(Guid userId, Guid applicationSystemId, CancellationToken ct = default)
     {
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
@@ -534,7 +543,10 @@ public class UserAccessService : IUserAccessService
         return OperationResult.Success();
     }
 
-    public async Task<OperationResult> RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default)
+    public Task<OperationResult> RemoveRoleAsync(Guid userId, Guid roleId, CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => RemoveRoleCoreAsync(userId, roleId, ct));
+
+    private async Task<OperationResult> RemoveRoleCoreAsync(Guid userId, Guid roleId, CancellationToken ct = default)
     {
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
@@ -585,7 +597,10 @@ public class UserAccessService : IUserAccessService
         return OperationResult.Success();
     }
 
-    public async Task<OperationResult> DeactivateUserAsync(Guid userId, CancellationToken ct = default)
+    public Task<OperationResult> DeactivateUserAsync(Guid userId, CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => DeactivateUserCoreAsync(userId, ct));
+
+    private async Task<OperationResult> DeactivateUserCoreAsync(Guid userId, CancellationToken ct = default)
     {
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)
@@ -650,7 +665,10 @@ public class UserAccessService : IUserAccessService
         return OperationResult.Success();
     }
 
-    public async Task<OperationResult> AdminDeleteUserAsync(Guid userId, CancellationToken ct = default)
+    public Task<OperationResult> AdminDeleteUserAsync(Guid userId, CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => AdminDeleteUserCoreAsync(userId, ct));
+
+    private async Task<OperationResult> AdminDeleteUserCoreAsync(Guid userId, CancellationToken ct = default)
     {
         await using var transaction = _db.Database.IsRelational()
             ? await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct)

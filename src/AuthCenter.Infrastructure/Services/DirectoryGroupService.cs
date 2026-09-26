@@ -303,7 +303,13 @@ public class DirectoryGroupService : IDirectoryGroupService
         return OperationResult.Success();
     }
 
-    public async Task<OperationResult<DirectoryGroupDto>> SetAccessAsync(
+    public Task<OperationResult<DirectoryGroupDto>> SetAccessAsync(
+        Guid groupId,
+        SetDirectoryGroupAccessRequest request,
+        CancellationToken ct = default) =>
+        _db.RunRetriableAsync(() => SetAccessCoreAsync(groupId, request, ct));
+
+    private async Task<OperationResult<DirectoryGroupDto>> SetAccessCoreAsync(
         Guid groupId,
         SetDirectoryGroupAccessRequest request,
         CancellationToken ct = default)

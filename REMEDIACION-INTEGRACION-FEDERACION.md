@@ -182,6 +182,8 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 - [ ] **ADM-07** SCIM: `/Schemas`, `/ResourceTypes`, PUT, orden, ETag y diagnóstico.
 - [x] **ADM-08** Mapeo de claims del IdP a grupos del directorio.
   *Resuelto:* `GroupsClaim` y `GroupMappings` (tabla `FederationGroupMappings`) por proveedor; en cada inicio de sesión federado se agregan y quitan las membresías de los grupos mapeados (el resto no cambia), un cambio cierra las sesiones existentes y se audita (`FEDERATION_GROUPS_SYNCED`); con overage de Entra ID (`_claim_names`/`groups.link`) no se tocan. MFA del IdP de confianza con `TrustUpstreamMfa`. Consola: editor de mapeos. Pruebas: `GroupClaims_KeepTheMappedMembershipsInSync`, e2e.
+- [x] **ADM-09** *(nuevo)* En SQL Server, las operaciones administrativas que abren una transacción (acceso heredado de un grupo, acceso directo, revocar acceso, quitar rol, desactivar y eliminar usuarios) respondían 500: el contexto usa la estrategia de reintentos de Azure SQL y EF Core rechaza una transacción abierta fuera de ella. Las pruebas usaban la base en memoria y no lo veían.
+  *Resuelto:* esas operaciones corren como unidad reintentable (`RetriableUnits.RunRetriableAsync`: la estrategia repite la unidad completa, con el change tracker limpio). Nueva fábrica de pruebas `SqlServerWebApplicationFactory`, que levanta la API con su registro real de SQL Server (pool y reintentos) sobre una base aislada, y prueba `TransactionalAdminOperations_RunUnderTheRetryingExecutionStrategy`, que fallaba con 500 antes del cambio.
 
 ### E. Consola administrativa
 
