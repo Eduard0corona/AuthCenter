@@ -77,9 +77,9 @@ public sealed class AdminBackendCompletionTests : IClassFixture<AuthCenterWebApp
         var deliveries = await ReadDataAsync<PagedResult<EventHookDeliveryDto>>(await admin.GetAsync($"/api/event-hooks/deliveries?hookId={hookId}&status=dead-letter&page=1&pageSize=10"));
         Assert.Single(deliveries.Items); Assert.Equal("dead-letter", deliveries.Items[0].Status);
         var hook = await ReadDataAsync<EventHookDto>(await admin.GetAsync($"/api/event-hooks/{hookId}"));
-        var updatedHook = await ReadDataAsync<EventHookDto>(await admin.PutAsJsonAsync($"/api/event-hooks/{hookId}", new UpdateEventHookRequest { Name = hook.Name, Url = hook.Url, EventTypes = ["TEST", "TEST_UPDATED"], IsActive = true, Version = hook.Version }));
-        Assert.Equal(hook.Version + 1, updatedHook.Version); Assert.Contains("TEST_UPDATED", updatedHook.EventTypes);
-        var staleHook = await admin.PutAsJsonAsync($"/api/event-hooks/{hookId}", new UpdateEventHookRequest { Name = hook.Name, Url = hook.Url, EventTypes = ["TEST"], IsActive = true, Version = hook.Version });
+        var updatedHook = await ReadDataAsync<EventHookDto>(await admin.PutAsJsonAsync($"/api/event-hooks/{hookId}", new UpdateEventHookRequest { Name = hook.Name, Url = hook.Url, EventTypes = ["USER_CREATED", "USER_INVITED"], IsActive = true, Version = hook.Version }));
+        Assert.Equal(hook.Version + 1, updatedHook.Version); Assert.Contains("USER_INVITED", updatedHook.EventTypes);
+        var staleHook = await admin.PutAsJsonAsync($"/api/event-hooks/{hookId}", new UpdateEventHookRequest { Name = hook.Name, Url = hook.Url, EventTypes = ["USER_CREATED"], IsActive = true, Version = hook.Version });
         Assert.Equal(HttpStatusCode.Conflict, staleHook.StatusCode);
         var replay = new HttpRequestMessage(HttpMethod.Post, $"/api/event-hooks/deliveries/{deliveryId}/replay"); replay.Headers.Add("Idempotency-Key", "replay-contract-test");
         Assert.Equal(HttpStatusCode.OK, (await admin.SendAsync(replay)).StatusCode);
@@ -107,7 +107,7 @@ public sealed class AdminBackendCompletionTests : IClassFixture<AuthCenterWebApp
         Assert.True(dashboard.ActiveUsers > 0); Assert.True(dashboard.ActiveApplications > 0); Assert.NotEqual(default, dashboard.GeneratedAt);
         var version = await ReadDataAsync<VersionManifestDto>(await admin.GetAsync("/api/version")); Assert.False(string.IsNullOrWhiteSpace(version.Version)); Assert.Equal("/admin-v2", version.AdminFrontendBasePath);
         var metadata = await ReadDataAsync<AdminApiMetadataDto>(await admin.GetAsync("/api/admin-metadata"));
-        Assert.Equal(100, metadata.MaximumPageSize); Assert.Contains("CONCURRENCY_CONFLICT", metadata.ErrorCodes.Keys); Assert.Equal(DomainConstants.Permissions.ApplicationsWrite, metadata.OperationPermissions["POST /api/provisioning-tokens"]);
+        Assert.Equal(100, metadata.MaximumPageSize); Assert.Contains("CONCURRENCY_CONFLICT", metadata.ErrorCodes.Keys); Assert.Equal(DomainConstants.Permissions.ProvisioningWrite, metadata.OperationPermissions["POST /api/provisioning-tokens"]);
 
         var missing = await admin.GetAsync($"/api/applications/{Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);

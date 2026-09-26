@@ -4,6 +4,10 @@ public class AuditLogDto
 {
     public Guid Id { get; init; }
     public Guid? UserId { get; init; }
+
+    /// <summary>The actor's email and name when the account still exists.</summary>
+    public string? UserEmail { get; init; }
+    public string? UserName { get; init; }
     public string? ApplicationCode { get; init; }
     public string Action { get; init; } = string.Empty;
     public string? EntityName { get; init; }

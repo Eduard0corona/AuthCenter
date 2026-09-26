@@ -1,4 +1,6 @@
+using System.Text.Json;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Events;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -63,13 +65,71 @@ public class AuthCenterDbContext : IdentityDbContext<ApplicationUser, Applicatio
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         AttachTraceId();
+        QueueEventHookDeliveriesAsync(CancellationToken.None).GetAwaiter().GetResult();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
         AttachTraceId();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        await QueueEventHookDeliveriesAsync(cancellationToken);
+        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// Every audit event saved through this context, whichever service wrote it, reaches the event
+    /// hooks subscribed to its type, in the same transaction as the event. A retried save (execution
+    /// strategy) does not queue the same delivery twice.
+    /// </summary>
+    private async Task QueueEventHookDeliveriesAsync(CancellationToken ct)
+    {
+        var events = ChangeTracker.Entries<AuditLog>().Where(entry => entry.State == EntityState.Added).Select(entry => entry.Entity).ToList();
+        if (events.Count == 0)
+            return;
+        var hooks = await EventHooks.AsNoTracking()
+            .Where(hook => hook.IsActive && hook.IsVerified)
+            .Select(hook => new { hook.Id, ApplicationCode = hook.ApplicationSystem != null ? hook.ApplicationSystem.Code : null, hook.EventTypesJson })
+            .ToListAsync(ct);
+        if (hooks.Count == 0)
+            return;
+        var queued = ChangeTracker.Entries<EventHookDelivery>()
+            .Where(entry => entry.State == EntityState.Added)
+            .Select(entry => (entry.Entity.EventHookId, entry.Entity.EventId))
+            .ToHashSet();
+        foreach (var hook in hooks)
+        {
+            var types = JsonSerializer.Deserialize<string[]>(hook.EventTypesJson) ?? [];
+            foreach (var log in events)
+            {
+                if (hook.ApplicationCode is not null && !string.Equals(hook.ApplicationCode, log.ApplicationCode, StringComparison.Ordinal))
+                    continue;
+                if (!types.Contains(log.Action, StringComparer.Ordinal) && !types.Contains(EventTypes.Wildcard, StringComparer.Ordinal))
+                    continue;
+                if (!queued.Add((hook.Id, log.Id)))
+                    continue;
+                var occurredAt = log.CreatedAt == default ? DateTime.UtcNow : log.CreatedAt;
+                EventHookDeliveries.Add(new EventHookDelivery
+                {
+                    Id = Guid.NewGuid(),
+                    EventHookId = hook.Id,
+                    EventId = log.Id,
+                    EventType = log.Action,
+                    PayloadJson = JsonSerializer.Serialize(new
+                    {
+                        id = log.Id,
+                        type = log.Action,
+                        occurredAt,
+                        subjectId = log.UserId,
+                        applicationCode = log.ApplicationCode,
+                        entity = log.EntityName,
+                        entityId = log.EntityId,
+                        traceId = log.TraceId
+                    }),
+                    CreatedAt = occurredAt,
+                    NextAttemptAt = occurredAt
+                });
+            }
+        }
     }
 
     private void AttachTraceId()

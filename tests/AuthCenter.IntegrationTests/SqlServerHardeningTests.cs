@@ -129,6 +129,74 @@ public sealed class SqlServerHardeningTests
     }
 
     [RelationalFact]
+    public async Task OperationsPermissionsMigration_GrantsNewPermissionsToRolesHoldingLegacyOnes()
+    {
+        var connectionString = BuildIsolatedConnectionString();
+        var options = CreateOptions(connectionString);
+        try
+        {
+            await using var db = new AuthCenterDbContext(options);
+            var migrator = db.Database.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260926131814_AddEventHookSecretRotation");
+
+            var readerRoleId = Guid.NewGuid();
+            var writerRoleId = Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            await db.Database.ExecuteSqlInterpolatedAsync($$"""
+                DECLARE @applicationId uniqueidentifier = (SELECT Id FROM dbo.ApplicationSystems WHERE Code = 'AUTHCENTER');
+                INSERT INTO dbo.Permissions (Id, ApplicationSystemId, Code, Name, Description, IsActive, CreatedAt)
+                SELECT NEWID(), @applicationId, legacy.Code, legacy.Code, NULL, 1, {{now}}
+                FROM (VALUES ('AUTHCENTER_APPLICATIONS_READ'), ('AUTHCENTER_APPLICATIONS_WRITE')) legacy(Code)
+                WHERE NOT EXISTS (SELECT 1 FROM dbo.Permissions p WHERE p.ApplicationSystemId = @applicationId AND p.Code = legacy.Code);
+
+                INSERT INTO dbo.AspNetRoles (Id, ApplicationSystemId, Name, NormalizedName, DisplayName, IsActive, IsSystemRole, CreatedAt)
+                VALUES ({{readerRoleId}}, @applicationId, 'Migration reader', 'MIGRATION READER', 'Migration reader', 1, 0, {{now}}),
+                       ({{writerRoleId}}, @applicationId, 'Migration writer', 'MIGRATION WRITER', 'Migration writer', 1, 0, {{now}});
+
+                INSERT INTO dbo.RolePermissions (RoleId, PermissionId, CreatedAt)
+                SELECT {{readerRoleId}}, Id, {{now}} FROM dbo.Permissions WHERE ApplicationSystemId = @applicationId AND Code = 'AUTHCENTER_APPLICATIONS_READ'
+                UNION ALL
+                SELECT {{writerRoleId}}, Id, {{now}} FROM dbo.Permissions WHERE ApplicationSystemId = @applicationId AND Code IN ('AUTHCENTER_APPLICATIONS_READ', 'AUTHCENTER_APPLICATIONS_WRITE');
+                """);
+
+            await migrator.MigrateAsync();
+            db.ChangeTracker.Clear();
+
+            async Task<string[]> GrantedCodesAsync(Guid roleId) => await db.RolePermissions
+                .Where(grant => grant.RoleId == roleId)
+                .Select(grant => grant.Permission.Code)
+                .OrderBy(code => code)
+                .ToArrayAsync();
+
+            Assert.Equal(
+                [
+                    DomainConstants.Permissions.ApplicationsRead,
+                    DomainConstants.Permissions.EventHooksRead,
+                    DomainConstants.Permissions.FederationRead,
+                    DomainConstants.Permissions.ProvisioningRead
+                ],
+                await GrantedCodesAsync(readerRoleId));
+            Assert.Equal(
+                [
+                    DomainConstants.Permissions.ApplicationsRead,
+                    DomainConstants.Permissions.ApplicationsWrite,
+                    DomainConstants.Permissions.EventHooksRead,
+                    DomainConstants.Permissions.EventHooksWrite,
+                    DomainConstants.Permissions.FederationRead,
+                    DomainConstants.Permissions.FederationWrite,
+                    DomainConstants.Permissions.ProvisioningRead,
+                    DomainConstants.Permissions.ProvisioningWrite
+                ],
+                await GrantedCodesAsync(writerRoleId));
+        }
+        finally
+        {
+            await using var cleanupDb = new AuthCenterDbContext(options);
+            await cleanupDb.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [RelationalFact]
     public async Task RelationalConcurrency_SharedRateLimit_AndDataProtection_WorkAcrossInstances()
     {
         var connectionString = BuildIsolatedConnectionString();

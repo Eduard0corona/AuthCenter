@@ -70,6 +70,12 @@ public static class AuthCenterSeeder
             (DomainConstants.Permissions.AccessPoliciesWrite, "Write access policies"),
             (DomainConstants.Permissions.ProfileSchemasRead, "Read universal directory profile schemas"),
             (DomainConstants.Permissions.ProfileSchemasWrite, "Write universal directory profile schemas"),
+            (DomainConstants.Permissions.EventHooksRead, "Read event hooks and their deliveries"),
+            (DomainConstants.Permissions.EventHooksWrite, "Manage event hooks and replay deliveries"),
+            (DomainConstants.Permissions.FederationRead, "Read enterprise federation providers and routing"),
+            (DomainConstants.Permissions.FederationWrite, "Manage enterprise federation providers and routing"),
+            (DomainConstants.Permissions.ProvisioningRead, "Read provisioning tokens"),
+            (DomainConstants.Permissions.ProvisioningWrite, "Manage provisioning tokens"),
         };
 
         var now2 = DateTime.UtcNow;
@@ -105,6 +111,9 @@ public static class AuthCenterSeeder
                 DomainConstants.Permissions.AccessPoliciesWrite,
                 DomainConstants.Permissions.ProfileSchemasRead,
                 DomainConstants.Permissions.ProfileSchemasWrite,
+                DomainConstants.Permissions.EventHooksRead,
+                DomainConstants.Permissions.FederationRead,
+                DomainConstants.Permissions.ProvisioningRead,
             ], logger);
 
         await SeedAdminUserAsync(userManager, db, appSystem, configuration, logger);

@@ -28,12 +28,12 @@ public sealed class FederationController : ControllerBase
         (_federation, _reauthentication, _currentUser, _audit, _mfa) = (federation, reauthentication, currentUser, audit, mfa.Value);
 
     /// <summary>Values to register at upstream providers: the hosted OIDC callback, the SAML entity ID and ACS.</summary>
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationRead)]
     [HttpGet("service-provider")]
     public IActionResult ServiceProvider() => Ok(ApiResponse<object>.Ok(_federation.GetServiceProviderInfo()));
 
     /// <summary>Checks discovery, keys, certificates and callbacks of a provider without changing it.</summary>
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPost("providers/{id:guid}/test")]
     public async Task<IActionResult> TestProvider(Guid id, CancellationToken ct)
     {
@@ -41,12 +41,12 @@ public sealed class FederationController : ControllerBase
         return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : NotFound(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationRead)]
     [HttpGet("providers")]
     public async Task<IActionResult> GetProviders([FromQuery] Guid? applicationSystemId, CancellationToken ct) =>
         Ok(ApiResponse<object>.Ok(await _federation.GetProvidersAsync(applicationSystemId, ct)));
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPost("providers")]
     public async Task<IActionResult> CreateProvider(UpsertFederationProviderRequest request, CancellationToken ct)
     {
@@ -55,7 +55,7 @@ public sealed class FederationController : ControllerBase
         return result.IsSuccess ? Created($"/api/federation/providers/{result.Data!.Id}", ApiResponse<object>.Ok(result.Data)) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPut("providers/{id:guid}")]
     public async Task<IActionResult> UpdateProvider(Guid id, UpsertFederationProviderRequest request, CancellationToken ct)
     {
@@ -64,7 +64,7 @@ public sealed class FederationController : ControllerBase
         return result.IsSuccess ? Ok(ApiResponse<object>.Ok(result.Data!)) : result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message))) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpDelete("providers/{id:guid}")]
     public async Task<IActionResult> DeleteProvider(Guid id, CancellationToken ct)
     {
@@ -73,7 +73,7 @@ public sealed class FederationController : ControllerBase
         return result.IsSuccess ? Ok(ApiResponse.Ok()) : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPost("routing-rules")]
     public async Task<IActionResult> CreateRoutingRule(CreateFederationRoutingRuleRequest request, CancellationToken ct)
     {
@@ -82,12 +82,12 @@ public sealed class FederationController : ControllerBase
         return result.IsSuccess ? Ok(ApiResponse.Ok()) : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationRead)]
     [HttpGet("routing-rules")]
     public async Task<IActionResult> GetRoutingRules([FromQuery] Guid? applicationSystemId, CancellationToken ct) =>
         Ok(ApiResponse<object>.Ok(await _federation.GetRoutingRulesAsync(applicationSystemId, ct)));
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPut("routing-rules/{id:guid}")]
     public async Task<IActionResult> UpdateRoutingRule(Guid id, UpdateFederationRoutingRuleRequest request, CancellationToken ct)
     {
@@ -97,7 +97,7 @@ public sealed class FederationController : ControllerBase
         return result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message))) : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpPut("routing-rules/order")]
     public async Task<IActionResult> ReorderRoutingRules(ReorderFederationRoutingRulesRequest request, CancellationToken ct)
     {
@@ -107,7 +107,7 @@ public sealed class FederationController : ControllerBase
         return result.ErrorCode == "CONCURRENCY_CONFLICT" ? Conflict(ApiResponse.Fail(result.ErrorCode, result.Message)) : BadRequest(ApiResponse.Fail(result.ErrorCode, result.Message));
     }
 
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsWrite)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationWrite)]
     [HttpDelete("routing-rules/{id:guid}")]
     public async Task<IActionResult> DeleteRoutingRule(Guid id, CancellationToken ct)
     {
@@ -120,7 +120,7 @@ public sealed class FederationController : ControllerBase
     /// Administrative route simulation. It evaluates group and profile conditions, so it is not
     /// anonymous; the hosted login uses <c>/ui-api/session/federation/discover</c> instead.
     /// </summary>
-    [Authorize(Policy = DomainConstants.Permissions.ApplicationsRead)]
+    [Authorize(Policy = DomainConstants.Permissions.FederationRead)]
     [HttpPost("route")]
     public async Task<IActionResult> Route(FederationRouteRequest request, CancellationToken ct)
     {

@@ -59,39 +59,11 @@ public class AuditService : IAuditService
                 CreatedAt = _dateTimeProvider.UtcNow
             };
 
-            // Use a dedicated context so SaveChangesAsync only flushes the audit entry,
-            // not any pending changes in the caller's unit-of-work
+            // Use a dedicated context so SaveChangesAsync only flushes the audit entry, not any
+            // pending changes in the caller's unit of work. Saving it also queues the deliveries of
+            // the event hooks subscribed to this action (AuthCenterDbContext.SaveChangesAsync).
             await using var auditDb = await _dbFactory.CreateDbContextAsync(ct);
             auditDb.AuditLogs.Add(log);
-            var hooks = await auditDb.EventHooks
-                .Where(hook => hook.IsActive && hook.IsVerified &&
-                    (!hook.ApplicationSystemId.HasValue || hook.ApplicationSystem!.Code == applicationCode))
-                .ToListAsync(ct);
-            foreach (var hook in hooks)
-            {
-                var eventTypes = JsonSerializer.Deserialize<string[]>(hook.EventTypesJson) ?? [];
-                if (!eventTypes.Contains(action, StringComparer.Ordinal) && !eventTypes.Contains("*", StringComparer.Ordinal))
-                    continue;
-                auditDb.EventHookDeliveries.Add(new EventHookDelivery
-                {
-                    Id = Guid.NewGuid(),
-                    EventHookId = hook.Id,
-                    EventId = log.Id,
-                    EventType = action,
-                    PayloadJson = JsonSerializer.Serialize(new
-                    {
-                        id = log.Id,
-                        type = action,
-                        occurredAt = log.CreatedAt,
-                        subjectId = userId,
-                        applicationCode,
-                        entity = entityName,
-                        entityId,
-                        traceId = log.TraceId
-                    }),
-                    NextAttemptAt = log.CreatedAt
-                });
-            }
             await auditDb.SaveChangesAsync(ct);
         }
         catch (Exception ex)
@@ -124,16 +96,27 @@ public class AuditService : IAuditService
         if (query.ToUtc.HasValue)
             logs = logs.Where(a => a.CreatedAt <= query.ToUtc.Value);
 
+        if (!string.IsNullOrWhiteSpace(query.EntityName))
+            logs = logs.Where(a => a.EntityName == query.EntityName.Trim());
+
+        if (!string.IsNullOrWhiteSpace(query.EntityId))
+            logs = logs.Where(a => a.EntityId == query.EntityId.Trim());
+
         logs = logs.OrderByDescending(a => a.CreatedAt);
 
         var totalCount = await logs.CountAsync(ct);
-        var items = await logs
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(a => new AuditLogDto
+        var page = logs.Skip(query.Skip).Take(query.PageSize);
+        var items = await (
+            from a in page
+            join user in db.Users on a.UserId equals user.Id into actors
+            from actor in actors.DefaultIfEmpty()
+            orderby a.CreatedAt descending
+            select new AuditLogDto
             {
                 Id = a.Id,
                 UserId = a.UserId,
+                UserEmail = actor != null ? actor.Email : null,
+                UserName = actor != null ? actor.FullName : null,
                 ApplicationCode = a.ApplicationCode,
                 Action = a.Action,
                 EntityName = a.EntityName,
@@ -157,7 +140,7 @@ public class AuditService : IAuditService
             result = "Success",
             query.Page,
             query.PageSize,
-            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc }
+            filters = new { query.UserId, query.ApplicationCode, query.Action, query.TraceId, query.FromUtc, query.ToUtc, query.EntityName, query.EntityId }
         }, ct: ct);
         return page.Items;
     }

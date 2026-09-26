@@ -6,6 +6,7 @@ using AuthCenter.Contracts.Requests.Lifecycle;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Lifecycle;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Events;
 using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Security;
 using Microsoft.AspNetCore.DataProtection;
@@ -86,24 +87,63 @@ public sealed class EventHookService : IEventHookService
         await _audit.LogAsync("EVENT_HOOK_DELIVERY_REPLAYED", applicationCode: await ApplicationCodeAsync(d.EventHook.ApplicationSystemId, ct), entityName: nameof(EventHookDelivery), entityId: deliveryId.ToString(), metadata: new { result = "Success", d.EventHookId, d.EventId }, ct: ct); return OperationResult.Success();
     }
 
+    /// <summary>How long deliveries keep a signature made with the rotated-out secret.</summary>
+    private static readonly TimeSpan SecretGracePeriod = TimeSpan.FromHours(24);
+
+    public async Task<OperationResult<EventHookSecretResponse>> RotateSecretAsync(Guid id, CancellationToken ct = default)
+    {
+        var hook = await _db.EventHooks.SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (hook is null) return OperationResult<EventHookSecretResponse>.Failure("EVENT_HOOK_NOT_FOUND", "Event hook not found.");
+        var secret = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        // Receivers switch to the new secret while deliveries still carry a signature with the old one.
+        hook.PreviousProtectedSecret = hook.ProtectedSecret;
+        hook.PreviousSecretExpiresAt = _clock.UtcNow.Add(SecretGracePeriod);
+        hook.ProtectedSecret = _protector.Protect(secret);
+        hook.Version++;
+        await _db.SaveChangesAsync(ct);
+        await _audit.LogAsync("EVENT_HOOK_SECRET_ROTATED", applicationCode: await ApplicationCodeAsync(hook.ApplicationSystemId, ct), entityName: nameof(EventHook), entityId: id.ToString(), metadata: new { result = "Success", previousSecretExpiresAt = hook.PreviousSecretExpiresAt }, ct: ct);
+        return OperationResult<EventHookSecretResponse>.Success(new EventHookSecretResponse { Id = hook.Id, Secret = secret, IsVerified = hook.IsVerified, PreviousSecretExpiresAt = hook.PreviousSecretExpiresAt });
+    }
+
+    public async Task<EventHookDeliveryDto?> GetDeliveryAsync(Guid id, CancellationToken ct = default)
+    {
+        var delivery = await _db.EventHookDeliveries.AsNoTracking().Include(x => x.EventHook).SingleOrDefaultAsync(x => x.Id == id, ct);
+        return delivery is null ? null : Map(delivery, includePayload: true);
+    }
+
+    public IReadOnlyList<EventTypeDto> GetEventTypes() =>
+        EventTypes.All.Select(item => new EventTypeDto { Type = item.Type, Category = item.Category }).ToList();
+
     public async Task<PagedResult<EventHookDeliveryDto>> GetDeliveriesAsync(EventHookDeliveryQuery query, CancellationToken ct = default)
     {
         var deliveries = _db.EventHookDeliveries.AsNoTracking().Include(x => x.EventHook).AsQueryable();
         if (query.HookId.HasValue) deliveries = deliveries.Where(x => x.EventHookId == query.HookId);
         if (query.EventId.HasValue) deliveries = deliveries.Where(x => x.EventId == query.EventId);
         if (!string.IsNullOrWhiteSpace(query.EventType)) deliveries = deliveries.Where(x => x.EventType == query.EventType.Trim());
-        if (query.FromUtc.HasValue) deliveries = deliveries.Where(x => x.NextAttemptAt >= query.FromUtc);
-        if (query.ToUtc.HasValue) deliveries = deliveries.Where(x => x.NextAttemptAt <= query.ToUtc);
+        if (query.FromUtc.HasValue) deliveries = deliveries.Where(x => x.CreatedAt >= query.FromUtc);
+        if (query.ToUtc.HasValue) deliveries = deliveries.Where(x => x.CreatedAt <= query.ToUtc);
         deliveries = query.Status?.Trim().ToLowerInvariant() switch { "delivered" => deliveries.Where(x => x.DeliveredAt != null), "dead-letter" => deliveries.Where(x => x.DeadLetteredAt != null), "pending" => deliveries.Where(x => x.DeliveredAt == null && x.DeadLetteredAt == null), _ => deliveries };
-        var total = await deliveries.CountAsync(ct); var items = await deliveries.OrderByDescending(x => x.NextAttemptAt).Skip(query.Skip).Take(query.PageSize).ToListAsync(ct);
-        return PagedResult<EventHookDeliveryDto>.Create(items.Select(Map).ToList(), total, query.Page, query.PageSize);
+        var total = await deliveries.CountAsync(ct); var items = await deliveries.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.NextAttemptAt).Skip(query.Skip).Take(query.PageSize).ToListAsync(ct);
+        return PagedResult<EventHookDeliveryDto>.Create(items.Select(x => Map(x, includePayload: false)).ToList(), total, query.Page, query.PageSize);
     }
 
     private IQueryable<EventHook> HookQuery() => _db.EventHooks.Include(x => x.ApplicationSystem);
-    private async Task<(string Code, string Message)?> ValidateAsync(Guid? applicationId, string name, string url, IReadOnlyList<string> eventTypes, CancellationToken ct) { var types = NormalizeTypes(eventTypes); if (string.IsNullOrWhiteSpace(name) || name.Length > 150 || types.Length is 0 or > 100 || !await OutboundUrlSafety.IsPublicHttpsAsync(url, ct)) return ("INVALID_EVENT_HOOK", "Name, public HTTPS URL, and 1-100 event types are required."); if (applicationId.HasValue && !await _db.ApplicationSystems.AnyAsync(x => x.Id == applicationId && x.IsActive, ct)) return ("APP_NOT_FOUND", "Active application not found."); return null; }
+    private async Task<(string Code, string Message)?> ValidateAsync(Guid? applicationId, string name, string url, IReadOnlyList<string> eventTypes, CancellationToken ct)
+    {
+        var types = NormalizeTypes(eventTypes);
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 150 || types.Length is 0 or > 100 || !await OutboundUrlSafety.IsPublicHttpsAsync(url, ct))
+            return ("INVALID_EVENT_HOOK", "Name, public HTTPS URL, and 1-100 event types are required.");
+        // A misspelled type would silently never fire.
+        var unknown = types.Where(type => type != EventTypes.Wildcard && !EventTypes.IsKnown(type)).ToList();
+        if (unknown.Count > 0)
+            return ("UNKNOWN_EVENT_TYPE", $"Unknown event types: {string.Join(", ", unknown.Take(10))}. See GET /api/event-hooks/event-types.");
+        if (applicationId.HasValue && !await _db.ApplicationSystems.AnyAsync(x => x.Id == applicationId && x.IsActive, ct))
+            return ("APP_NOT_FOUND", "Active application not found.");
+        return null;
+    }
     private Task<string?> ApplicationCodeAsync(Guid? id, CancellationToken ct) => id.HasValue ? _db.ApplicationSystems.Where(x => x.Id == id).Select(x => x.Code).SingleOrDefaultAsync(ct) : Task.FromResult<string?>(null);
     private static string[] NormalizeTypes(IReadOnlyList<string> values) => values.Select(x => x.Trim()).Where(x => x.Length is > 0 and <= 150).Distinct(StringComparer.Ordinal).ToArray();
-    private static EventHookDto Map(EventHook x) => new() { Id = x.Id, ApplicationSystemId = x.ApplicationSystemId, ApplicationName = x.ApplicationSystem?.Name, Name = x.Name, Url = x.Url, EventTypes = JsonSerializer.Deserialize<string[]>(x.EventTypesJson) ?? [], IsVerified = x.IsVerified, IsActive = x.IsActive, CreatedAt = x.CreatedAt, VerifiedAt = x.VerifiedAt, Version = x.Version };
-    private static EventHookDeliveryDto Map(EventHookDelivery x) => new() { Id = x.Id, EventId = x.EventId, EventType = x.EventType, HookId = x.EventHookId, HookName = x.EventHook.Name, Status = x.DeliveredAt.HasValue ? "delivered" : x.DeadLetteredAt.HasValue ? "dead-letter" : "pending", AttemptCount = x.AttemptCount, NextAttemptAt = x.NextAttemptAt, DeliveredAt = x.DeliveredAt, DeadLetteredAt = x.DeadLetteredAt, LastError = x.LastError };
+    private EventHookDto Map(EventHook x) => new() { Id = x.Id, ApplicationSystemId = x.ApplicationSystemId, ApplicationName = x.ApplicationSystem?.Name, Name = x.Name, Url = x.Url, EventTypes = JsonSerializer.Deserialize<string[]>(x.EventTypesJson) ?? [], IsVerified = x.IsVerified, IsActive = x.IsActive, CreatedAt = x.CreatedAt, VerifiedAt = x.VerifiedAt, Version = x.Version, PreviousSecretExpiresAt = x.PreviousSecretExpiresAt > _clock.UtcNow ? x.PreviousSecretExpiresAt : null };
+    private static EventHookDeliveryDto Map(EventHookDelivery x, bool includePayload) => new() { Id = x.Id, EventId = x.EventId, EventType = x.EventType, HookId = x.EventHookId, HookName = x.EventHook.Name, Status = x.DeliveredAt.HasValue ? "delivered" : x.DeadLetteredAt.HasValue ? "dead-letter" : "pending", AttemptCount = x.AttemptCount, CreatedAt = x.CreatedAt, NextAttemptAt = x.NextAttemptAt, DeliveredAt = x.DeliveredAt, DeadLetteredAt = x.DeadLetteredAt, LastError = x.LastError, Payload = includePayload ? x.PayloadJson : null };
     private static bool BodyContains(string body, string challenge) { try { using var doc = JsonDocument.Parse(body); return doc.RootElement.TryGetProperty("verification", out var v) && v.GetString() == challenge; } catch (JsonException) { return false; } }
 }

@@ -32,8 +32,9 @@ public sealed class EventHookDispatcherService : BackgroundService
             {
                 if (!delivery.EventHook.IsActive || !delivery.EventHook.IsVerified) throw new InvalidOperationException("Event hook is inactive or unverified.");
                 if (!await OutboundUrlSafety.IsPublicHttpsAsync(delivery.EventHook.Url, ct)) throw new InvalidOperationException("Event hook URL is not a public HTTPS destination.");
-                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture); var secret = _protector.Unprotect(delivery.EventHook.ProtectedSecret); var signature = Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes($"{timestamp}.{delivery.PayloadJson}"))).ToLowerInvariant();
-                using var request = new HttpRequestMessage(HttpMethod.Post, delivery.EventHook.Url) { Content = new StringContent(delivery.PayloadJson, Encoding.UTF8, "application/json") }; request.Headers.Add("X-AuthCenter-Event-Id", delivery.EventId.ToString()); request.Headers.Add("X-AuthCenter-Idempotency-Key", delivery.EventId.ToString()); request.Headers.Add("X-AuthCenter-Timestamp", timestamp); request.Headers.Add("X-AuthCenter-Signature", $"v1={signature}");
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var signature = SignatureHeader(delivery.EventHook, _protector, timestamp, delivery.PayloadJson, DateTime.UtcNow);
+                using var request = new HttpRequestMessage(HttpMethod.Post, delivery.EventHook.Url) { Content = new StringContent(delivery.PayloadJson, Encoding.UTF8, "application/json") }; request.Headers.Add("X-AuthCenter-Event-Id", delivery.EventId.ToString()); request.Headers.Add("X-AuthCenter-Idempotency-Key", delivery.EventId.ToString()); request.Headers.Add("X-AuthCenter-Timestamp", timestamp); request.Headers.Add("X-AuthCenter-Signature", signature);
                 using var response = await _clients.CreateClient("EventHooks").SendAsync(request, ct); if (!response.IsSuccessStatusCode) throw new HttpRequestException($"Event hook returned HTTP {(int)response.StatusCode}."); delivery.DeliveredAt = DateTime.UtcNow; delivery.LockedUntil = null; delivery.LastError = null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -44,4 +45,20 @@ public sealed class EventHookDispatcherService : BackgroundService
             PlatformTelemetry.EventHookCompleted(outcome, delivery.AttemptCount, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
     }
+
+    /// <summary>
+    /// <c>v1=</c> HMAC-SHA256 signatures of <c>{timestamp}.{payload}</c>. After a rotation there is one
+    /// per secret until the previous one expires (receivers accept any matching value), so rotating
+    /// needs no downtime.
+    /// </summary>
+    internal static string SignatureHeader(Domain.Entities.EventHook hook, IDataProtector protector, string timestamp, string payload, DateTime now)
+    {
+        var secrets = new List<string> { hook.ProtectedSecret };
+        if (hook.PreviousProtectedSecret is { } previous && hook.PreviousSecretExpiresAt > now)
+            secrets.Add(previous);
+        return string.Join(",", secrets.Select(protectedSecret => "v1=" + Sign(protector.Unprotect(protectedSecret), timestamp, payload)));
+    }
+
+    internal static string Sign(string secret, string timestamp, string payload) =>
+        Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes($"{timestamp}.{payload}"))).ToLowerInvariant();
 }

@@ -41,12 +41,22 @@ public static class DomainConstants
         public const string ProfileSchemasRead = "AUTHCENTER_PROFILE_SCHEMAS_READ";
         public const string ProfileSchemasWrite = "AUTHCENTER_PROFILE_SCHEMAS_WRITE";
 
+        // Operations areas that used to ride on the applications permissions. Migration
+        // 20260926132440_AddOperationsPermissions grants them to every role that had those.
+        public const string EventHooksRead = "AUTHCENTER_EVENT_HOOKS_READ";
+        public const string EventHooksWrite = "AUTHCENTER_EVENT_HOOKS_WRITE";
+        public const string FederationRead = "AUTHCENTER_FEDERATION_READ";
+        public const string FederationWrite = "AUTHCENTER_FEDERATION_WRITE";
+        public const string ProvisioningRead = "AUTHCENTER_PROVISIONING_READ";
+        public const string ProvisioningWrite = "AUTHCENTER_PROVISIONING_WRITE";
+
         public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
         {
             UsersRead, UsersWrite, ApplicationsRead, ApplicationsWrite, RolesRead, RolesWrite,
             PermissionsRead, PermissionsWrite, AuditLogsRead, OAuthClientsRead, OAuthClientsWrite,
             GroupsRead, GroupsWrite, AccessPoliciesRead, AccessPoliciesWrite,
-            ProfileSchemasRead, ProfileSchemasWrite
+            ProfileSchemasRead, ProfileSchemasWrite,
+            EventHooksRead, EventHooksWrite, FederationRead, FederationWrite, ProvisioningRead, ProvisioningWrite
         };
     }
 

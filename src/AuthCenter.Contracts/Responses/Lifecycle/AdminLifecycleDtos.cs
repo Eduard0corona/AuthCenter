@@ -30,6 +30,16 @@ public sealed class EventHookDto
     public DateTime CreatedAt { get; init; }
     public DateTime? VerifiedAt { get; init; }
     public long Version { get; init; }
+
+    /// <summary>Until when the secret replaced by the last rotation still signs deliveries.</summary>
+    public DateTime? PreviousSecretExpiresAt { get; init; }
+}
+
+/// <summary>An event type hooks can subscribe to, and the area it belongs to.</summary>
+public sealed class EventTypeDto
+{
+    public string Type { get; init; } = string.Empty;
+    public string Category { get; init; } = string.Empty;
 }
 
 public sealed class EventHookDeliveryDto
@@ -41,10 +51,14 @@ public sealed class EventHookDeliveryDto
     public string HookName { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public int AttemptCount { get; init; }
+    public DateTime CreatedAt { get; init; }
     public DateTime NextAttemptAt { get; init; }
     public DateTime? DeliveredAt { get; init; }
     public DateTime? DeadLetteredAt { get; init; }
     public string? LastError { get; init; }
+
+    /// <summary>The signed JSON body; only in the detail of one delivery.</summary>
+    public string? Payload { get; init; }
 }
 
 public sealed class ProfileMappingDto
