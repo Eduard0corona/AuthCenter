@@ -18,16 +18,18 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Pull requests from Dependabot (and from forks) receive no Actions secrets. The throwaway SQL
+    # Server then uses a password derived from the run: it lives only on this runner, for this job.
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
           ACCEPT_EULA: Y
-          MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_SA_PASSWORD }}
+          MSSQL_SA_PASSWORD: ${{ secrets.CI_MSSQL_SA_PASSWORD || format('Ci-{0}-{1}-aA', github.run_id, github.run_attempt) }}
         ports:
           - 1433:1433
     env:
-      AUTHCENTER_RELATIONAL_TEST_CONNECTION: "Server=localhost,1433;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD }};TrustServerCertificate=true"
+      AUTHCENTER_RELATIONAL_TEST_CONNECTION: "Server=localhost,1433;User Id=sa;Password=${{ secrets.CI_MSSQL_SA_PASSWORD || format('Ci-{0}-{1}-aA', github.run_id, github.run_attempt) }};TrustServerCertificate=true"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

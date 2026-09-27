@@ -292,6 +292,8 @@ The single `CI/CD` workflow validates every pull request. On a push to `main` (o
 authentication uses GitHub OIDC; no publish profile or Azure client secret is stored in GitHub.
 The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, and
 `CI_MSSQL_SA_PASSWORD` as secrets, plus `AZURE_WEBAPP_NAME` and `AZURE_WEBAPP_SLOT` as variables.
+`CI_MSSQL_SA_PASSWORD` is the password of the throwaway SQL Server the tests run against; pull
+requests that get no secrets (Dependabot's, or a fork's) use one derived from the run instead.
 After deployment, `/health/live`, `/health/ready` and the branding endpoint must return HTTP 200 or
 the workflow is marked failed; on failure it prints the readiness report.
 
@@ -300,7 +302,9 @@ Besides the tests, CI fails when an EF Core model change has no migration, when 
 logic modules drop under their minimums (`vite.config.ts`), or when the console's JavaScript
 outgrows its gzip budget (`src/AuthCenter.Admin/scripts/check-bundle-budget.mjs`). The coverage
 summary goes to the run page and the reports to the `coverage-report` artifact. Dependabot
-(`.github/dependabot.yml`) proposes grouped weekly updates for NuGet, npm, Actions and Docker. The
+(`.github/dependabot.yml`) proposes weekly updates for NuGet, npm, Actions and Docker: minor and
+patch versions grouped per ecosystem, vitest with its plugins, and every Actions update in one pull
+request. TypeScript 7 waits until typescript-eslint supports it. The
 `Directory scale` workflow runs the large-directory capacity test weekly
 ([docs/operations/CAPACITY.md](docs/operations/CAPACITY.md#directorio-grande)).
 
