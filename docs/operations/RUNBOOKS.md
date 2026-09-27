@@ -45,6 +45,10 @@ copies tokens, cadenas de conexión, claves ni cuerpos de autenticación al tick
    vivo de instancia lista.
 3. Verifica ambos endpoints después de cada cambio de configuración. Nunca uses una URL de login,
    discovery o token como health probe.
+4. `HTTP Error 400. The request hostname is invalid.` en cualquier ruta significa que el host de la
+   petición no está en `AllowedHosts`: ASP.NET Core la rechaza antes de llegar a AuthCenter. Agrega
+   el hostname a la lista, separado por `;`, sin quitar el del App Service (OPS-15 en
+   `OWNER-ACTIONS.md`).
 
 ```powershell
 az webapp config appsettings set -g <resource-group> -n <app-name> `

@@ -312,3 +312,46 @@ jobs:
             echo "The admin-v2 asset is not served with Brotli or Gzip compression." >&2
             exit 1
           fi
+
+      # Clients reach AuthCenter through its issuer, a custom domain in front of the App Service
+      # host checked above. A domain missing from AllowedHosts answers every request with
+      # "HTTP Error 400. The request hostname is invalid.", so discovery must also work there.
+      - name: Verify discovery through the issuer's URL
+        shell: bash
+        env:
+          APP_URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+        run: |
+          issuer="$(curl --fail --silent --show-error --max-time 20 "${APP_URL%/}/.well-known/openid-configuration" | jq --raw-output '.issuer // empty')"
+          if [[ "$issuer" != https://* ]]; then
+            echo "The discovery document on ${APP_URL} names the issuer '${issuer}', which is not an HTTPS URL." >&2
+            exit 1
+          fi
+
+          discovery="$RUNNER_TEMP/public-discovery.json"
+          for attempt in {1..6}; do
+            status="$(curl --silent --show-error --output "$discovery" --write-out '%{http_code}' \
+              --max-time 20 "${issuer%/}/.well-known/openid-configuration" || true)"
+            if [ "$status" = "200" ]; then
+              break
+            fi
+            echo "Discovery through ${issuer} returned ${status:-unreachable} (${attempt}/6)."
+            if [ "$attempt" = "6" ]; then
+              echo "The discovery document does not answer through the issuer's URL; check AllowedHosts and the custom domain binding." >&2
+              head --bytes 500 "$discovery" >&2 || true
+              exit 1
+            fi
+            sleep 10
+          done
+
+          public_issuer="$(jq --raw-output '.issuer // empty' "$discovery")"
+          if [ "$public_issuer" != "$issuer" ]; then
+            echo "The discovery document at ${issuer} names the issuer '${public_issuer}'." >&2
+            exit 1
+          fi
+          jwks_uri="$(jq --raw-output '.jwks_uri // empty' "$discovery")"
+          keys="$(curl --fail --silent --show-error --max-time 20 "$jwks_uri" | jq '.keys | length')"
+          if [ "${keys:-0}" -lt 1 ]; then
+            echo "The key set at ${jwks_uri} publishes no signing key." >&2
+            exit 1
+          fi
+          echo "Discovery answers through ${issuer} with ${keys} signing key(s)."
