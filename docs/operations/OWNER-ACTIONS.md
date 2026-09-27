@@ -9,7 +9,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 |---|---|---|
 | OPS-01 | Reactivar la ejecución de GitHub Actions (hecho el 2026-09-26) | Administrador de la organización / facturación |
 | OPS-02 | Proteger `main` | Administrador del repositorio |
-| OPS-03 | Aplicar las migraciones pendientes en Azure SQL | Administrador Microsoft Entra de la base |
+| OPS-03 | Aplicar las migraciones pendientes en Azure SQL (hecho el 2026-09-26: 35 migraciones) | Administrador Microsoft Entra de la base |
 | OPS-04 | Carga inicial productiva (primer administrador) | Operador con acceso a App Service y Key Vault |
 | OPS-05 | Primera rotación de la llave de firma | Operador con acceso a Key Vault |
 | OPS-06 | Purgar del historial la llave RSA retirada | Autorización expresa: reescribe el historial |
@@ -92,8 +92,15 @@ Sigue *Rotating the signing key* del README: tres despliegues (publicar, promove
    `/.well-known/jwks.json` publica dos `kid`.
 2. Promueve: la llave nueva en `Jwt__RsaPrivateKeyPem` y la pública anterior en
    `Jwt__AdditionalValidationKeysPem__0`. Despliega. Comprueba con un login que el `kid` del token es el nuevo.
-3. Tras `Jwt:AccessTokenMinutes` (y la vida de los ID tokens que acepten tus clientes), retira la
-   anterior. Despliega. Deshabilita la versión anterior del secreto.
+3. Al menos 24 horas después del paso 2, retira la anterior de
+   `Jwt__AdditionalValidationKeysPem__0`. Despliega. Deshabilita la versión anterior del secreto.
+   El plazo lo fijan los ID tokens: un BFF manda el de su sesión como `id_token_hint` al cerrar
+   sesión mientras la sesión dure (hasta 24 h con `AuthCenter.Client`; 8 h en Paquetenvia), y
+   AuthCenter lo acepta vencido, pero no si su llave ya no está. Si retiras antes, esos cierres de
+   sesión fallan con un error y la sesión de AuthCenter sigue abierta. Si una SPA guarda ID tokens
+   más tiempo, espera ese tiempo. El access token (60 min como máximo) y los tokens de un solo uso
+   del login vencen antes. Si la llave anterior se filtró, retírala de inmediato y acepta esos
+   fallos.
 - **Comprobación:** los tokens emitidos antes del paso 2 siguen validando hasta que expiran; el SDK
   (`AuthCenter.Client`) no registra errores `IDX10503`.
 

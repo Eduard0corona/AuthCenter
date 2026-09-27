@@ -23,9 +23,10 @@ approval; each has a step-by-step procedure in
       distributed rate limiting. All sensitive values are versionless Key Vault references.
 - [x] Apply the 12 EF Core migrations that existed then to the new Azure SQL database out of band
       with the Microsoft Entra administrator; the application identity retains no DDL permissions.
-- [ ] Apply the migrations added since (35 in the repository on 2026-09-26) with the idempotent
-      script of the `database-migrations` CI artifact before deploying (OPS-03). `/health/ready`
-      now fails its `database-schema` check while any is missing.
+- [x] Apply the migrations added since with the idempotent script of the `database-migrations` CI
+      artifact before deploying (OPS-03): the 35 migrations were applied on 2026-09-26 and the
+      remediation deployed with every post-deployment check green. `/health/ready` fails its
+      `database-schema` check while any is missing.
 - [ ] Seed the deployed database once with `Database:SeedOnStartup=true` plus intentionally chosen
       production `Seed:*` values, then remove those values and switch seeding back off (OPS-04).
 - [x] Narrow `AllowedHosts` to the current Azure hostname.

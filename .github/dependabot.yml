@@ -1,6 +1,7 @@
 # Weekly dependency updates: minor and patch versions are grouped per ecosystem, so each week brings
-# one pull request per area, and majors come alone. Security updates open as soon as an advisory is
-# published, whatever this schedule says (enable them in Settings → Code security).
+# one pull request per area, and majors come alone. Packages that must move together share a group,
+# and every GitHub Actions update arrives in a single pull request. Security updates open as soon as
+# an advisory is published, whatever this schedule says (enable them in Settings → Code security).
 version: 2
 updates:
   - package-ecosystem: nuget
@@ -26,14 +27,22 @@ updates:
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
     groups:
+      # vitest and its plugins require the same version of each other, so a major of one alone
+      # cannot install.
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
       npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # typescript-eslint supports TypeScript below 6.1 (8.70); TypeScript 7 waits until it does.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: weekly, day: monday }
     groups:
       actions:
-        update-types: [minor, patch]
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: "/"
     schedule: { interval: weekly, day: monday }
