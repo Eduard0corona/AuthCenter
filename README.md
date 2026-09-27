@@ -236,8 +236,18 @@ thumbprint), so a rotation is a three-step move that never invalidates tokens al
 2. **Promote** it: move the new key to `Jwt:RsaPrivateKeyPem` and put the old key's public PEM in
    `Jwt:AdditionalValidationKeysPem`. New tokens are signed with the new key; tokens signed with
    the old one are still accepted.
-3. **Retire** the old key by removing it from `Jwt:AdditionalValidationKeysPem`, once the longest
-   token lifetime you issue (`Jwt:AccessTokenMinutes`) has elapsed since step 2.
+3. **Retire** the old key by removing it from `Jwt:AdditionalValidationKeysPem`, no sooner than
+   24 hours after step 2. ID tokens set that wait: clients send them back as `id_token_hint` to
+   `/oauth/logout` and `/oauth/authorize`, and AuthCenter accepts an expired hint but not one
+   signed with a key it no longer has. A BFF built on `AuthCenter.Client` sends the ID token of
+   its session when the user signs out, for as long as the session lasts (`SessionLifetime`:
+   8 hours by default, 24 at most). If a single-page application keeps ID tokens longer, wait that
+   long. Access tokens (`Jwt:AccessTokenMinutes`, 60 minutes at most) and the one-time sign-in
+   tokens (`Jwt:MagicLinkTokenMinutes`, `Mfa:MfaTokenExpirySeconds`) expire well within the wait.
+
+A hint signed with a retired key makes `/oauth/logout` answer with an error and leave the user
+signed in to AuthCenter, and `/oauth/authorize` answer `invalid_request`. If the old key was
+compromised, retire it at once and accept those failures.
 
 Only the public half of an additional key is ever exposed, so step 2 can use the public PEM alone.
 Steps must be one deploy apart — collapsing them means clients holding a stale JWKS will reject

@@ -354,6 +354,11 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-04--carga-inicial-productiva).
 - [P] **OPS-05** Primera rotación de la llave de firma.
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-05--primera-rotación-de-la-llave-de-firma).
+  *Corrección (2026-09-27):* el procedimiento retiraba la llave anterior al vencer el access token,
+  pero `/oauth/logout` y `/oauth/authorize` aceptan como `id_token_hint` un ID token vencido firmado
+  con ella, y un BFF lo manda al cerrar sesión hasta 24 h después (8 h en Paquetenvia). Retirarla
+  antes hace fallar esos cierres de sesión con la sesión de AuthCenter todavía abierta. El README y
+  OPS-05 ahora piden esperar al menos 24 h tras promover la llave nueva.
 - [P] **OPS-06** Purgar del historial la llave RSA retirada (requiere reescritura autorizada).
   *Estado:* el 2026-09-26 el propietario decidió hacerlo él mismo, fuera de esta remediación (la llave ya está retirada y rotada; la purga reescribe todas las ramas).
   *Procedimiento:* [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-06--purgar-la-llave-rsa-retirada-del-historial-autorización-expresa).
@@ -412,3 +417,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | Verificación en GitHub: el PR #23 pasó el workflow `CI/CD` completo (11 min 40 s) con las compuertas de F15; GitHub Actions ejecuta de nuevo. | OPS-01 |
 | 2026-09-26 | Ensayo de la actualización de producción: base sembrada por `main` → script de migraciones → API del PR (salud, login y refresh correctos); el ensayo encontró que `sqlcmd` sin `-I` rechazaba el script (error 1934), corregido en el artefacto, el procedimiento y el script de siembra. | OPS-03 |
 | 2026-09-26 | Fusión y primer despliegue de la remediación: el propietario aplicó las 35 migraciones en Azure SQL, el PR #23 se fusionó y el run `CI/CD` #73 pasó pruebas y despliegue con la verificación de salud, esquema y consola en verde. | OPS-03 |
+| 2026-09-27 | Plazo para retirar la llave de firma corregido: al revisar la integración de Paquetenvia se vio que un BFF manda como `id_token_hint` un ID token de hasta 24 h, que AuthCenter valida con la llave que lo firmó; el README y OPS-05 piden ahora esperar al menos 24 h tras promover la llave nueva. | OPS-05 |
