@@ -17,7 +17,7 @@ como **acción del propietario** con el procedimiento preparado.
 
 ## Estado verificado al cierre (2026-09-26, después de F15)
 
-- Puntos: 89 resueltos con evidencia (`[x]`) y 7 que dependen del propietario (`[P]`: OPS-02,
+- Puntos: 90 resueltos con evidencia (`[x]`) y 7 que dependen del propietario (`[P]`: OPS-02,
   OPS-04, OPS-05, OPS-06, OPS-07, OPS-10 y OPS-14), cada uno con su
   procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
   la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
@@ -382,6 +382,16 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   proveedor de firma queda en la caché global `CryptoProviderFactory.Default` indexado por la huella
   de la llave, la misma que usan el BFF y la API del SDK. *Resuelto:* la prueba construye la llave
   con `RSAParameters`. Verificado con ejecuciones repetidas de la suite completa.
+- [x] **OPS-15** *(nuevo)* Dominio propio `authcenter.info`.
+  *Causa del 400 (2026-09-27):* `https://authcenter.info/.well-known/openid-configuration` respondía
+  `HTTP Error 400. The request hostname is invalid.` porque `AllowedHosts` sólo tenía el host del
+  App Service. La verificación del despliegue entraba por ese host y no lo detectaba. *Resuelto:* el
+  propietario configuró `AllowedHosts` con ambos hosts, y `Jwt:Issuer`, `Oidc:PublicOrigin`,
+  `ActionLinks:DefaultBaseUrl` y las passkeys con el dominio. El discovery responde con
+  `"issuer": "https://authcenter.info"`. El job `deploy` pide ahora el discovery por la URL del
+  issuer y exige el mismo issuer y al menos una llave en el JWKS. El script se probó contra
+  servidores locales en cinco casos: éxito, host rechazado, issuer distinto, JWKS vacío e issuer que
+  no es HTTPS. Procedimiento: [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-15--dominio-propio-de-authcenter).
 
 ### I. Documentación
 
@@ -420,3 +430,5 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-26 | Fusión y primer despliegue de la remediación: el propietario aplicó las 35 migraciones en Azure SQL, el PR #23 se fusionó y el run `CI/CD` #73 pasó pruebas y despliegue con la verificación de salud, esquema y consola en verde. | OPS-03 |
 | 2026-09-27 | Plazo para retirar la llave de firma corregido: al revisar la integración de Paquetenvia se vio que un BFF manda como `id_token_hint` un ID token de hasta 24 h, que AuthCenter valida con la llave que lo firmó; el README y OPS-05 piden ahora esperar al menos 24 h tras promover la llave nueva. | OPS-05 |
 | 2026-09-27 | Primer lote de Dependabot integrado y probado: menores y parches de NuGet y npm, runner de xUnit 4, cinco Actions, vitest y `@vitest/coverage-v8` 5 juntos y jsdom 30; TypeScript 7 pospuesto. En local: .NET 76 unitarias y 349 de integración con SQL Server; consola con lint, typecheck, 79 pruebas con cobertura mínima, presupuesto y 301 escenarios e2e; login hospedado 6 unitarias y 31 e2e; audits sin hallazgos. El CI corre ahora en los PRs de Dependabot. | OPS-11 |
+| 2026-09-27 | Despliegue del lote de dependencias: el PR #37 se fusionó y el run `CI/CD` #89 pasó pruebas y despliegue con las Actions nuevas (`download-artifact` 8, `azure/login` 3, `webapps-deploy`) y la verificación de salud. Dependabot cerró sus PRs integrados; el de TypeScript 7 quedó cerrado y pospuesto. Los dos PRs que Dependabot abrió después (`setup-node` 7 y `IdentityModel` 8.23 en el SDK .NET) pasaron el CI completo y se desplegaron en el run #93. | OPS-11 |
+| 2026-09-27 | Dominio propio `authcenter.info`: el discovery respondía 400 porque `AllowedHosts` sólo tenía el host del App Service. El propietario configuró ambos hosts y movió issuer, origen OIDC, enlaces y passkeys al dominio. El despliegue verifica ahora el discovery por la URL del issuer. | OPS-15 |

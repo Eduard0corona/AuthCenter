@@ -29,7 +29,8 @@ approval; each has a step-by-step procedure in
       `database-schema` check while any is missing.
 - [ ] Seed the deployed database once with `Database:SeedOnStartup=true` plus intentionally chosen
       production `Seed:*` values, then remove those values and switch seeding back off (OPS-04).
-- [x] Narrow `AllowedHosts` to the current Azure hostname.
+- [x] Narrow `AllowedHosts` to the public hostnames: `authcenter.info` and the App Service host
+      (OPS-15). The deployment verifies discovery through the issuer's URL.
 - [ ] Add the real frontend hostname to `Cors:AllowedOrigins` and `ActionLinks` when it exists. The
       current configuration intentionally permits only the AuthCenter origin (OPS-07).
 

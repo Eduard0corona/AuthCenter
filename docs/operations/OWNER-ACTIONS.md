@@ -16,6 +16,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 | OPS-07 | Origen real del frontend en CORS y ActionLinks | Operador de App Service |
 | OPS-10 | Borrar ramas remotas ya integradas | Autorización expresa: borra ramas |
 | OPS-14 | Publicar los SDK | Cuentas NuGet/npm, entorno protegido, licencia |
+| OPS-15 | Dominio propio de AuthCenter (hecho el 2026-09-27: `authcenter.info`) | Operador de App Service |
 | UI-07 | Revisión manual con lectores de pantalla | Persona con NVDA/JAWS/VoiceOver |
 
 ## OPS-01 · GitHub Actions no ejecuta
@@ -157,6 +158,37 @@ Cuando exista el dominio del frontend (por ejemplo `https://app.example.com`):
    coinciden, prueba, empaqueta y publica tras la aprobación del entorno.
 - **Comprobación:** `dotnet add package AuthCenter.Client --version 1.1.0` y
   `npm view @authcenter/client@1.1.0` resuelven; los paquetes muestran la licencia.
+
+## OPS-15 · Dominio propio de AuthCenter
+
+Hecho el 2026-09-27: AuthCenter responde en `https://authcenter.info`. Para otro dominio, repite los
+pasos con su nombre.
+
+1. Vincula el dominio y su certificado al App Service (*Custom domains*).
+2. En *Environment variables* del App Service, guarda:
+
+   | Variable | Valor |
+   |---|---|
+   | `AllowedHosts` | `authcenter.info;<app>.azurewebsites.net` |
+   | `Jwt__Issuer` | `https://authcenter.info` |
+   | `Oidc__PublicOrigin` | `https://authcenter.info` |
+   | `ActionLinks__DefaultBaseUrl` | `https://authcenter.info` |
+   | `Passkeys__RelyingPartyId` | `authcenter.info` |
+   | `Passkeys__AllowedOrigins__0` | `https://authcenter.info` |
+
+   En `AllowedHosts` va el hostname real del App Service (el de `AZURE_WEBAPP_NAME`), porque la
+   verificación del despliegue entra por él. Un host que no esté en la lista recibe
+   `HTTP Error 400. The request hostname is invalid.` antes de llegar a AuthCenter.
+3. Espera a que la app se reinicie con los valores nuevos.
+- **Comprobación:** `https://authcenter.info/.well-known/openid-configuration` responde 200 con
+  `"issuer": "https://authcenter.info"` y todos los endpoints en ese dominio, y
+  `https://<app>.azurewebsites.net/health/live` sigue en 200. El job `deploy` repite esta
+  comprobación en cada despliegue.
+- **Efectos:** los usuarios inician sesión de nuevo en el dominio nuevo y las passkeys registradas
+  para el host anterior dejan de servir. También cambian el entity ID SAML por defecto
+  (`{Jwt:Issuer}/saml/idp/metadata`) y el callback de federación
+  (`{Oidc:PublicOrigin}/api/federation/oidc/callback`), que deben actualizar las aplicaciones SAML y
+  los proveedores ya registrados.
 
 ## UI-07 · Revisión manual con lectores de pantalla
 

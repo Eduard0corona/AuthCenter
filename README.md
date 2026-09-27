@@ -221,10 +221,27 @@ The API fails fast in every environment when `Jwt:RsaPrivateKeyPem` is missing, 
 - `Authentication:Google:ClientId` still uses the placeholder value.
 - `Cors:AllowedOrigins` is empty.
 
-For a fully conformant OIDC discovery document, set `Jwt:Issuer` to the public HTTPS URL of the
-service. The endpoint URLs published at `/.well-known/openid-configuration` are derived from the
-request, but the `issuer` value must match the `iss` claim of the tokens, so changing it
-invalidates tokens already in circulation.
+Set `Jwt:Issuer` to the public HTTPS URL of the service and `Oidc:PublicOrigin` to the same URL.
+The discovery document at `/.well-known/openid-configuration` publishes the first as `issuer` and
+builds every endpoint URL from the second, never from the request's host. Tokens carry the issuer
+in `iss`, so changing it invalidates the tokens already in circulation.
+
+### Custom domain
+
+AuthCenter answers at `https://authcenter.info`. To serve it from a custom domain:
+
+1. Bind the domain and its certificate to the App Service.
+2. Set `AllowedHosts` to the domain and the App Service host, separated by a semicolon
+   (`authcenter.info;<app>.azurewebsites.net`). The deployment checks reach the app through the
+   App Service host, and a host missing from the list gets
+   `HTTP Error 400. The request hostname is invalid.` before AuthCenter sees the request.
+3. Set `Jwt__Issuer`, `Oidc__PublicOrigin` and `ActionLinks__DefaultBaseUrl` to `https://<domain>`,
+   `Passkeys__RelyingPartyId` to the domain and `Passkeys__AllowedOrigins__0` to `https://<domain>`.
+
+After a move to a new domain, users sign in again there, and the passkeys registered for the
+previous host stop working. The default SAML entity ID and the federation callback URL change too,
+so SAML applications and upstream providers already registered must be updated. Move before
+relying parties are registered.
 
 ### Rotating the signing key
 
@@ -283,9 +300,11 @@ The Azure deployment uses a passwordless database connection:
   value. Operators do not retain a Key Vault data-plane role after provisioning.
 - Windows App Service loads the PKCS#12 private key with `WEBSITE_LOAD_USER_PROFILE=1`. The
   certificate itself and its password remain in Key Vault.
-- The initial Azure host is the exact `AllowedHosts`, issuer, OIDC/action-link origin, and only CORS
-  origin. Add the real frontend origin explicitly when it exists. Google login remains disabled
-  until a real client ID is configured.
+- `https://authcenter.info` is the issuer, the OIDC and action-link origin and the passkey relying
+  party, and `AllowedHosts` lists it together with the App Service host
+  ([Custom domain](#custom-domain)). CORS lists only the App Service host: add the real frontend
+  origin explicitly when it exists. Google login remains disabled until a real client ID is
+  configured.
 
 The single `CI/CD` workflow validates every pull request. On a push to `main` (or a manual run on
 `main`), it deploys only after the secret scan, build, tests, and dependency audit pass. Azure
@@ -295,7 +314,10 @@ The repository must provide `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRI
 `CI_MSSQL_SA_PASSWORD` is the password of the throwaway SQL Server the tests run against; pull
 requests that get no secrets (Dependabot's, or a fork's) use one derived from the run instead.
 After deployment, `/health/live`, `/health/ready` and the branding endpoint must return HTTP 200 or
-the workflow is marked failed; on failure it prints the readiness report.
+the workflow is marked failed; on failure it prints the readiness report. The workflow then fetches
+the discovery document through the issuer's own URL: it must answer with that same issuer and a
+key set with at least one key, so a domain missing from `AllowedHosts` or not bound to the App
+Service fails the deployment.
 
 Besides the tests, CI fails when an EF Core model change has no migration, when .NET coverage
 (unit and integration, merged) drops under 80% of lines or 60% of branches, when the console's
