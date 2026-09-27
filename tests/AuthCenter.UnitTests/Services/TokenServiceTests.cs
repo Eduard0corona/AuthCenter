@@ -1,6 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
+using AuthCenter.Application.Models;
+using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Security;
 using AuthCenter.Infrastructure.Services;
 using AuthCenter.Infrastructure.Settings;
@@ -157,6 +160,64 @@ public class TokenServiceTests : IDisposable
         var result = _tokenService.ValidateMagicLinkToken(token);
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void OAuthAccessAndIdTokens_CarryTheRecordedAmrAsAJsonArray()
+    {
+        var user = TestUser();
+        var authentication = new TokenAuthentication(
+            DateTime.UtcNow.AddMinutes(-5),
+            AuthenticationContext.WithSecondFactor(DomainConstants.AuthenticationMethods.Password).Methods,
+            AuthenticationAssuranceLevel.Mfa,
+            Guid.NewGuid());
+
+        var accessToken = ReadPayload(_tokenService.GenerateOAuthAccessToken(user, "client", "APP", ["openid"], [], [], 300, authentication));
+        var idToken = ReadPayload(_tokenService.GenerateIdToken(user, "client", "nonce", ["openid"], authentication)!);
+
+        string[] expected = ["pwd", "otp", "mfa"];
+        foreach (var payload in new[] { accessToken, idToken })
+        {
+            Assert.Equal(expected, AmrArray(payload));
+            Assert.Equal(DomainConstants.AuthenticationContextClasses.MultiFactor, payload["acr"]);
+        }
+    }
+
+    [Fact]
+    public void OAuthAccessToken_SinglePasswordMethod_IsStillAnArray_AndNoAuthenticationMeansNoAmr()
+    {
+        var user = TestUser();
+        var password = new TokenAuthentication(DateTime.UtcNow, AuthenticationContext.Password.Methods, AuthenticationAssuranceLevel.Password, null);
+
+        var withPassword = ReadPayload(_tokenService.GenerateOAuthAccessToken(user, "client", "APP", ["openid"], [], [], 300, password));
+        var withoutAuthentication = ReadPayload(_tokenService.GenerateOAuthAccessToken(user, "client", "APP", ["openid"], [], [], 300));
+        var withoutMethods = ReadPayload(_tokenService.GenerateOAuthAccessToken(
+            user, "client", "APP", ["openid"], [], [], 300, password with { Methods = [] }));
+
+        Assert.Equal(["pwd"], AmrArray(withPassword));
+        Assert.False(withoutAuthentication.ContainsKey("amr"));
+        Assert.False(withoutMethods.ContainsKey("amr"));
+    }
+
+    private static ApplicationUser TestUser() => new()
+    {
+        Id = Guid.NewGuid(),
+        FullName = "Test User",
+        Email = "test@example.com",
+        UserName = "test@example.com",
+        IsActive = true,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    private static JwtPayload ReadPayload(string token) => new JwtSecurityTokenHandler().ReadJwtToken(token).Payload;
+
+    /// <summary>The amr member of the serialized payload, which must be a JSON array of strings.</summary>
+    private static string[] AmrArray(JwtPayload payload)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(payload.SerializeToJson());
+        var amr = json.RootElement.GetProperty("amr");
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, amr.ValueKind);
+        return amr.EnumerateArray().Select(value => value.GetString()!).ToArray();
     }
 
     public void Dispose()

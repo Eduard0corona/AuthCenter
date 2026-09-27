@@ -111,7 +111,7 @@ el BFF (`/auth/login?…`), el SDK TypeScript (`createSignInUrl`) y `/oauth/auth
 | `prompt=none` | SSO silencioso; sin sesión la aplicación recibe `login_required`. |
 | `prompt=login`, `max_age=N` | Exige reautenticación o una autenticación reciente. |
 | `login_hint` | Prellena el correo. |
-| `acr_values=urn:authcenter:acr:mfa` | Pide MFA (el ID token informa `acr` y `amr`). |
+| `acr_values=urn:authcenter:acr:mfa` | Pide MFA (el ID token y el access token informan `acr` y `amr`, p. ej. `["pwd","otp","mfa"]`). |
 | `idp=<id del proveedor>` | Envía al usuario directamente al IdP de su organización. |
 | `domain_hint=empresa.com` | Descubre el IdP por dominio. |
 

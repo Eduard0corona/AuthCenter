@@ -343,6 +343,108 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
     }
 
     [Fact]
+    public async Task PasswordSignIn_IdAndAccessTokensCarryAmrPwd_AndRefreshKeepsIt()
+    {
+        var clientId = await RegisterClientAsync(autoConsent: true, offlineAccess: true);
+        using var browser = CreateBrowser();
+        await SignInAsync(browser, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
+
+        var tokens = await AuthorizeForTokensAsync(browser, clientId);
+        string[] password = [DomainConstants.AuthenticationMethods.Password];
+        Assert.Equal(password, Amr(tokens, "id_token"));
+        Assert.Equal(password, Amr(tokens, "access_token"));
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.SingleFactor, TokenClaim(tokens, "access_token", "acr"));
+
+        var refreshed = await RefreshAsync(clientId, tokens.GetProperty("refresh_token").GetString()!);
+        var again = await RefreshAsync(clientId, refreshed.GetProperty("refresh_token").GetString()!);
+        foreach (var rotated in new[] { refreshed, again })
+        {
+            Assert.Equal(password, Amr(rotated, "access_token"));
+            Assert.Equal(DomainConstants.AuthenticationContextClasses.SingleFactor, TokenClaim(rotated, "access_token", "acr"));
+            Assert.Equal(TokenClaim(tokens, "access_token", "auth_time"), TokenClaim(rotated, "access_token", "auth_time"));
+        }
+    }
+
+    [Fact]
+    public async Task SecondFactorSignIn_AccessTokenAndItsRefreshesCarryMfa()
+    {
+        var clientId = await RegisterClientAsync(autoConsent: true, offlineAccess: true);
+        var email = $"amr-mfa-{Guid.NewGuid():N}@example.com";
+        var password = TestSecretGenerator.CreatePassword();
+        await CreateUserAsync(email, password);
+        var secret = await EnableTotpAsync(email, password);
+        using var browser = CreateBrowser();
+        await SignInWithTotpAsync(browser, email, password, secret);
+
+        var tokens = await AuthorizeForTokensAsync(browser, clientId);
+        string[] mfa =
+        [
+            DomainConstants.AuthenticationMethods.Password,
+            DomainConstants.AuthenticationMethods.OneTimePassword,
+            DomainConstants.AuthenticationMethods.MultiFactor
+        ];
+        Assert.Equal(mfa, Amr(tokens, "id_token"));
+        Assert.Equal(mfa, Amr(tokens, "access_token"));
+
+        var refreshed = await RefreshAsync(clientId, tokens.GetProperty("refresh_token").GetString()!);
+        Assert.Equal(mfa, Amr(refreshed, "access_token"));
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.MultiFactor, TokenClaim(refreshed, "access_token", "acr"));
+    }
+
+    [Fact]
+    public async Task Refresh_KeepsTheGrantsOwnAmr_EvenAfterTheSessionLaterCompletesMfa()
+    {
+        var clientId = await RegisterClientAsync(autoConsent: true, offlineAccess: true);
+        var email = $"amr-refresh-{Guid.NewGuid():N}@example.com";
+        var password = TestSecretGenerator.CreatePassword();
+        await CreateUserAsync(email, password);
+        using var browser = CreateBrowser();
+        var csrf = await SignInAsync(browser, email, password);
+        var passwordGrant = await AuthorizeForTokensAsync(browser, clientId);
+        Assert.Equal([DomainConstants.AuthenticationMethods.Password], Amr(passwordGrant, "access_token"));
+
+        // The same browser session re-authenticates with a second factor: new grants get mfa...
+        var secret = await EnableTotpAsync(email, password);
+        await SignInWithTotpAsync(browser, email, password, secret, csrf);
+        var mfaGrant = await AuthorizeForTokensAsync(browser, clientId);
+        Assert.Contains(DomainConstants.AuthenticationMethods.MultiFactor, Amr(mfaGrant, "access_token"));
+        Assert.Equal(TokenClaim(passwordGrant, "id_token", "sid"), TokenClaim(mfaGrant, "id_token", "sid"));
+
+        // ...but the earlier grant still describes the password-only authentication it came from.
+        var refreshed = await RefreshAsync(clientId, passwordGrant.GetProperty("refresh_token").GetString()!);
+        Assert.Equal([DomainConstants.AuthenticationMethods.Password], Amr(refreshed, "access_token"));
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.SingleFactor, TokenClaim(refreshed, "access_token", "acr"));
+    }
+
+    [Fact]
+    public async Task ClientSuppliedAmr_IsIgnored_AtTheAuthorizeAndTokenEndpoints()
+    {
+        var clientId = await RegisterClientAsync(autoConsent: true, offlineAccess: true);
+        using var browser = CreateBrowser();
+        await SignInAsync(browser, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
+        var injected = new Dictionary<string, string>
+        {
+            ["amr"] = "mfa",
+            ["amr_values"] = "pwd otp mfa",
+            ["acr"] = DomainConstants.AuthenticationContextClasses.MultiFactor
+        };
+
+        var tokens = await AuthorizeForTokensAsync(
+            browser,
+            clientId,
+            new(injected) { ["claims"] = """{"id_token":{"amr":{"essential":true,"values":["mfa"]}}}""" },
+            injected);
+        var refreshed = await RefreshAsync(clientId, tokens.GetProperty("refresh_token").GetString()!, injected);
+
+        string[] password = [DomainConstants.AuthenticationMethods.Password];
+        Assert.Equal(password, Amr(tokens, "id_token"));
+        Assert.Equal(password, Amr(tokens, "access_token"));
+        Assert.Equal(password, Amr(refreshed, "access_token"));
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.SingleFactor, TokenClaim(tokens, "id_token", "acr"));
+        Assert.Equal(DomainConstants.AuthenticationContextClasses.SingleFactor, TokenClaim(refreshed, "access_token", "acr"));
+    }
+
+    [Fact]
     public async Task Discovery_AdvertisesSingleSignOnCapabilities()
     {
         using var client = _factory.CreateAuthCenterClient();
@@ -386,6 +488,37 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
         return (await ReadDataAsync(login)).GetProperty("csrfToken").GetString()!;
     }
 
+    /// <summary>Signs in with password and TOTP through the hosted-login API.</summary>
+    private static async Task SignInWithTotpAsync(HttpClient browser, string email, string password, string secret, string? csrf = null)
+    {
+        using var login = new HttpRequestMessage(HttpMethod.Post, "/ui-api/session/login")
+        {
+            Content = JsonContent.Create(new LoginRequest
+            {
+                Email = email,
+                Password = password,
+                ApplicationCode = DomainConstants.SystemCodes.AuthCenter
+            })
+        };
+        if (csrf is not null)
+            login.Headers.Add("X-AuthCenter-CSRF", csrf);
+        var pending = await ReadDataAsync(await browser.SendAsync(login));
+        Assert.True(pending.GetProperty("requiresMfa").GetBoolean());
+
+        using var verify = new HttpRequestMessage(HttpMethod.Post, "/ui-api/session/mfa")
+        {
+            Content = JsonContent.Create(new VerifyMfaRequest
+            {
+                MfaPendingToken = pending.GetProperty("mfaPendingToken").GetString()!,
+                TotpCode = TestTotp.Code(secret)
+            })
+        };
+        if (csrf is not null)
+            verify.Headers.Add("X-AuthCenter-CSRF", csrf);
+        var verified = await browser.SendAsync(verify);
+        Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+    }
+
     private static async Task<HttpResponseMessage> CompleteAsync(HttpClient browser, string csrf, string interactionId)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/oauth/authorize/complete")
@@ -412,20 +545,73 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
 
     private async Task<JwtSecurityToken> ExchangeAsync(string clientId, string code, string verifier)
     {
-        using var backChannel = _factory.CreateAuthCenterClient();
-        var token = await backChannel.PostAsync("/oauth/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        var tokens = await ExchangeTokensAsync(clientId, code, verifier);
+        return new JwtSecurityTokenHandler().ReadJwtToken(tokens.GetProperty("id_token").GetString());
+    }
+
+    /// <summary>The whole token response; <paramref name="extra"/> adds (ignored) form parameters.</summary>
+    private async Task<JsonElement> ExchangeTokensAsync(string clientId, string code, string verifier, Dictionary<string, string>? extra = null)
+    {
+        var form = new Dictionary<string, string>
         {
             ["grant_type"] = "authorization_code",
             ["client_id"] = clientId,
             ["code"] = code,
             ["redirect_uri"] = Redirect,
             ["code_verifier"] = verifier
-        }));
+        };
+        foreach (var (key, value) in extra ?? [])
+            form[key] = value;
+        return await TokenResponseAsync(form);
+    }
+
+    private async Task<JsonElement> RefreshAsync(string clientId, string refreshToken, Dictionary<string, string>? extra = null)
+    {
+        var form = new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["client_id"] = clientId,
+            ["refresh_token"] = refreshToken
+        };
+        foreach (var (key, value) in extra ?? [])
+            form[key] = value;
+        return await TokenResponseAsync(form);
+    }
+
+    private async Task<JsonElement> TokenResponseAsync(Dictionary<string, string> form)
+    {
+        using var backChannel = _factory.CreateAuthCenterClient();
+        var token = await backChannel.PostAsync("/oauth/token", new FormUrlEncodedContent(form));
         var body = await token.Content.ReadAsStringAsync();
         Assert.True(token.IsSuccessStatusCode, body);
         using var json = JsonDocument.Parse(body);
-        return new JwtSecurityTokenHandler().ReadJwtToken(json.RootElement.GetProperty("id_token").GetString());
+        return json.RootElement.Clone();
     }
+
+    /// <summary>Authorizes with the browser's session (openid and offline_access) and redeems the code.</summary>
+    private async Task<JsonElement> AuthorizeForTokensAsync(
+        HttpClient browser, string clientId, Dictionary<string, string>? extra = null, Dictionary<string, string>? tokenExtra = null)
+    {
+        var parameters = new Dictionary<string, string> { ["scope"] = "openid profile email offline_access" };
+        foreach (var (key, value) in extra ?? [])
+            parameters[key] = value;
+        var (url, verifier) = AuthorizeUrl(clientId, parameters);
+        var response = await browser.GetAsync(url);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location!;
+        Assert.StartsWith(Redirect, location.OriginalString, StringComparison.Ordinal);
+        var code = QueryHelpers.ParseQuery(location.Query)["code"].ToString();
+        Assert.False(string.IsNullOrEmpty(code), location.OriginalString);
+        return await ExchangeTokensAsync(clientId, code, verifier, tokenExtra);
+    }
+
+    private static JwtSecurityToken Jwt(JsonElement tokens, string tokenName) =>
+        new JwtSecurityTokenHandler().ReadJwtToken(tokens.GetProperty(tokenName).GetString());
+
+    private static string[] Amr(JsonElement tokens, string tokenName) =>
+        Jwt(tokens, tokenName).Claims.Where(claim => claim.Type == "amr").Select(claim => claim.Value).ToArray();
+
+    private static string TokenClaim(JsonElement tokens, string tokenName, string type) => Claim(Jwt(tokens, tokenName), type);
 
     private static string Claim(JwtSecurityToken token, string type) => token.Claims.Single(claim => claim.Type == type).Value;
 
@@ -456,7 +642,7 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
         return interactionId;
     }
 
-    private async Task<string> RegisterClientAsync(bool autoConsent, string applicationCode = DomainConstants.SystemCodes.AuthCenter)
+    private async Task<string> RegisterClientAsync(bool autoConsent, string applicationCode = DomainConstants.SystemCodes.AuthCenter, bool offlineAccess = false)
     {
         using var admin = await CreateAdminClientAsync();
         var clientId = $"sso-{Guid.NewGuid():N}"[..24];
@@ -467,8 +653,8 @@ public sealed class SingleSignOnTests : IClassFixture<HttpsAuthCenterFactory>
             DisplayName = "SSO test client",
             ClientType = 1,
             RedirectUris = new[] { Redirect },
-            AllowedScopes = new[] { "openid", "profile", "email" },
-            GrantTypes = new[] { "authorization_code" },
+            AllowedScopes = offlineAccess ? new[] { "openid", "profile", "email", "offline_access" } : new[] { "openid", "profile", "email" },
+            GrantTypes = offlineAccess ? new[] { "authorization_code", "refresh_token" } : new[] { "authorization_code" },
             LoginUrl = $"{HttpsAuthCenterFactory.Authority}/login",
             RequirePkce = true,
             AutoConsent = autoConsent
