@@ -1285,9 +1285,11 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
         if (!long.TryParse(subject.Principal.FindFirst("auth_time")?.Value, out var authTime))
             return null;
         var assurance = AuthenticationContext.AssuranceFor(subject.Principal.FindFirst("acr")?.Value ?? string.Empty) ?? AuthenticationAssuranceLevel.Password;
+        // The subject token was signed by AuthCenter and validated, so its amr is the server's own
+        // record of the user's authentication and carries over to the delegated token.
         return new TokenAuthentication(
             DateTimeOffset.FromUnixTimeSeconds(authTime).UtcDateTime,
-            [],
+            subject.Principal.FindAll("amr").Select(claim => claim.Value).Distinct(StringComparer.Ordinal).ToArray(),
             assurance,
             Guid.TryParse(subject.SessionId, out var sessionId) ? sessionId : null);
     }

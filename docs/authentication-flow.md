@@ -184,11 +184,17 @@ Client -> GET /oauth/authorize
    confidential client authenticates with HTTP Basic or form credentials; a public client sends
    only client_id.
 8. The access token contains application-scoped roles and permissions. `email` and `name` appear
-   only when their scopes permit them. The ID token carries sid, auth_time, amr and acr.
+   only when their scopes permit them. The ID token carries sid, auth_time, amr and acr; the
+   access token carries auth_time, amr and acr too (RFC 9068), so an API can require "mfa" itself.
+   amr is always a JSON array (`["pwd"]`, `["pwd","otp","mfa"]`, `["fed"]`, `["pop","mfa"]`...)
+   taken from the authentication recorded on the session when the code was issued; request
+   parameters (amr, claims, ...) never change it.
 9. `offline_access` creates a rotating refresh-token family with a fixed absolute expiration.
    Reuse of an old member revokes the entire family. Every refresh checks application access and
    the published access policy again (network conditions use the address of the sign-in session),
-   and a denial revokes the family.
+   and a denial revokes the family. A refreshed access token keeps the auth_time, amr and acr of
+   the authentication that started the grant: a later step-up of the browser session does not
+   upgrade an existing grant, the client has to authorize again.
 ```
 
 The client must compare returned `state`, validate the ID token signature/issuer/audience/expiry,
@@ -215,8 +221,8 @@ API -> POST /oauth/token  grant_type=urn:ietf:params:oauth:grant-type:token-exch
 
 4. Only a confidential client with that grant, of the application owning the subject token's API
    (or the client the token was issued to), can exchange it. The new token keeps the user as sub,
-   names the caller in act, is limited to the caller's scopes for the target API and never
-   outlives the subject token.
+   names the caller in act, is limited to the caller's scopes for the target API, keeps the
+   subject token's auth_time, amr and acr and never outlives the subject token.
 
 API -> POST /oauth/introspect token=<token>   (client_secret_basic or client_secret_post)
 

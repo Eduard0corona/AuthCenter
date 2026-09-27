@@ -115,6 +115,11 @@ public class TokenService : ITokenService
             if (authentication is not null)
             {
                 claims.Add(new Claim("auth_time", ToUnixTime(authentication.AuthenticatedAt), ClaimValueTypes.Integer64));
+                // amr lets an API require "mfa" itself. It comes from the server-side record of the
+                // authentication (code, refresh-token family or validated subject token), never from
+                // request parameters, and is a JSON array like in the ID token.
+                if (authentication.Methods.Count > 0)
+                    claims.Add(new Claim("amr", JsonSerializer.Serialize(authentication.Methods), JsonClaimValueTypes.JsonArray));
                 claims.Add(new Claim("acr", AuthenticationContext.ContextClass(authentication.Assurance)));
                 // The session lets introspection report the token inactive once the user signs out.
                 if (authentication.SessionId.HasValue)

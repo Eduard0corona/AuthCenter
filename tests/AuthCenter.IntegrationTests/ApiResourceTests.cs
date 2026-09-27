@@ -161,6 +161,11 @@ public sealed class ApiResourceTests : IClassFixture<HttpsAuthCenterFactory>
         Assert.Equal(world.BillingScope, jwt.Claims.Single(claim => claim.Type == "scope").Value);
         Assert.Contains(world.OrdersApiClient, jwt.Claims.Single(claim => claim.Type == "act").Value);
         Assert.True(jwt.ValidTo <= subject.ValidTo);
+        // The delegated token describes the user's original authentication, as the subject token does.
+        Assert.Equal(
+            [DomainConstants.AuthenticationMethods.Password],
+            jwt.Claims.Where(claim => claim.Type == "amr").Select(claim => claim.Value).ToArray());
+        Assert.Equal(subject.Claims.Single(claim => claim.Type == "acr").Value, jwt.Claims.Single(claim => claim.Type == "acr").Value);
 
         // Only the API the user's token was issued for can exchange it.
         Assert.Equal("invalid_grant", await OAuthErrorAsync(await TokenAsync(ExchangeRequest(world.BillingApiClient, world.BillingApiSecret, userToken, world.OrdersApi))));

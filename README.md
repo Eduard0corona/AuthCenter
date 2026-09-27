@@ -463,7 +463,10 @@ it), `domain_hint` (an email domain for home realm discovery), `id_token_hint`, 
 `request_uri` are rejected with their standard errors. Interactions are bound to the browser that
 started them (`__Host-AuthCenter.Browser`), so a link cannot be completed from another browser.
 ID tokens carry `sid`, the real `auth_time`, `amr` (RFC 8176) and `acr`
-(`urn:authcenter:acr:1fa`, `urn:authcenter:acr:mfa`, `urn:authcenter:acr:phr`). Re-authenticating
+(`urn:authcenter:acr:1fa`, `urn:authcenter:acr:mfa`, `urn:authcenter:acr:phr`); user access tokens
+carry `auth_time`, `amr` and `acr` as well, so an API can require `mfa` in `amr`. `amr` is always a
+JSON array built from the recorded authentication (`["pwd"]`, `["pwd","otp","mfa"]`, `["fed"]`,
+`["pop","mfa"]`), is kept on refresh and token exchange, and no request parameter changes it. Re-authenticating
 with the same account keeps the session and its `sid`; signing in with another account ends the
 previous account's session.
 
