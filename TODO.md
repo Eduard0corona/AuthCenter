@@ -33,6 +33,10 @@ approval; each has a step-by-step procedure in
       (OPS-15). The deployment verifies discovery through the issuer's URL.
 - [ ] Add the real frontend hostname to `Cors:AllowedOrigins` and `ActionLinks` when it exists. The
       current configuration intentionally permits only the AuthCenter origin (OPS-07).
+- [ ] Register Paquetenvia: its application, the confidential client `paquetenvia-web-prod` and the
+      client secret in its Key Vault, with `scripts/ops/Register-Paquetenvia.ps1` (OPS-16).
+- [ ] Configure outbound email (`Email:*` SMTP settings, sender domain with SPF, DKIM and DMARC).
+      Until then confirmations, magic links and password resets are never delivered (OPS-17).
 
 ## Security
 

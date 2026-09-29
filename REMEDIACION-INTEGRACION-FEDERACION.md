@@ -17,8 +17,8 @@ como **acción del propietario** con el procedimiento preparado.
 
 ## Estado verificado al cierre (2026-09-26, después de F15)
 
-- Puntos: 90 resueltos con evidencia (`[x]`) y 7 que dependen del propietario (`[P]`: OPS-02,
-  OPS-04, OPS-05, OPS-06, OPS-07, OPS-10 y OPS-14), cada uno con su
+- Puntos: 90 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-02,
+  OPS-04, OPS-05, OPS-06, OPS-07, OPS-10, OPS-14, OPS-16 y OPS-17), cada uno con su
   procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
   la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
 - Build .NET 10 Release: 0 errores, 0 advertencias; ningún cambio del modelo sin migración (35
@@ -392,6 +392,24 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   issuer y exige el mismo issuer y al menos una llave en el JWKS. El script se probó contra
   servidores locales en cinco casos: éxito, host rechazado, issuer distinto, JWKS vacío e issuer que
   no es HTTPS. Procedimiento: [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-15--dominio-propio-de-authcenter).
+- [P] **OPS-16** *(nuevo)* Alta de Paquetenvia: aplicación `PAQUETENVIA`, cliente confidencial
+  `paquetenvia-web-prod` y su secreto en el Key Vault del piloto (§10 y §10.1 de
+  `docs/development/auth-001-authcenter-bff.md` en Paquetenvia).
+  *Estado:* `scripts/ops/Register-Paquetenvia.ps1` hace el alta con un comando del propietario. La
+  sesión no puede hacerla: exige iniciar sesión como administrador y el secreto debe ir directo al
+  Key Vault de Paquetenvia, sin pasar por la sesión. El script inicia sesión con contraseña y
+  segundo factor, muestra el plan y lo aplica tras confirmar. Corrige sólo lo que difiera y rota el
+  secreto si falta, si ya no autentica o si se pide. Abre y cierra una regla temporal en el
+  firewall del vault, y al final prueba el secreto guardado contra `/oauth/introspect`. La
+  aplicación exige confirmar el correo: sin eso AuthCenter emite `email_verified=true` sin
+  verificación, y Paquetenvia vincula membresías por correo verificado.
+  Procedimiento: [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-16--alta-de-paquetenvia).
+- [P] **OPS-17** *(nuevo)* Correo saliente de AuthCenter.
+  *Hallazgo (2026-09-29):* ni la configuración ni la documentación del despliegue definen un
+  servidor SMTP para producción (`Email:Host` vacío). Sin él, los correos se encolan y terminan
+  como dead letters. No llegan confirmaciones de correo, enlaces mágicos, restablecimientos,
+  invitaciones ni códigos por correo, así que las cuentas nuevas de Paquetenvia no pueden entrar.
+  Procedimiento: [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md#ops-17--correo-saliente-de-authcenter).
 
 ### I. Documentación
 
@@ -432,3 +450,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-27 | Primer lote de Dependabot integrado y probado: menores y parches de NuGet y npm, runner de xUnit 4, cinco Actions, vitest y `@vitest/coverage-v8` 5 juntos y jsdom 30; TypeScript 7 pospuesto. En local: .NET 76 unitarias y 349 de integración con SQL Server; consola con lint, typecheck, 79 pruebas con cobertura mínima, presupuesto y 301 escenarios e2e; login hospedado 6 unitarias y 31 e2e; audits sin hallazgos. El CI corre ahora en los PRs de Dependabot. | OPS-11 |
 | 2026-09-27 | Despliegue del lote de dependencias: el PR #37 se fusionó y el run `CI/CD` #89 pasó pruebas y despliegue con las Actions nuevas (`download-artifact` 8, `azure/login` 3, `webapps-deploy`) y la verificación de salud. Dependabot cerró sus PRs integrados; el de TypeScript 7 quedó cerrado y pospuesto. Los dos PRs que Dependabot abrió después (`setup-node` 7 y `IdentityModel` 8.23 en el SDK .NET) pasaron el CI completo y se desplegaron en el run #93. | OPS-11 |
 | 2026-09-27 | Dominio propio `authcenter.info`: el discovery respondía 400 porque `AllowedHosts` sólo tenía el host del App Service. El propietario configuró ambos hosts y movió issuer, origen OIDC, enlaces y passkeys al dominio. El despliegue verifica ahora el discovery por la URL del issuer. | OPS-15 |
+| 2026-09-29 | Alta de Paquetenvia: `scripts/ops/Register-Paquetenvia.ps1`, probado contra un AuthCenter local con SQL Server y una CLI de Azure simulada en doce casos. Casos: alta nueva con vault protegido por firewall, re-ejecución sin cambios, `-WhatIf`, corrección de deriva, secreto ausente o inválido rotado en la misma ejecución, `-RotateSecret` con administrador con TOTP, escritura fallida en Key Vault recuperada en la siguiente ejecución, contraseña incorrecta, issuer distinto, vault inexistente, grupo de recursos sin vault y cliente desactivado. El secreto nunca apareció en la línea de comandos, quedó sin BOM ni salto de línea, y `/oauth/authorize` acepta el cliente con PKCE. Sin probar en Azure real: la CLI, el Key Vault y la propagación de la regla del firewall. Hallazgos: `email_verified` sin verificación cuando la aplicación no exige confirmación (se corrige aparte) y SMTP sin configurar en producción. | OPS-16, OPS-17 |

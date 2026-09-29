@@ -17,6 +17,8 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 | OPS-10 | Borrar ramas remotas ya integradas | Autorización expresa: borra ramas |
 | OPS-14 | Publicar los SDK | Cuentas NuGet/npm, entorno protegido, licencia |
 | OPS-15 | Dominio propio de AuthCenter (hecho el 2026-09-27: `authcenter.info`) | Operador de App Service |
+| OPS-16 | Alta de Paquetenvia (aplicación, cliente OAuth y secreto) | Administrador de AuthCenter con MFA; Azure CLI con acceso al Key Vault de Paquetenvia |
+| OPS-17 | Correo saliente de AuthCenter (SMTP) | Cuenta del proveedor de correo, DNS de `authcenter.info`, operador de App Service |
 | UI-07 | Revisión manual con lectores de pantalla | Persona con NVDA/JAWS/VoiceOver |
 
 ## OPS-01 · GitHub Actions no ejecuta
@@ -189,6 +191,91 @@ pasos con su nombre.
   (`{Jwt:Issuer}/saml/idp/metadata`) y el callback de federación
   (`{Oidc:PublicOrigin}/api/federation/oidc/callback`), que deben actualizar las aplicaciones SAML y
   los proveedores ya registrados.
+
+## OPS-16 · Alta de Paquetenvia
+
+`scripts/ops/Register-Paquetenvia.ps1` hace el alta que pide Paquetenvia en
+`docs/development/auth-001-authcenter-bff.md` (§10 y §10.1):
+
+- **Aplicación `PAQUETENVIA`:** registro abierto, contraseña y enlace mágico. Exige confirmar el
+  correo y no exige MFA a todos: los roles privilegiados de Paquetenvia suben de nivel con
+  `acr_values`.
+- **Cliente confidencial `paquetenvia-web-prod`:**
+  - `authorization_code` y `refresh_token`, con PKCE;
+  - scopes `openid profile email offline_access`;
+  - redirect URI `https://paquetenvia.com/signin-authcenter`;
+  - post-logout `https://paquetenvia.com/login`;
+  - back-channel logout `https://paquetenvia.com/auth/backchannel-logout`, con `sid`;
+  - `LoginUrl` `https://authcenter.info/login` y consentimiento automático.
+- **Secreto del cliente:** va directo al secreto `authcenter-paquetenvia-client-secret` del Key Vault
+  del piloto, sin mostrarse ni escribirse en otro lado.
+
+La confirmación de correo no es opcional. Paquetenvia vincula las membresías pendientes al correo
+de un ID token con `email_verified=true`. Si la aplicación no exige confirmación, AuthCenter
+registra la cuenta como verificada sin comprobar nada, y quien se registre con el correo de otra
+persona se queda con sus membresías.
+
+Requisitos: OPS-04 hecho (administrador con app de autenticación), PowerShell 7.2 o posterior y la
+CLI de Azure con `az login` en la suscripción de Paquetenvia. En el Key Vault del piloto necesitas el
+rol `Key Vault Secrets Officer` y permiso para cambiar sus reglas de red. El vault niega el tráfico
+público: el script agrega una regla temporal para tu IP y la quita al terminar, igual que
+`deploy/azure/pilot/kv-firewall.sh`.
+
+1. En PowerShell 7, desde la raíz del repositorio:
+   ```powershell
+   ./scripts/ops/Register-Paquetenvia.ps1 -AdminEmail <tu-correo> -GrantAdminAccess
+   ```
+   Pide tu contraseña y el código de la app de autenticación, muestra el plan y pide confirmación.
+   - `-WhatIf` sólo muestra el plan.
+   - `-GrantAdminAccess` da acceso a Paquetenvia a tu cuenta: el registro abierto sólo da acceso a
+     las cuentas nuevas.
+   - Busca el vault en `rg-pv-pilot`. Con `-KeyVaultName` usas otro; con `-Subscription`, otra
+     suscripción.
+2. Reinicia la API de Paquetenvia (la revisión activa de su Container App) para que lea el secreto.
+
+Puedes volver a ejecutarlo: sólo corrige lo que difiera del alta. Rota el secreto si falta en Key
+Vault, si ya no autentica al cliente o si pasas `-RotateSecret`. Una aplicación o un cliente
+desactivados se reactivan a mano, en la consola. Para el ambiente dev, cuando exista:
+`-Environment Dev -KeyVaultName <vault de dev>` registra `paquetenvia-web-dev` con
+`https://dev.paquetenvia.com`.
+
+- **Comprobación:** el script termina con `Done: the secret in <vault>/authcenter-paquetenvia-client-secret authenticates paquetenvia-web-prod`.
+  Esa línea sale después de probar el secreto guardado contra `/oauth/introspect`. Después de
+  reiniciar la API, "Iniciar sesión" en `https://paquetenvia.com/login` lleva al login de
+  AuthCenter y regresa con sesión.
+- **Depende de OPS-17:** sin correo saliente, las cuentas nuevas no reciben la confirmación ni el
+  enlace mágico, y no pueden entrar.
+
+## OPS-17 · Correo saliente de AuthCenter
+
+Sin SMTP, AuthCenter encola los correos pero no puede enviarlos: se agotan los reintentos y quedan
+como dead letters. Eso afecta confirmaciones de correo, enlaces mágicos, restablecimientos de
+contraseña, invitaciones, códigos por correo y avisos de seguridad. La configuración de ejemplo no
+trae servidor, y hasta ahora el despliegue no documentaba uno.
+
+1. Contrata un proveedor SMTP, por ejemplo Azure Communication Services Email, SendGrid o Mailgun.
+   Verifica en él el dominio `authcenter.info` y publica en su DNS los registros SPF, DKIM y DMARC
+   que indique. Sin ellos, los correos llegan a spam o se rechazan.
+2. Guarda la contraseña o clave SMTP en el Key Vault de AuthCenter y da a la identidad del App
+   Service `Key Vault Secrets User` sobre ese secreto, como con las demás referencias.
+3. En *Environment variables* del App Service:
+
+   | Variable | Valor |
+   |---|---|
+   | `Email__Host` | servidor SMTP del proveedor |
+   | `Email__Port` | `587` |
+   | `Email__EnableSsl` | `true` |
+   | `Email__UserName` | usuario SMTP del proveedor |
+   | `Email__Password` | `@Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/<secreto>)` |
+   | `Email__FromAddress` | una dirección del dominio verificado, por ejemplo `no-reply@authcenter.info` |
+   | `Email__FromName` | `AuthCenter` |
+
+   Usa el puerto 587 (STARTTLS). El cliente SMTP de .NET no habla TLS implícito, así que el puerto
+   465 no funciona.
+4. Espera a que la app se reinicie y a que la referencia de Key Vault indique `Resolved`.
+- **Comprobación:** en `https://authcenter.info/login`, "¿Olvidaste tu contraseña?" con tu cuenta
+  entrega el correo, y su enlace abre `https://authcenter.info`. El log registra
+  `Password reset email sent` y no aparecen dead letters nuevos en el outbox.
 
 ## UI-07 · Revisión manual con lectores de pantalla
 
