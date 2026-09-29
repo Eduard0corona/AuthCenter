@@ -336,7 +336,8 @@ rate rules live in `ops/slo/` and `ops/alerts/`; load/DR tooling and incident pr
 `ops/load/`, `scripts/ops/` and [docs/operations](docs/operations/): support procedures with the
 console in [CONSOLE-RUNBOOKS.md](docs/operations/CONSOLE-RUNBOOKS.md), and the steps that need the
 owner's accounts or approval (GitHub Actions billing, branch protection, production migrations,
-seed and key rotation, SDK publishing) in [OWNER-ACTIONS.md](docs/operations/OWNER-ACTIONS.md).
+seed and key rotation, SDK publishing, outbound email, registering Paquetenvia with
+`scripts/ops/Register-Paquetenvia.ps1`) in [OWNER-ACTIONS.md](docs/operations/OWNER-ACTIONS.md).
 
 ## Key Endpoints
 
