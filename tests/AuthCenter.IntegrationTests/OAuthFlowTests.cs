@@ -782,7 +782,94 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.True(body.TryGetProperty("keys", out _));
     }
 
+    [Fact]
+    public async Task IdToken_AssertsEmailVerified_OnlyAfterTheOwnerConfirmsTheAddress()
+    {
+        // An application that lets accounts sign in before they confirm their address.
+        var code = $"OPT{Guid.NewGuid():N}"[..20].ToUpperInvariant();
+        var applicationId = await CreateOpenRegistrationApplicationAsync(code);
+        using var adminClient = _factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await GetAdminTokenAsync(adminClient));
+        var (clientId, _) = await CreatePublicOAuthClientAsync(
+            adminClient, $"ver-{Guid.NewGuid():N}"[..20], autoConsent: true, applicationSystemId: applicationId);
+
+        var email = $"verify-{Guid.NewGuid():N}@example.com";
+        using var client = _factory.CreateClient();
+        var registered = await ReadDataAsync<AuthCenter.Contracts.Responses.Auth.AuthResponse>(
+            await client.PostAsJsonAsync("/api/auth/register", new AuthCenter.Contracts.Requests.Auth.RegisterRequest
+            {
+                FullName = "Verify Later",
+                Email = email,
+                Password = "Password123",
+                ApplicationCode = code
+            }));
+
+        Assert.Equal("false", await EmailVerifiedInIdTokenAsync(registered.AccessToken, clientId));
+
+        string confirmationToken;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            confirmationToken = Assert.Single(
+                await OutboxMail.ReadAsync(scope.ServiceProvider),
+                mail => mail.Kind == "email-confirmation" && mail.ToEmail == email).Secret;
+        }
+        var confirmed = await client.PostAsJsonAsync("/api/auth/confirm-email", new AuthCenter.Contracts.Requests.Auth.ConfirmEmailRequest
+        {
+            Email = email,
+            Token = confirmationToken
+        });
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+
+        var signedIn = await ReadDataAsync<AuthCenter.Contracts.Responses.Auth.AuthResponse>(
+            await client.PostAsJsonAsync("/api/auth/login", new AuthCenter.Contracts.Requests.Auth.LoginRequest
+            {
+                Email = email,
+                Password = "Password123",
+                ApplicationCode = code
+            }));
+        Assert.Equal("true", await EmailVerifiedInIdTokenAsync(signedIn.AccessToken, clientId));
+    }
+
     // --- Helpers ---
+
+    private async Task<string?> EmailVerifiedInIdTokenAsync(string userToken, string clientId)
+    {
+        var (verifier, challenge) = GeneratePkce();
+        using var unused = _factory.CreateClient();
+        var authorizationCode = await GetAuthorizationCodeAsync(unused, userToken, clientId, challenge);
+        using var tokenClient = _factory.CreateClient();
+        var response = await tokenClient.PostAsync("/oauth/token", BuildTokenContent(clientId, authorizationCode, verifier));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var tokens = await response.Content.ReadFromJsonAsync<OAuthTokenResponse>();
+        var idToken = new JwtSecurityTokenHandler().ReadJwtToken(tokens!.IdToken);
+        return idToken.Claims.SingleOrDefault(claim => claim.Type == "email_verified")?.Value;
+    }
+
+    private async Task<Guid> CreateOpenRegistrationApplicationAsync(string code)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var now = DateTime.UtcNow;
+        var application = new ApplicationSystem
+        {
+            Id = Guid.NewGuid(),
+            Code = code,
+            Name = code,
+            IsActive = true,
+            CreatedAt = now,
+            RegistrationSettings = new ApplicationRegistrationSettings
+            {
+                Id = Guid.NewGuid(),
+                RegistrationMode = ApplicationRegistrationMode.Open,
+                AllowPasswordLogin = true,
+                RequireEmailConfirmation = false,
+                CreatedAt = now
+            }
+        };
+        db.ApplicationSystems.Add(application);
+        await db.SaveChangesAsync();
+        return application.Id;
+    }
 
     private async Task<string> GetAdminTokenAsync(HttpClient client)
     {

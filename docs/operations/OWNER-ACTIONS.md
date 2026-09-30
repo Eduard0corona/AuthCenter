@@ -210,10 +210,11 @@ pasos con su nombre.
 - **Secreto del cliente:** va directo al secreto `authcenter-paquetenvia-client-secret` del Key Vault
   del piloto, sin mostrarse ni escribirse en otro lado.
 
-La confirmación de correo no es opcional. Paquetenvia vincula las membresías pendientes al correo
-de un ID token con `email_verified=true`. Si la aplicación no exige confirmación, AuthCenter
-registra la cuenta como verificada sin comprobar nada, y quien se registre con el correo de otra
-persona se queda con sus membresías.
+La confirmación de correo es obligatoria para Paquetenvia. Paquetenvia rechaza un ID token sin
+`email_verified=true` porque vincula por ese correo las membresías pendientes. AuthCenter sólo
+afirma `email_verified` después de que el dueño confirma la dirección. Sin la confirmación
+obligatoria, una cuenta nueva entraría sin confirmar y Paquetenvia la rechazaría sin decirle por
+qué. Con ella, el login de AuthCenter le pide confirmar el correo antes de entrar.
 
 Requisitos: OPS-04 hecho (administrador con app de autenticación), PowerShell 7.2 o posterior y la
 CLI de Azure con `az login` en la suscripción de Paquetenvia. En el Key Vault del piloto necesitas el

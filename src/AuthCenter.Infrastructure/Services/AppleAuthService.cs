@@ -70,7 +70,8 @@ public class AppleAuthService : IAppleAuthService
                 Subject = subject,
                 Email = email,
                 Name = principal.FindFirst("name")?.Value,
-                PictureUrl = null
+                PictureUrl = null,
+                EmailVerified = true
             };
         }
         catch

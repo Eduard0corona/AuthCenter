@@ -62,7 +62,10 @@ public class GitHubAuthService : IGitHubAuthService
                 Subject = user.Id.ToString(),
                 Email = email ?? string.Empty,
                 Name = user.Name ?? user.Login,
-                PictureUrl = user.AvatarUrl
+                PictureUrl = user.AvatarUrl,
+                // GitHub only lets a verified address be the public one, and the fallback above
+                // takes the primary verified address.
+                EmailVerified = !string.IsNullOrWhiteSpace(email)
             };
         }
         catch (Exception ex)

@@ -17,7 +17,7 @@ como **acción del propietario** con el procedimiento preparado.
 
 ## Estado verificado al cierre (2026-09-26, después de F15)
 
-- Puntos: 90 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-02,
+- Puntos: 91 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-02,
   OPS-04, OPS-05, OPS-06, OPS-07, OPS-10, OPS-14, OPS-16 y OPS-17), cada uno con su
   procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
   la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
@@ -179,7 +179,26 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   `UnlinkedIdentity_SignsInAgain_ByReusingItsLink`.
 - [x] **SEC-13** *(nuevo, F11)* SSRF en Event Hooks: el cliente HTTP seguía redirecciones (una URL pública podía redirigir a una IP interna), la IP se validaba antes de conectar pero la conexión volvía a resolver DNS (DNS rebinding) y no se bloqueaban IPv6 ULA (`fc00::/7`), NAT64/6to4 con IPv4 privada, CGNAT ni rangos reservados.
   *Resuelto:* el cliente `EventHooks` no sigue redirecciones y su `ConnectCallback` resuelve y valida la dirección que realmente marca; clasificación de direcciones ampliada (IPv4 reservadas y de documentación, ULA, Teredo, 6to4 y NAT64 según la IPv4 embebida). Pruebas: `OutboundUrlSafetyTests` (21 direcciones y rechazo de conexión a una IP interna).
+- [x] **SEC-14** *(nuevo, 2026-09-29)* `email_verified=true` sin verificación. Dos casos: el
+  registro con contraseña en una aplicación que no exige confirmar el correo, y las cuentas creadas
+  con Microsoft multi-tenant, cuyo `email` fija el administrador de cualquier tenant. Un cliente que
+  confía en `email_verified`, como Paquetenvia, que vincula membresías por correo, podía entregarlas
+  a quien se registrara con el correo de otra persona.
+  *Resuelto:*
+  - El registro con contraseña deja el correo sin verificar y siempre envía el enlace de
+    confirmación. `RequireEmailConfirmation` sólo decide si la cuenta entra antes de seguirlo.
+  - El reenvío de la confirmación sirve también a las aplicaciones que no la exigen, nunca a
+    cuentas ni aplicaciones inactivas.
+  - Las cuentas creadas con un proveedor social toman `EmailVerified` del proveedor. Google, GitHub
+    y Apple lo garantizan. En Microsoft cuenta la cuenta personal, el tenant único de una
+    configuración single-tenant o `xms_edov=true`.
+  - En producción no hay cuentas afectadas: la única aplicación, `AUTHCENTER`, es por invitación.
 
+  Pruebas: `IdToken_AssertsEmailVerified_OnlyAfterTheOwnerConfirmsTheAddress` (el ID token pasa de
+  `false` a `true` al confirmar), `Register_WhereConfirmationIsOptional_*`,
+  `MicrosoftLogin_CreatesTheAccount_*`, `GitHubLogin_CreatesTheAccount_*` y los casos de `xms_edov`,
+  tenant personal y Apple en `ExternalIdentityTokenValidationTests`. Sin la corrección, las pruebas
+  nuevas de integración fallan.
 ### D. Backend administrativo y Event Hooks
 
 - [x] **HOOK-01** Reenviar dos veces la misma entrega fallida no la vuelve a encolar.
@@ -451,3 +470,4 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-27 | Despliegue del lote de dependencias: el PR #37 se fusionó y el run `CI/CD` #89 pasó pruebas y despliegue con las Actions nuevas (`download-artifact` 8, `azure/login` 3, `webapps-deploy`) y la verificación de salud. Dependabot cerró sus PRs integrados; el de TypeScript 7 quedó cerrado y pospuesto. Los dos PRs que Dependabot abrió después (`setup-node` 7 y `IdentityModel` 8.23 en el SDK .NET) pasaron el CI completo y se desplegaron en el run #93. | OPS-11 |
 | 2026-09-27 | Dominio propio `authcenter.info`: el discovery respondía 400 porque `AllowedHosts` sólo tenía el host del App Service. El propietario configuró ambos hosts y movió issuer, origen OIDC, enlaces y passkeys al dominio. El despliegue verifica ahora el discovery por la URL del issuer. | OPS-15 |
 | 2026-09-29 | Alta de Paquetenvia: `scripts/ops/Register-Paquetenvia.ps1`, probado contra un AuthCenter local con SQL Server y una CLI de Azure simulada en doce casos. Casos: alta nueva con vault protegido por firewall, re-ejecución sin cambios, `-WhatIf`, corrección de deriva, secreto ausente o inválido rotado en la misma ejecución, `-RotateSecret` con administrador con TOTP, escritura fallida en Key Vault recuperada en la siguiente ejecución, contraseña incorrecta, issuer distinto, vault inexistente, grupo de recursos sin vault y cliente desactivado. El secreto nunca apareció en la línea de comandos, quedó sin BOM ni salto de línea, y `/oauth/authorize` acepta el cliente con PKCE. Sin probar en Azure real: la CLI, el Key Vault y la propagación de la regla del firewall. Hallazgos: `email_verified` sin verificación cuando la aplicación no exige confirmación (se corrige aparte) y SMTP sin configurar en producción. | OPS-16, OPS-17 |
+| 2026-09-30 | `email_verified` sólo con verificación: el registro con contraseña siempre envía la confirmación y deja el correo sin verificar hasta seguirla; las cuentas de proveedores sociales toman la garantía del proveedor, y Microsoft multi-tenant exige cuenta personal o `xms_edov`. Suites .NET completas en local con SQL Server. | SEC-14 |

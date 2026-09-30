@@ -548,6 +548,24 @@ Confidential clients may authenticate with either `client_secret_basic` (preferr
 by default and registration rejects lifetimes above one hour. See
 [docs/authentication-flow.md](docs/authentication-flow.md#oauth-20--openid-connect-authorization-code).
 
+`email_verified` in ID tokens and UserInfo is `true` only for a verified address. Either its owner
+proved control of the inbox, or a trusted source asserted it:
+- **The owner proved it:** by following a confirmation, magic-link, password-reset or email-change
+  link, or by entering an emailed code.
+- **A trusted source asserted it:**
+  - an administrator who created or invited the user;
+  - SCIM provisioning;
+  - an enterprise federation provider;
+  - Google, GitHub or Apple;
+  - a personal Microsoft account;
+  - a Microsoft work account in the one tenant of a single-tenant configuration.
+
+In a multi-tenant (`common`) configuration, a Microsoft work account's email is whatever its tenant's
+administrators set. It counts as verified only when the ID token carries `xms_edov=true`: add that
+optional claim in the app registration. Password self-registration always sends the confirmation
+link. The application's `RequireEmailConfirmation` only decides whether the account may sign in
+before the link is followed.
+
 ### Applications
 
 | Method | Endpoint | Description |

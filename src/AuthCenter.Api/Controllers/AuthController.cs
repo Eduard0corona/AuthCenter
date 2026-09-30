@@ -448,7 +448,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ResendEmailConfirmation([FromBody] ResendEmailConfirmationRequest request, CancellationToken ct)
     {
         await _authService.ResendEmailConfirmationAsync(request, GetIpAddress(), ct);
-        return Ok(ApiResponse.Ok("If this account requires confirmation, a confirmation email has been sent."));
+        return Ok(ApiResponse.Ok("If this address is not confirmed yet, a confirmation email has been sent."));
     }
 
     // --- Account management ---
