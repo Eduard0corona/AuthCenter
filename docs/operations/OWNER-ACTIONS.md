@@ -243,6 +243,8 @@ desactivados se reactivan a mano, en la consola. Para el ambiente dev, cuando ex
   Esa línea sale después de probar el secreto guardado contra `/oauth/introspect`. Después de
   reiniciar la API, "Iniciar sesión" en `https://paquetenvia.com/login` lleva al login de
   AuthCenter y regresa con sesión.
+- **Cuentas nuevas:** las personas sin cuenta usan "Crear cuenta" en ese mismo login, confirman su
+  correo y regresan a Paquetenvia.
 - **Depende de OPS-17:** sin correo saliente, las cuentas nuevas no reciben la confirmación ni el
   enlace mágico, y no pueden entrar.
 

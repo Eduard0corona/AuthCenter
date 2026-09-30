@@ -78,7 +78,7 @@ confirmForm.addEventListener("submit", async event => {
     else
       await api("/api/auth/email-change/confirm", { method: "POST", body: JSON.stringify({ userId, newEmail: emailAddress, token }) });
     confirmForm.hidden = true;
-    finish(config.done, "success");
+    finish(config.done, "success", config.kind === "confirm-email" ? pendingSignInPath() : null);
   } catch (error) { fail(error); }
 });
 
@@ -91,11 +91,28 @@ function fail(error) {
   finish("El enlace no es válido, expiró o ya se usó. Pide uno nuevo.", "error");
 }
 
-function finish(text, type) {
+function finish(text, type, nextPath = null) {
   status(message, text, type);
   const next = document.querySelector("#next");
-  document.querySelector("#next-link").href = applicationCode && applicationCode !== "AUTHCENTER" ? `/login?application=${encodeURIComponent(applicationCode)}` : "/login";
+  const link = document.querySelector("#next-link");
+  link.href = nextPath ?? (applicationCode && applicationCode !== "AUTHCENTER" ? `/login?application=${encodeURIComponent(applicationCode)}` : "/login");
+  link.textContent = nextPath ? "Continuar e iniciar sesión" : "Iniciar sesión";
   next.hidden = false;
+}
+
+// A new account confirmed in the browser that created it continues the sign-in that was under way
+// there (the hosted login saved it), within the minutes that request lasts.
+function pendingSignInPath() {
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem("authcenter.pendingSignIn") || "null"); } catch { return null; }
+  if (!pending || !(pending.expiresAt > Date.now())) return null;
+  if (pending.interactionId)
+    return `/login?${pending.saml ? "saml_interaction" : "interaction_id"}=${encodeURIComponent(pending.interactionId)}`;
+  if (!pending.returnUrl) return null;
+  const query = new URLSearchParams();
+  if (pending.application && pending.application !== "AUTHCENTER") query.set("application", pending.application);
+  query.set("return_url", pending.returnUrl);
+  return `/login?${query}`;
 }
 
 async function loadBranding() {

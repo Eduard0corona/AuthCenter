@@ -16,6 +16,8 @@ public class OAuthInteractionContextResponse
 
     /// <summary>The application has active federation providers, so the login offers home realm discovery.</summary>
     public bool FederationAvailable { get; init; }
+    /// <summary>The hosted login offers to create an account (open or approval-based registration).</summary>
+    public bool AllowSelfRegistration { get; init; }
 
     /// <summary>Provider requested with <c>idp</c>: the hosted login redirects to it directly.</summary>
     public Federation.FederationProviderSummary? IdentityProvider { get; init; }

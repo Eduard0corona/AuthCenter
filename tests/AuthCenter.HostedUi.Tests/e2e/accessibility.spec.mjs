@@ -9,12 +9,14 @@ import {
 
 let openApp;
 let mfaApp;
+let confirmApp;
 
 test.beforeAll(async ({ playwright }) => {
   const request = await playwright.request.newContext({ baseURL });
   const token = await adminToken(request);
   openApp = await createApplication(request, token, { magicLink: true });
   mfaApp = await createApplication(request, token, { requireMfa: true });
+  confirmApp = await createApplication(request, token, { confirmEmail: true });
   await request.dispose();
 });
 
@@ -43,6 +45,22 @@ test("each step of the hosted sign-in is accessible", async ({ page, request }) 
   await expect(page.getByRole("heading", { name: "Activa la verificación en dos pasos" })).toBeVisible();
   await expect(page.locator("#totp-qr svg")).toBeVisible();
   await expectAccessible(page, "second factor enrollment");
+});
+
+test("creating an account is accessible", async ({ page }) => {
+  await page.goto(`/login?application=${confirmApp.code}`);
+  await page.getByRole("button", { name: "Crear cuenta" }).click();
+  await expect(page.locator("#register-form")).toBeVisible();
+  await expectAccessible(page, "sign-up form");
+
+  const password = newPassword();
+  await page.getByLabel("Nombre completo").fill("Ana Prueba");
+  await page.locator("#register-email").fill(`a11y-${Date.now()}@e2e.test`);
+  await page.locator("#register-password").fill(password);
+  await page.locator("#register-confirm").fill(password);
+  await page.getByRole("button", { name: "Crear cuenta", exact: true }).click();
+  await expect(page.locator("#register-sent-view")).toBeVisible();
+  await expectAccessible(page, "sign-up email sent");
 });
 
 test("every panel of the portal is accessible", async ({ page, request }) => {

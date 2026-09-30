@@ -17,6 +17,8 @@ const backupView = document.querySelector("#backup-codes-view");
 const passkeyEnrollView = document.querySelector("#enroll-passkey-view");
 const passwordChangeForm = document.querySelector("#password-change-form");
 const consentView = document.querySelector("#consent");
+const registerForm = document.querySelector("#register-form");
+const registerSentView = document.querySelector("#register-sent-view");
 const PENDING_KEY = "authcenter.pendingSignIn";
 
 const params = new URLSearchParams(location.search);
@@ -67,6 +69,8 @@ let options = null;
 let passwordAllowed = true;
 let magicLinkAllowed = false;
 let federationAvailable = false;
+let selfRegistrationAllowed = false;
+let registeredEmail = "";
 let current = null;
 let markReady;
 const ready = new Promise(resolve => { markReady = resolve; });
@@ -84,7 +88,7 @@ function backToLogin(text, type = "") {
   mfaPendingToken = passwordChangeToken = enrollmentToken = "";
   pendingConsent = null;
   password.value = "";
-  for (const form of [mfaForm, totpForm, passwordChangeForm, forgotForm]) form.reset?.();
+  for (const form of [mfaForm, totpForm, passwordChangeForm, forgotForm, registerForm]) form.reset?.();
   showView(loginForm, passwordAllowed && email.value ? password : email);
   status(message, text, type);
 }
@@ -213,7 +217,10 @@ const signInMessages = {
   INVALID_MAGIC_LINK_TOKEN: "El enlace de acceso no es válido o expiró. Pide uno nuevo.",
   WEAK_PASSWORD: "La contraseña no cumple la política de seguridad.",
   MFA_SETUP_REQUIRED: "Esta aplicación exige verificación en dos pasos.",
-  APP_NOT_FOUND: "La aplicación no existe o no está activa."
+  APP_NOT_FOUND: "La aplicación no existe o no está activa.",
+  REGISTRATION_CLOSED: "Esta aplicación no permite crear cuentas. Pide acceso a un administrador.",
+  EMAIL_DOMAIN_NOT_ALLOWED: "Esta aplicación sólo acepta correos de ciertos dominios.",
+  VALIDATION_FAILED: "Revisa los datos: todos los campos son obligatorios y el correo debe ser válido."
 };
 
 function handleSignInError(error) {
@@ -295,6 +302,74 @@ function readPendingSignIn() {
 function clearPendingSignIn() {
   try { localStorage.removeItem(PENDING_KEY); } catch { /* Nothing stored. */ }
 }
+
+// --- Creating an account ------------------------------------------------------------------
+
+document.querySelector("#register-link").addEventListener("click", async () => {
+  await ready;
+  registerForm.reset();
+  document.querySelector("#register-email").value = email.value;
+  const name = options?.applicationName;
+  document.querySelector("#register-description").textContent = name
+    ? `Con esta cuenta entrarás a ${name}.`
+    : "Con esta cuenta entrarás a la aplicación.";
+  showView(registerForm);
+  status(message, "");
+});
+
+registerForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  await ready;
+  const fullName = document.querySelector("#register-name").value.trim();
+  const address = document.querySelector("#register-email");
+  const newPassword = document.querySelector("#register-password").value;
+  if (!fullName) {
+    document.querySelector("#register-name").focus();
+    return status(message, "Escribe tu nombre.", "error");
+  }
+  if (!address.value || !address.validity.valid) {
+    address.focus();
+    return status(message, "Introduce un correo válido.", "error");
+  }
+  const problem = passwordProblem(newPassword);
+  if (problem) return status(message, problem, "error");
+  if (newPassword !== document.querySelector("#register-confirm").value)
+    return status(message, "Las contraseñas no coinciden.", "error");
+  status(message, "Creando tu cuenta…");
+  try {
+    const result = await api("/ui-api/session/register", {
+      method: "POST",
+      body: JSON.stringify({ fullName, email: address.value, password: newPassword, applicationCode: application.value })
+    });
+    email.value = address.value;
+    registerForm.reset();
+    if (result.confirmationRequired) return showRegistrationSent(email.value);
+    if (result.approvalRequired)
+      return backToLogin("Creamos tu cuenta. Un administrador debe aprobar tu acceso a esta aplicación antes de que puedas entrar.", "success");
+    await continueSignIn(result);
+  } catch (error) { handleSignInError(error); }
+});
+
+// The same answer whether the address is new or already has an account: the email tells which.
+function showRegistrationSent(address) {
+  registeredEmail = address;
+  savePendingSignIn();
+  document.querySelector("#register-sent-description").textContent =
+    `Te enviamos un mensaje a ${address}. Ábrelo en este navegador para confirmar tu correo y continuar. Si ya tenías una cuenta, el mensaje te dice cómo entrar.`;
+  showView(registerSentView, document.querySelector("#register-resend"));
+  status(message, "");
+}
+
+document.querySelector("#register-resend").addEventListener("click", async () => {
+  await ready;
+  try {
+    await api("/api/auth/resend-email-confirmation", {
+      method: "POST",
+      body: JSON.stringify({ email: registeredEmail, applicationCode: application.value })
+    });
+    status(message, "Si tu correo aún no está confirmado, te lo enviamos otra vez.", "success");
+  } catch (error) { handleSignInError(error); }
+});
 
 // --- Second factor ---------------------------------------------------------------------
 
@@ -610,6 +685,7 @@ function showFederationError(code, fallback) {
 
 async function finishLogin() {
   clearTimeout(stepTimer);
+  clearPendingSignIn();
   if (!interactionId) {
     leaving = true;
     return location.replace(safeLocalPath(returnUrl, location.origin, "/portal"));
@@ -734,6 +810,7 @@ async function initialize() {
   passwordAllowed = options?.allowPasswordLogin ?? true;
   magicLinkAllowed = options?.allowMagicLink === true;
   federationAvailable = options?.federationAvailable === true;
+  selfRegistrationAllowed = options?.allowSelfRegistration === true;
   // An application that only allows federated sign-in keeps the email step for home realm
   // discovery but never asks for a password.
   document.querySelector("#password-field").hidden = !passwordAllowed;
@@ -741,6 +818,7 @@ async function initialize() {
   document.querySelector("#forgot-link").hidden = !passwordAllowed;
   document.querySelector("#magic-link").hidden = !magicLinkAllowed;
   document.querySelector("#federation-hint").hidden = !federationAvailable;
+  document.querySelector("#register-prompt").hidden = !selfRegistrationAllowed;
   document.querySelector("#passkey").hidden = !window.PublicKeyCredential;
   watchInteractionExpiry();
   current = await currentSession();

@@ -297,6 +297,8 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
             AllowMagicLink = settings?.AllowMagicLink ?? false,
             FederationAvailable = providers.Count > 0,
+            AllowSelfRegistration = settings is not null &&
+                ApplicationRegistrationSettings.AllowsSelfRegistration(settings.RegistrationMode, settings.AllowPasswordLogin),
             IdentityProvider = identityProvider is null ? null : new FederationProviderSummary
             {
                 Id = identityProvider.Id,

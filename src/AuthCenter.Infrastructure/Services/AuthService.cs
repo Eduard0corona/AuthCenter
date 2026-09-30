@@ -193,6 +193,25 @@ public class AuthService : IAuthService
         return policyResult ?? await BuildAuthResponseAsync(registered, appSystem.Id, appSystem.Code, ipAddress, userAgent, ct);
     }
 
+    public async Task<string> NotifyRegistrationAttemptAsync(string email, string applicationCode, string? ipAddress, CancellationToken ct = default)
+    {
+        var application = await _applicationService.GetByCodeWithSettingsAsync(applicationCode, ct);
+        var settings = application?.RegistrationSettings;
+        var answer = settings is { RequireEmailConfirmation: false, RegistrationMode: ApplicationRegistrationMode.ApprovalRequired }
+            ? "APPROVAL_REQUIRED"
+            : "EMAIL_CONFIRMATION_REQUIRED";
+
+        var user = await _userManager.FindByEmailAsync(email);
+        if (user is null || !user.IsActive || user.DeletedAt is not null)
+            return answer;
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Sign-up attempt with your email",
+            $"Someone tried to create an account for {application?.Name ?? "an application"} with this email address. " +
+            "If it was you, you already have an account: sign in, or reset your password if you do not remember it. " +
+            "Otherwise you can ignore this message.", ct);
+        await _auditService.LogAsync("REGISTRATION_ATTEMPT_EXISTING_ACCOUNT", user.Id, application?.Code, ipAddress: ipAddress, ct: ct);
+        return answer;
+    }
+
     public async Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default)
     {
         // Resolved before the password is checked so that an application restricted to federated or
