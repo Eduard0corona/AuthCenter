@@ -186,6 +186,8 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
             AllowMagicLink = settings?.AllowMagicLink ?? false,
             FederationAvailable = federation,
+            AllowSelfRegistration = settings is not null &&
+                ApplicationRegistrationSettings.AllowsSelfRegistration(settings.RegistrationMode, settings.AllowPasswordLogin),
             ExpiresAt = DateTime.SpecifyKind(interaction.CreatedAt, DateTimeKind.Utc).Add(InteractionLifetime)
         });
     }

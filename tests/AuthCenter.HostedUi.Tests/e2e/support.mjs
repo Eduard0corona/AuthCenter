@@ -31,15 +31,15 @@ export async function adminToken(request) {
   return auth.accessToken;
 }
 
-/** An application with open self-registration for the test's users. */
-export async function createApplication(request, token, { requireMfa = false, magicLink = false, confirmEmail = false } = {}) {
+/** An application with open self-registration for the test's users, unless another mode is given. */
+export async function createApplication(request, token, { requireMfa = false, magicLink = false, confirmEmail = false, registrationMode = "Open" } = {}) {
   const code = `E2E${randomBytes(4).toString("hex").toUpperCase()}`;
   const application = await required(request, "POST", "/api/applications", {
     token,
     data: {
       code,
       name: `Aplicación ${code}`,
-      registrationMode: "Open",
+      registrationMode,
       allowPasswordLogin: true,
       allowMagicLink: magicLink,
       requireMfa,

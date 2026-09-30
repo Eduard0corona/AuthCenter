@@ -37,7 +37,25 @@
         </div>
         <div class="divider" aria-hidden="true">o</div>
         <button id="passkey" class="secondary" type="button">Usar una passkey</button>
+        <p id="register-prompt" class="muted" hidden>¿No tienes cuenta? <button id="register-link" class="link" type="button">Crear cuenta</button></p>
       </form>
+
+      <form id="register-form" class="stack" novalidate hidden data-view method="post">
+        <h2>Crea tu cuenta</h2>
+        <p id="register-description" class="muted">Con esta cuenta entrarás a la aplicación.</p>
+        <label>Nombre completo <input id="register-name" name="name" autocomplete="name" maxlength="200" required></label>
+        <label>Correo electrónico <input id="register-email" name="email" type="email" autocomplete="username" maxlength="256" required></label>
+        <label>Contraseña <input id="register-password" name="new-password" type="password" autocomplete="new-password" minlength="8" aria-describedby="register-password-hint" required></label>
+        <p id="register-password-hint" class="muted">Al menos 8 caracteres, con una mayúscula, una minúscula y un número.</p>
+        <label>Confirmar contraseña <input id="register-confirm" type="password" autocomplete="new-password" minlength="8" required></label>
+        <div class="actions"><button type="submit">Crear cuenta</button><button class="secondary" type="button" data-back>Ya tengo cuenta</button></div>
+      </form>
+
+      <section id="register-sent-view" class="stack" hidden data-view aria-labelledby="register-sent-title">
+        <h2 id="register-sent-title">Revisa tu correo</h2>
+        <p id="register-sent-description" class="muted"></p>
+        <div class="actions"><button id="register-resend" class="secondary" type="button">Reenviar el correo</button><button type="button" data-back>Volver a iniciar sesión</button></div>
+      </section>
 
       <form id="forgot-form" class="stack" novalidate hidden data-view method="post">
         <h2>Restablece tu contraseña</h2>

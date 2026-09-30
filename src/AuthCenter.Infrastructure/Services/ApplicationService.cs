@@ -70,7 +70,8 @@ public class ApplicationService : IApplicationService
                 item.Code,
                 item.Name,
                 AllowPasswordLogin = item.RegistrationSettings == null || item.RegistrationSettings.AllowPasswordLogin,
-                AllowMagicLink = item.RegistrationSettings != null && item.RegistrationSettings.AllowMagicLink
+                AllowMagicLink = item.RegistrationSettings != null && item.RegistrationSettings.AllowMagicLink,
+                RegistrationMode = item.RegistrationSettings == null ? (ApplicationRegistrationMode?)null : item.RegistrationSettings.RegistrationMode
             })
             .FirstOrDefaultAsync(ct);
         if (application is null)
@@ -81,7 +82,9 @@ public class ApplicationService : IApplicationService
             ApplicationName = application.Name,
             AllowPasswordLogin = application.AllowPasswordLogin,
             AllowMagicLink = application.AllowMagicLink,
-            FederationAvailable = await _db.FederationProviders.AnyAsync(provider => provider.ApplicationSystemId == application.Id && provider.IsActive, ct)
+            FederationAvailable = await _db.FederationProviders.AnyAsync(provider => provider.ApplicationSystemId == application.Id && provider.IsActive, ct),
+            AllowSelfRegistration = application.RegistrationMode is { } mode &&
+                ApplicationRegistrationSettings.AllowsSelfRegistration(mode, application.AllowPasswordLogin)
         };
     }
 

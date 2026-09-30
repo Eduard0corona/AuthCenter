@@ -9,6 +9,14 @@ namespace AuthCenter.Application.Interfaces;
 public interface IAuthService
 {
     Task<OperationResult<AuthResponse>> RegisterAsync(RegisterRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);
+
+    /// <summary>
+    /// Tells the owner of an existing account that someone tried to register with its address, and
+    /// returns what a new registration in that application would have been told
+    /// (<c>APPROVAL_REQUIRED</c> or <c>EMAIL_CONFIRMATION_REQUIRED</c>): the hosted sign-up answers
+    /// the attempt the same way, so it reveals no account.
+    /// </summary>
+    Task<string> NotifyRegistrationAttemptAsync(string email, string applicationCode, string? ipAddress, CancellationToken ct = default);
     Task<OperationResult<AuthResponse>> LoginAsync(LoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<OperationResult<AuthResponse>> GoogleLoginAsync(GoogleLoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);
     Task<OperationResult<AuthResponse>> MicrosoftLoginAsync(MicrosoftLoginRequest request, string? ipAddress, string? userAgent, CancellationToken ct = default);

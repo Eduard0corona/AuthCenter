@@ -8,4 +8,6 @@ public sealed class LoginOptionsResponse
     public bool AllowPasswordLogin { get; init; }
     public bool AllowMagicLink { get; init; }
     public bool FederationAvailable { get; init; }
+    /// <summary>The hosted login offers to create an account (open or approval-based registration).</summary>
+    public bool AllowSelfRegistration { get; init; }
 }

@@ -379,6 +379,24 @@ SDKs and executable integration examples live under `sdk/` and `samples/`. See
 | GET | `/api/auth/applications` | Applications the current user can use, directly or through groups |
 | POST | `/api/auth/forced-change-password` | Complete a forced password change |
 
+**Creating an account in the hosted login.** An application whose `RegistrationMode` is `Open` or
+`ApprovalRequired` and that allows passwords shows "Crear cuenta" on `/login`. That includes a login
+opened by an OAuth or SAML request. The form posts to `POST /ui-api/session/register`. The outcome
+depends on the application:
+- **Without required confirmation:** the new account signs in at once, and the request continues.
+  It still receives the confirmation link, and its ID tokens carry `email_verified=false` until the
+  user follows it.
+- **With `RequireEmailConfirmation`:** the page asks the user to check their email. It remembers the
+  request in the browser. The confirmation page, opened in that browser while the request lasts
+  (10 minutes), continues the request after the user signs in.
+- **With `ApprovalRequired`:** the page says an administrator must approve the access.
+
+An email that already has an account gets the answer a new account would get ("check your email",
+or the pending approval), so the form reveals no accounts. The owner of that account receives a
+notice about the attempt, and the account itself is not changed. Without required confirmation or
+approval this does not fully hold: a new account enters at once, but an existing one gets "check
+your email". The endpoint shares the `/api/auth/register` rate limits.
+
 ### Social and passwordless login
 
 | Method | Endpoint | Description |

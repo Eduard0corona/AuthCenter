@@ -17,7 +17,7 @@ como **acción del propietario** con el procedimiento preparado.
 
 ## Estado verificado al cierre (2026-09-26, después de F15)
 
-- Puntos: 91 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-02,
+- Puntos: 92 resueltos con evidencia (`[x]`) y 9 que dependen del propietario (`[P]`: OPS-02,
   OPS-04, OPS-05, OPS-06, OPS-07, OPS-10, OPS-14, OPS-16 y OPS-17), cada uno con su
   procedimiento en [`docs/operations/OWNER-ACTIONS.md`](docs/operations/OWNER-ACTIONS.md), igual que
   la revisión manual con lectores de pantalla de UI-07. Ningún punto queda pendiente de código.
@@ -347,6 +347,25 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
   análisis axe automático, y el distintivo del panel lateral tenía texto blanco sobre fondo gris claro
   (contraste ≈1,2:1, WCAG 1.4.3) en `/login` y en las páginas de enlaces.
   *Resuelto:* texto oscuro para el distintivo en el panel lateral; `tests/AuthCenter.HostedUi.Tests/e2e/accessibility.spec.mjs` corre axe (con `target-size`) contra la API Release y SQL Server en cada paso del login (formulario, contraseña incorrecta, contraseña olvidada, inscripción del segundo factor), en los siete paneles del portal y en las cinco páginas de enlaces de correo.
+- [x] **HL-10** *(nuevo, 2026-09-30)* El login hospedado no permitía crear una cuenta: el
+  registro sólo existía como API (`/api/auth/register`) para aplicaciones con pantalla propia. Una
+  aplicación con registro abierto que usa el login hospedado, como Paquetenvia (REG-001), no podía
+  recibir usuarios nuevos con contraseña.
+  *Resuelto:*
+  - "Crear cuenta" en `/login` para aplicaciones con registro `Open` o `ApprovalRequired` y
+    contraseña, también dentro de una solicitud OAuth o SAML. `allowSelfRegistration` en las
+    opciones y en el contexto de la interacción.
+  - `POST /ui-api/session/register`: sin confirmación obligatoria, la cuenta entra y la solicitud
+    continúa. Con confirmación, pide revisar el correo, permite reenviarlo y guarda la solicitud en
+    el navegador; la página de confirmación ofrece "Continuar e iniciar sesión" para retomarla.
+    Con aprobación, avisa que falta.
+  - Un correo con cuenta recibe la respuesta de una cuenta nueva (revisar el correo o esperar la
+    aprobación) y su dueño un aviso: el formulario no revela cuentas cuando la aplicación exige
+    confirmación o aprobación. Mismos límites de tasa que `/api/auth/register`.
+
+  Pruebas: `SignUp_*` en `HostedAccountTests` (10 casos: modos de registro, confirmación, entrada
+  inmediata, aprobación, correo existente con y sin aprobación) y `e2e/signup.spec.mjs` (5 escenarios, incluido el
+  regreso a la aplicación OAuth tras confirmar), más axe del formulario y del aviso.
 
 ### G. Gobierno de accesos
 
@@ -471,3 +490,5 @@ Leyenda: `[x]` resuelto con evidencia, `[ ]` pendiente, `[~]` en curso, `[P]` ac
 | 2026-09-27 | Dominio propio `authcenter.info`: el discovery respondía 400 porque `AllowedHosts` sólo tenía el host del App Service. El propietario configuró ambos hosts y movió issuer, origen OIDC, enlaces y passkeys al dominio. El despliegue verifica ahora el discovery por la URL del issuer. | OPS-15 |
 | 2026-09-29 | Alta de Paquetenvia: `scripts/ops/Register-Paquetenvia.ps1`, probado contra un AuthCenter local con SQL Server y una CLI de Azure simulada en doce casos. Casos: alta nueva con vault protegido por firewall, re-ejecución sin cambios, `-WhatIf`, corrección de deriva, secreto ausente o inválido rotado en la misma ejecución, `-RotateSecret` con administrador con TOTP, escritura fallida en Key Vault recuperada en la siguiente ejecución, contraseña incorrecta, issuer distinto, vault inexistente, grupo de recursos sin vault y cliente desactivado. El secreto nunca apareció en la línea de comandos, quedó sin BOM ni salto de línea, y `/oauth/authorize` acepta el cliente con PKCE. Sin probar en Azure real: la CLI, el Key Vault y la propagación de la regla del firewall. Hallazgos: `email_verified` sin verificación cuando la aplicación no exige confirmación (se corrige aparte) y SMTP sin configurar en producción. | OPS-16, OPS-17 |
 | 2026-09-30 | `email_verified` sólo con verificación: el registro con contraseña siempre envía la confirmación y deja el correo sin verificar hasta seguirla; las cuentas de proveedores sociales toman la garantía del proveedor, y Microsoft multi-tenant exige cuenta personal o `xms_edov`. Suites .NET completas en local con SQL Server. | SEC-14 |
+| 2026-09-30 | "Crear cuenta" en el login hospedado para aplicaciones con registro abierto o con aprobación: confirmación de correo con reenvío y regreso a la solicitud OAuth o SAML, respuesta que no revela cuentas existentes y aviso a su dueño. .NET, login hospedado (37 e2e y 6 unitarias) y accesibilidad en verde en local. | HL-10 |
+| 2026-09-30 | `npm audit` de la consola marcó `brace-expansion` 5.0.9 (dependencia de `eslint` vía `minimatch`) con tres alertas altas publicadas después del CI verde de los PRs (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p). El run `CI/CD` #104 de la fusión del PR #46 se detuvo en esa compuerta y no desplegó. El lockfile pasa a 5.0.12, dentro del rango de `minimatch`; la consola vuelve a pasar audit, lint, typecheck, pruebas, build y presupuesto. | OPS-11 |

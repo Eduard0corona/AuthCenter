@@ -21,4 +21,8 @@ public class ApplicationRegistrationSettings
     public DateTime? UpdatedAt { get; set; }
 
     public ApplicationSystem ApplicationSystem { get; set; } = null!;
+
+    /// <summary>People may create their own password account from the hosted login.</summary>
+    public static bool AllowsSelfRegistration(ApplicationRegistrationMode mode, bool allowPasswordLogin) =>
+        allowPasswordLogin && mode is ApplicationRegistrationMode.Open or ApplicationRegistrationMode.ApprovalRequired;
 }

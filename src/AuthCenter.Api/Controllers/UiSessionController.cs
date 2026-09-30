@@ -257,6 +257,37 @@ public sealed class UiSessionController : ControllerBase
     }
 
     /// <summary>
+    /// Creates an account from the hosted login, for applications open to self-registration. The
+    /// account signs in at once unless the application requires a confirmed email or an approval.
+    /// An address that already has an account gets the answer a new registration that waits for
+    /// either would get, and its owner an email about the attempt, so the form reveals no account.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.Register)]
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
+    {
+        var result = await _auth.RegisterAsync(request, IpAddress(), Request.Headers.UserAgent.ToString(), ct);
+        var outcome = result.ErrorCode == "EMAIL_TAKEN"
+            ? await _auth.NotifyRegistrationAttemptAsync(request.Email, request.ApplicationCode, IpAddress(), ct)
+            : result.ErrorCode;
+        switch (outcome)
+        {
+            case "EMAIL_CONFIRMATION_REQUIRED":
+                return Ok(ApiResponse<object>.Ok(new { confirmationRequired = true }));
+            case "APPROVAL_REQUIRED":
+                return Ok(ApiResponse<object>.Ok(new { approvalRequired = true }));
+            case "USER_CREATION_FAILED":
+                return BadRequest(ApiResponse<object>.Fail("WEAK_PASSWORD", result.Message, result.Details));
+            case "APP_NOT_FOUND" or "APP_INACTIVE" or "APP_NO_SETTINGS" or "PASSWORD_LOGIN_DISABLED"
+                or "REGISTRATION_CLOSED" or "EMAIL_DOMAIN_NOT_ALLOWED" or "ROLE_ASSIGN_FAILED":
+                return BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            default:
+                return await CompleteInteractiveStepAsync(result);
+        }
+    }
+
+    /// <summary>
     /// Completes a sign-in that stopped because the account must replace its temporary password.
     /// The new password is set first and the application's access-policy and MFA gate still runs.
     /// </summary>

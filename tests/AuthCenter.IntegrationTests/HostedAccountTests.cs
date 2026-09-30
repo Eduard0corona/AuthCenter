@@ -121,6 +121,125 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
         Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email);
     }
 
+    [Theory]
+    [InlineData("Open", true, true)]
+    [InlineData("ApprovalRequired", true, true)]
+    [InlineData("InviteOnly", true, false)]
+    [InlineData("Closed", true, false)]
+    [InlineData("Open", false, false)]
+    public async Task SignUp_IsOffered_WhereAnyoneMayCreateAPasswordAccount(string registrationMode, bool password, bool offered)
+    {
+        using var admin = await CreateAdminClientAsync();
+        var application = await CreateApplicationAsync(admin, password: password, registrationMode: registrationMode);
+        using var browser = CreateBrowser();
+
+        var options = await ReadDataAsync(await browser.GetAsync($"/ui-api/session/login-options?applicationCode={application.Code}"));
+        Assert.Equal(offered, options.GetProperty("allowSelfRegistration").GetBoolean());
+
+        if (!offered)
+        {
+            var refused = await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+            {
+                FullName = "Ana", Email = $"closed-{Guid.NewGuid():N}@example.com", Password = TestSecretGenerator.CreatePassword(), ApplicationCode = application.Code
+            });
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+            Assert.Equal(password ? "REGISTRATION_CLOSED" : "PASSWORD_LOGIN_DISABLED", await ErrorCodeAsync(refused));
+        }
+    }
+
+    [Fact]
+    public async Task SignUp_WhereTheEmailMustBeConfirmed_SignsInOnlyAfterTheLinkIsFollowed()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var application = await CreateApplicationAsync(admin, requireEmailConfirmation: true);
+        var email = $"signup-{Guid.NewGuid():N}@example.com";
+        var password = TestSecretGenerator.CreatePassword();
+        using var browser = CreateBrowser();
+
+        var registered = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+        {
+            FullName = "Ana Nueva", Email = email, Password = password, ApplicationCode = application.Code
+        }));
+
+        Assert.True(registered.GetProperty("confirmationRequired").GetBoolean());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/ui-api/session")).StatusCode);
+        var confirmation = await LatestMailAsync(email, "email-confirmation");
+        Assert.Contains($"application={application.Code}", confirmation.ActionUrl);
+        var early = await browser.PostAsJsonAsync("/ui-api/session/login", new LoginRequest { Email = email, Password = password, ApplicationCode = application.Code });
+        Assert.Equal("EMAIL_NOT_CONFIRMED", await ErrorCodeAsync(early));
+
+        using var api = _factory.CreateAuthCenterClient();
+        var confirmed = await api.PostAsJsonAsync("/api/auth/confirm-email", new ConfirmEmailRequest { Email = email, Token = confirmation.Secret });
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        var signedIn = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/login", new LoginRequest { Email = email, Password = password, ApplicationCode = application.Code }));
+        Assert.Equal(email, signedIn.GetProperty("user").GetProperty("email").GetString());
+    }
+
+    [Fact]
+    public async Task SignUp_WhereConfirmationIsOptional_SignsTheBrowserInAtOnce()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var application = await CreateApplicationAsync(admin);
+        var email = $"signup-now-{Guid.NewGuid():N}@example.com";
+        using var browser = CreateBrowser();
+
+        var signedIn = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+        {
+            FullName = "Ana Inmediata", Email = email, Password = TestSecretGenerator.CreatePassword(), ApplicationCode = application.Code
+        }));
+
+        Assert.Equal(email, signedIn.GetProperty("user").GetProperty("email").GetString());
+        var session = await ReadDataAsync(await browser.GetAsync("/ui-api/session"));
+        Assert.Contains(application.Code, session.GetProperty("user").GetProperty("applications").EnumerateArray().Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task SignUp_WithTheEmailOfAnAccount_AnswersLikeANewAccount_AndOnlyWarnsItsOwner()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var application = await CreateApplicationAsync(admin, requireEmailConfirmation: true);
+        var (email, password) = await RegisterAsync(application.Code, admin: true);
+        using var browser = CreateBrowser();
+
+        var attempt = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+        {
+            FullName = "Someone Else", Email = email, Password = TestSecretGenerator.CreatePassword(), ApplicationCode = application.Code
+        }));
+
+        // The same answer as a new account that must confirm its email: the form reveals no account.
+        Assert.True(attempt.GetProperty("confirmationRequired").GetBoolean());
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Sign-up attempt with your email");
+        Assert.DoesNotContain(await OutboxAsync(), mail => mail.Kind == "email-confirmation" && mail.ToEmail == email);
+        // The account is untouched: its own password still signs in.
+        var signedIn = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/login", new LoginRequest { Email = email, Password = password, ApplicationCode = application.Code }));
+        Assert.Equal(email, signedIn.GetProperty("user").GetProperty("email").GetString());
+    }
+
+    [Fact]
+    public async Task SignUp_WhereAccessNeedsApproval_CreatesTheAccountWithoutSigningIn()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var application = await CreateApplicationAsync(admin, registrationMode: "ApprovalRequired");
+        using var browser = CreateBrowser();
+
+        var registered = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+        {
+            FullName = "Ana Pendiente", Email = $"signup-approval-{Guid.NewGuid():N}@example.com", Password = TestSecretGenerator.CreatePassword(), ApplicationCode = application.Code
+        }));
+
+        Assert.True(registered.GetProperty("approvalRequired").GetBoolean());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/ui-api/session")).StatusCode);
+
+        // An address with an account gets the same answer as the new one did.
+        var (email, _) = await RegisterAsync(application.Code, admin: true);
+        var attempt = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/register", new RegisterRequest
+        {
+            FullName = "Someone Else", Email = email, Password = TestSecretGenerator.CreatePassword(), ApplicationCode = application.Code
+        }));
+        Assert.True(attempt.GetProperty("approvalRequired").GetBoolean());
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email);
+    }
+
     [Fact]
     public async Task PasskeyEnrollment_NeedsAValidEnrollmentToken()
     {
@@ -297,17 +416,24 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
         return (email, password);
     }
 
-    private static async Task<(Guid Id, string Code)> CreateApplicationAsync(HttpClient admin, bool requireMfa = false, bool magicLink = false, bool password = true)
+    private static async Task<(Guid Id, string Code)> CreateApplicationAsync(
+        HttpClient admin,
+        bool requireMfa = false,
+        bool magicLink = false,
+        bool password = true,
+        string registrationMode = "Open",
+        bool requireEmailConfirmation = false)
     {
         var code = "HOSTED" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
         var created = await ReadDataAsync(await admin.PostAsJsonAsync("/api/applications", new
         {
             Code = code,
             Name = "Hosted " + code,
-            RegistrationMode = "Open",
+            RegistrationMode = registrationMode,
             AllowPasswordLogin = password,
             AllowMagicLink = magicLink,
-            RequireMfa = requireMfa
+            RequireMfa = requireMfa,
+            RequireEmailConfirmation = requireEmailConfirmation
         }));
         return (created.GetProperty("id").GetGuid(), code);
     }
