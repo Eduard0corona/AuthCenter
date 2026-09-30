@@ -35,6 +35,7 @@ public class ExternalIdentityTokenValidationTests
         Assert.Equal("subject-123", payload.Subject);
         Assert.Equal("user@example.com", payload.Email);
         Assert.Equal("Example User", payload.Name);
+        Assert.True(payload.EmailVerified);
     }
 
     [Fact]
@@ -57,6 +58,35 @@ public class ExternalIdentityTokenValidationTests
 
         Assert.NotNull(payload);
         Assert.Equal($"{tenantId}:subject-456", payload.Subject);
+        Assert.False(payload.EmailVerified);
+    }
+
+    [Theory]
+    [InlineData("9188040d-6c67-4c5b-b112-36a304b66dad", null)]
+    [InlineData(null, "true")]
+    public async Task Microsoft_MultiTenant_VerifiesEmail_OfPersonalAccountsOrOwnedDomains(string? tenantId, string? domainOwnerVerified)
+    {
+        using var rsa = RSA.Create(2048);
+        var key = CreateSigningKey(rsa);
+        tenantId ??= Guid.NewGuid().ToString();
+        const string clientId = "microsoft-common-client";
+        var issuer = $"https://login.microsoftonline.com/{tenantId}/v2.0";
+        var service = new MicrosoftAuthService(
+            Options.Create(new MicrosoftAuthSettings { ClientId = clientId, TenantId = "common" }),
+            CreateConfigurationManager(issuer, key));
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, "subject-789"),
+            new("tid", tenantId),
+            new("email", "owner@example.com")
+        };
+        if (domainOwnerVerified is not null)
+            claims.Add(new Claim("xms_edov", domainOwnerVerified, ClaimValueTypes.Boolean));
+
+        var payload = await service.ValidateIdTokenAsync(CreateToken(issuer, clientId, key, [.. claims]));
+
+        Assert.NotNull(payload);
+        Assert.True(payload.EmailVerified);
     }
 
     [Fact]
@@ -80,6 +110,7 @@ public class ExternalIdentityTokenValidationTests
         Assert.NotNull(payload);
         Assert.Equal("apple-subject", payload.Subject);
         Assert.Equal("private-relay@example.com", payload.Email);
+        Assert.True(payload.EmailVerified);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using AuthCenter.Application.Interfaces;
 using AuthCenter.Application.Models;
 using AuthCenter.Infrastructure.Settings;
@@ -87,7 +88,8 @@ public class MicrosoftAuthService : IMicrosoftAuthService
                 Subject = IsMultiTenant() ? $"{tenantId}:{subject}" : subject,
                 Email = email,
                 Name = principal.FindFirst("name")?.Value,
-                PictureUrl = null
+                PictureUrl = null,
+                EmailVerified = IsEmailVerified(principal, tenantId)
             };
         }
         catch
@@ -99,4 +101,15 @@ public class MicrosoftAuthService : IMicrosoftAuthService
     private bool IsMultiTenant() =>
         string.IsNullOrWhiteSpace(_settings.TenantId) ||
         string.Equals(_settings.TenantId, "common", StringComparison.OrdinalIgnoreCase);
+
+    // Microsoft verifies the addresses of personal accounts. A work account's email is whatever its
+    // tenant's administrators set, so in a multi-tenant configuration it counts as verified only when
+    // the optional xms_edov claim says that tenant owns the email's domain. A single-tenant
+    // configuration trusts its one tenant, as enterprise federation trusts its identity provider.
+    private const string ConsumerTenantId = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+    private bool IsEmailVerified(ClaimsPrincipal principal, string? tenantId) =>
+        !IsMultiTenant() ||
+        string.Equals(tenantId, ConsumerTenantId, StringComparison.OrdinalIgnoreCase) ||
+        (bool.TryParse(principal.FindFirst("xms_edov")?.Value, out var domainVerified) && domainVerified);
 }

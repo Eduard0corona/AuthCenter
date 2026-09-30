@@ -133,7 +133,9 @@ public class AuthService : IAuthService
                 FullName = request.FullName,
                 Email = request.Email,
                 UserName = request.Email,
-                EmailConfirmed = !settings.RequireEmailConfirmation,
+                // Verified only when its owner follows the confirmation link: an application that
+                // lets unconfirmed accounts sign in must not make them assert email_verified.
+                EmailConfirmed = false,
                 IsExternalUser = false,
                 HasLocalPassword = true,
                 IsActive = true,
@@ -165,12 +167,10 @@ public class AuthService : IAuthService
                 }
             }
 
-            if (settings.RequireEmailConfirmation)
-            {
-                var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-                var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailConfirmation, appSystem.Code);
-                await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, actionUrl, ct);
-            }
+            // Sent even when the application does not require it, so that the address can become verified.
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            var actionUrl = _actionLinkService.GetActionUrl(ActionLinkPurpose.EmailConfirmation, appSystem.Code);
+            await _emailService.SendEmailConfirmationAsync(user.Email!, user.FullName, token, actionUrl, ct);
 
             if (transaction is not null)
                 await transaction.CommitAsync(ct);
@@ -295,7 +295,8 @@ public class AuthService : IAuthService
             Subject = payload.Subject,
             Email = payload.Email,
             Name = payload.Name,
-            PictureUrl = payload.PictureUrl
+            PictureUrl = payload.PictureUrl,
+            EmailVerified = payload.EmailVerified
         };
 
         return await ExternalLoginAsync(
@@ -446,7 +447,7 @@ public class AuthService : IAuthService
                         HasLocalPassword = false,
                         IsActive = true,
                         CreatedAt = now,
-                        EmailConfirmed = true
+                        EmailConfirmed = payload.EmailVerified
                     };
 
                     var createResult = await _userManager.CreateAsync(newUser);
@@ -969,11 +970,11 @@ public class AuthService : IAuthService
     public async Task<OperationResult> ResendEmailConfirmationAsync(ResendEmailConfirmationRequest request, string? ipAddress, CancellationToken ct = default)
     {
         var user = await _userManager.FindByEmailAsync(request.Email);
-        if (user is null || user.EmailConfirmed)
+        if (user is null || user.EmailConfirmed || !user.IsActive || user.DeletedAt is not null)
             return OperationResult.Success();
 
         var appSystem = await _applicationService.GetByCodeWithSettingsAsync(request.ApplicationCode, ct);
-        if (appSystem is null || appSystem.RegistrationSettings?.RequireEmailConfirmation != true)
+        if (appSystem is null || !appSystem.IsActive)
             return OperationResult.Success();
 
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
