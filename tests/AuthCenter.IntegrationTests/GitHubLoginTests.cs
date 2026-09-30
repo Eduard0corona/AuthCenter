@@ -4,6 +4,7 @@ using AuthCenter.Contracts.Requests.Auth;
 using AuthCenter.Contracts.Responses;
 using AuthCenter.Contracts.Responses.Auth;
 using AuthCenter.Domain.Entities;
+using AuthCenter.Domain.Enums;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -83,6 +84,28 @@ public class GitHubLoginTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("EXTERNAL_ACCOUNT_LINK_REQUIRED", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task GitHubLogin_CreatesTheAccount_WithTheEmailGitHubVerified()
+    {
+        var email = $"github-new-{Guid.NewGuid():N}@example.com";
+        using var factory = new GitHubStubWebApplicationFactory(GitHubUserResponding(email, id: 5150));
+        using var client = factory.CreateClient();
+        await CreateOpenApplicationAllowingGitHubAsync(factory, "GITHUBOPEN");
+
+        var response = await client.PostAsJsonAsync("/api/auth/github", new GitHubLoginRequest
+        {
+            AccessToken = "stubbed-access-token",
+            ApplicationCode = "GITHUBOPEN"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var scope = factory.Services.CreateScope();
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>().FindByEmailAsync(email);
+        Assert.NotNull(user);
+        // GitHub only lets a verified address be the public one.
+        Assert.True(user.EmailConfirmed);
     }
 
     [Fact]
@@ -175,6 +198,30 @@ public class GitHubLoginTests
         var settings = await db.ApplicationRegistrationSettings
             .SingleAsync(s => s.ApplicationSystem.Code == "AUTHCENTER");
         settings.AllowGitHubLogin = true;
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task CreateOpenApplicationAllowingGitHubAsync(GitHubStubWebApplicationFactory factory, string code)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+        var now = DateTime.UtcNow;
+        db.ApplicationSystems.Add(new ApplicationSystem
+        {
+            Id = Guid.NewGuid(),
+            Code = code,
+            Name = code,
+            IsActive = true,
+            CreatedAt = now,
+            RegistrationSettings = new ApplicationRegistrationSettings
+            {
+                Id = Guid.NewGuid(),
+                RegistrationMode = ApplicationRegistrationMode.Open,
+                AllowGitHubLogin = true,
+                AllowPasswordLogin = true,
+                CreatedAt = now
+            }
+        });
         await db.SaveChangesAsync();
     }
 

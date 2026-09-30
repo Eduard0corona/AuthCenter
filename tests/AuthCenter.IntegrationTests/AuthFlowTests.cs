@@ -637,6 +637,50 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         return (user.Id, app.Id);
     }
 
+    [Fact]
+    public async Task Register_WhereConfirmationIsOptional_SignsIn_AndStillSendsTheConfirmationLink()
+    {
+        using var client = _factory.CreateClient();
+        await CreateRegistrationApplicationAsync("NOCONFIRM");
+        var email = $"optional-confirmation-{Guid.NewGuid():N}@example.com";
+
+        var registered = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            FullName = "Optional Confirmation",
+            Email = email,
+            Password = "Password123",
+            ApplicationCode = "NOCONFIRM"
+        });
+        Assert.Equal(HttpStatusCode.OK, registered.StatusCode);
+
+        // The application lets the account in, but the address is not verified until its owner
+        // follows the link: registering, then asking again, both send it.
+        var resend = await client.PostAsJsonAsync("/api/auth/resend-email-confirmation", new ResendEmailConfirmationRequest
+        {
+            Email = email,
+            ApplicationCode = "NOCONFIRM"
+        });
+        Assert.Equal(HttpStatusCode.OK, resend.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var confirmations = (await OutboxMail.ReadAsync(scope.ServiceProvider))
+            .Where(mail => mail.Kind == "email-confirmation" && mail.ToEmail == email)
+            .ToList();
+        Assert.Equal(2, confirmations.Count);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        Assert.False((await userManager.FindByEmailAsync(email))!.EmailConfirmed);
+
+        var confirmed = await client.PostAsJsonAsync("/api/auth/confirm-email", new ConfirmEmailRequest
+        {
+            Email = email,
+            Token = confirmations[^1].Secret
+        });
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        using var afterScope = _factory.Services.CreateScope();
+        var confirmedUser = await afterScope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>().FindByEmailAsync(email);
+        Assert.True(confirmedUser!.EmailConfirmed);
+    }
+
     private async Task<Guid> CreateRegistrationApplicationAsync(
         string code,
         string? allowedDomains = null,
