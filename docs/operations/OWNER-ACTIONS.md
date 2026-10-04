@@ -251,10 +251,11 @@ desactivados se reactivan a mano, en la consola. Para el ambiente dev, cuando ex
 
 ## OPS-17 · Correo saliente de AuthCenter
 
-Sin SMTP, AuthCenter encola los correos pero no puede enviarlos: se agotan los reintentos y quedan
-como dead letters. Eso afecta confirmaciones de correo, enlaces mágicos, restablecimientos de
-contraseña, invitaciones, códigos por correo y avisos de seguridad. La configuración de ejemplo no
-trae servidor, y hasta ahora el despliegue no documentaba uno.
+Sin SMTP, AuthCenter encola los correos pero no puede enviarlos: el outbox los reintenta sin límite
+(cada 32 minutos como máximo) y nunca llegan, aunque la pantalla diga que se enviaron. Eso afecta
+confirmaciones de correo, enlaces mágicos, restablecimientos de contraseña, invitaciones, códigos
+por correo y avisos de seguridad. La configuración de ejemplo no trae servidor, y hasta ahora el
+despliegue no documentaba uno.
 
 1. Contrata un proveedor SMTP, por ejemplo Azure Communication Services Email, SendGrid o Mailgun.
    Verifica en él el dominio `authcenter.info` y publica en su DNS los registros SPF, DKIM y DMARC
@@ -278,7 +279,7 @@ trae servidor, y hasta ahora el despliegue no documentaba uno.
 4. Espera a que la app se reinicie y a que la referencia de Key Vault indique `Resolved`.
 - **Comprobación:** en `https://authcenter.info/login`, "¿Olvidaste tu contraseña?" con tu cuenta
   entrega el correo, y su enlace abre `https://authcenter.info`. El log registra
-  `Password reset email sent` y no aparecen dead letters nuevos en el outbox.
+  `Password reset email sent` y no aparece `Failed to dispatch outbox message`.
 
 ## UI-07 · Revisión manual con lectores de pantalla
 
