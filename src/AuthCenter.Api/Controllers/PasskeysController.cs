@@ -114,9 +114,10 @@ public sealed class PasskeysController : ControllerBase
         var userId = _currentUser.UserId;
         if (userId is null) return Unauthorized();
         var result = await _reauthentication.VerifyPasskeyAsync(userId.Value, request, GetIpAddress(), GetUserAgent(), ct);
+        // 400 like the password re-authentication: the session is still valid.
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, SignInMessages.ForApi(result.ErrorCode, result.Message)));
     }
 
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();

@@ -10,4 +10,6 @@ public sealed class LoginOptionsResponse
     public bool FederationAvailable { get; init; }
     /// <summary>The hosted login offers to create an account (open or approval-based registration).</summary>
     public bool AllowSelfRegistration { get; init; }
+    /// <summary>"Employees" or "Consumers": who signs in, which sets the login's wording.</summary>
+    public string Audience { get; init; } = string.Empty;
 }

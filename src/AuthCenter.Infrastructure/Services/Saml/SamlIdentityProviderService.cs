@@ -188,6 +188,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
             FederationAvailable = federation,
             AllowSelfRegistration = settings is not null &&
                 ApplicationRegistrationSettings.AllowsSelfRegistration(settings.RegistrationMode, settings.AllowPasswordLogin),
+            Audience = (settings?.Audience ?? ApplicationAudience.Employees).ToString(),
             ExpiresAt = DateTime.SpecifyKind(interaction.CreatedAt, DateTimeKind.Utc).Add(InteractionLifetime)
         });
     }

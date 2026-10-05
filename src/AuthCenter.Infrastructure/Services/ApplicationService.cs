@@ -71,7 +71,8 @@ public class ApplicationService : IApplicationService
                 item.Name,
                 AllowPasswordLogin = item.RegistrationSettings == null || item.RegistrationSettings.AllowPasswordLogin,
                 AllowMagicLink = item.RegistrationSettings != null && item.RegistrationSettings.AllowMagicLink,
-                RegistrationMode = item.RegistrationSettings == null ? (ApplicationRegistrationMode?)null : item.RegistrationSettings.RegistrationMode
+                RegistrationMode = item.RegistrationSettings == null ? (ApplicationRegistrationMode?)null : item.RegistrationSettings.RegistrationMode,
+                Audience = item.RegistrationSettings == null ? ApplicationAudience.Employees : item.RegistrationSettings.Audience
             })
             .FirstOrDefaultAsync(ct);
         if (application is null)
@@ -84,7 +85,8 @@ public class ApplicationService : IApplicationService
             AllowMagicLink = application.AllowMagicLink,
             FederationAvailable = await _db.FederationProviders.AnyAsync(provider => provider.ApplicationSystemId == application.Id && provider.IsActive, ct),
             AllowSelfRegistration = application.RegistrationMode is { } mode &&
-                ApplicationRegistrationSettings.AllowsSelfRegistration(mode, application.AllowPasswordLogin)
+                ApplicationRegistrationSettings.AllowsSelfRegistration(mode, application.AllowPasswordLogin),
+            Audience = application.Audience.ToString()
         };
     }
 
@@ -162,6 +164,10 @@ public class ApplicationService : IApplicationService
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
 
+        var audience = ApplicationRegistrationSettings.DefaultAudience(mode);
+        if (request.Audience is not null && !TryParseAudience(request.Audience, out audience))
+            return OperationResult<ApplicationDto>.Failure("INVALID_AUDIENCE", "Invalid audience.");
+
         if (request.DefaultRoleId.HasValue)
             return OperationResult<ApplicationDto>.Failure("DEFAULT_ROLE_REQUIRES_APPLICATION", "Create the application before assigning one of its roles as the default.");
 
@@ -178,6 +184,7 @@ public class ApplicationService : IApplicationService
             {
                 Id = Guid.NewGuid(),
                 RegistrationMode = mode,
+                Audience = audience,
                 AllowGoogleLogin = request.AllowGoogleLogin,
                 AllowMicrosoftLogin = request.AllowMicrosoftLogin,
                 AllowGitHubLogin = request.AllowGitHubLogin,
@@ -200,7 +207,7 @@ public class ApplicationService : IApplicationService
 
         _db.ApplicationSystems.Add(app);
         await _db.SaveChangesAsync(ct);
-        await _audit.LogAsync("APPLICATION_CREATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString() }, ct: ct);
+        await _audit.LogAsync("APPLICATION_CREATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString(), audience = audience.ToString() }, ct: ct);
         return OperationResult<ApplicationDto>.Success(MapToDto(app));
     }
 
@@ -214,6 +221,14 @@ public class ApplicationService : IApplicationService
 
         if (!Enum.TryParse<ApplicationRegistrationMode>(request.RegistrationMode, out var mode))
             return OperationResult<ApplicationDto>.Failure("INVALID_MODE", "Invalid registration mode.");
+
+        ApplicationAudience? audience = null;
+        if (request.Audience is not null)
+        {
+            if (!TryParseAudience(request.Audience, out var parsed))
+                return OperationResult<ApplicationDto>.Failure("INVALID_AUDIENCE", "Invalid audience.");
+            audience = parsed;
+        }
 
         if (request.DefaultRoleId.HasValue && !await _db.Roles.AnyAsync(
                 role => role.Id == request.DefaultRoleId.Value &&
@@ -232,6 +247,8 @@ public class ApplicationService : IApplicationService
         if (app.RegistrationSettings is not null)
         {
             app.RegistrationSettings.RegistrationMode = mode;
+            if (audience is not null)
+                app.RegistrationSettings.Audience = audience.Value;
             app.RegistrationSettings.AllowGoogleLogin = request.AllowGoogleLogin;
             app.RegistrationSettings.AllowMicrosoftLogin = request.AllowMicrosoftLogin;
             app.RegistrationSettings.AllowGitHubLogin = request.AllowGitHubLogin;
@@ -247,7 +264,7 @@ public class ApplicationService : IApplicationService
 
         await _db.SaveChangesAsync(ct);
         _cache.Remove($"app_settings:{app.Code}");
-        await _audit.LogAsync("APPLICATION_UPDATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString(), request.DefaultRoleId }, ct: ct);
+        await _audit.LogAsync("APPLICATION_UPDATED", applicationCode: app.Code, entityName: nameof(ApplicationSystem), entityId: app.Id.ToString(), metadata: new { result = "Success", registrationMode = mode.ToString(), audience = app.RegistrationSettings?.Audience.ToString(), request.DefaultRoleId }, ct: ct);
         return OperationResult<ApplicationDto>.Success(MapToDto(app));
     }
 
@@ -297,6 +314,10 @@ public class ApplicationService : IApplicationService
         return OperationResult.Success();
     }
 
+    // Only the names: Enum.TryParse would also take numbers such as "7".
+    private static bool TryParseAudience(string value, out ApplicationAudience audience) =>
+        Enum.TryParse(value, out audience) && Enum.IsDefined(audience) && !char.IsDigit(value.TrimStart()[0]);
+
     private static ApplicationDto MapToDto(ApplicationSystem app) => new()
     {
         Version = app.Version,
@@ -310,6 +331,7 @@ public class ApplicationService : IApplicationService
         RegistrationSettings = app.RegistrationSettings is null ? null : new ApplicationRegistrationSettingsDto
         {
             RegistrationMode = app.RegistrationSettings.RegistrationMode.ToString(),
+            Audience = app.RegistrationSettings.Audience.ToString(),
             AllowGoogleLogin = app.RegistrationSettings.AllowGoogleLogin,
             AllowMicrosoftLogin = app.RegistrationSettings.AllowMicrosoftLogin,
             AllowGitHubLogin = app.RegistrationSettings.AllowGitHubLogin,

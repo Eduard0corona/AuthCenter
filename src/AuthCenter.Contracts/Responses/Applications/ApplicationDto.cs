@@ -19,6 +19,8 @@ public class ApplicationDto
 public class ApplicationRegistrationSettingsDto
 {
     public string RegistrationMode { get; init; } = string.Empty;
+    /// <summary>"Employees" or "Consumers".</summary>
+    public string Audience { get; init; } = string.Empty;
     public bool AllowGoogleLogin { get; init; }
     public bool AllowMicrosoftLogin { get; init; }
     public bool AllowGitHubLogin { get; init; }

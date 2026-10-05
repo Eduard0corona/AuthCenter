@@ -349,6 +349,29 @@ public class AuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Reauthentication_WithAWrongPassword_IsABadRequest_SoTheSessionIsNotTreatedAsSignedOut()
+    {
+        using var client = _factory.CreateClient();
+        var adminAuth = await LoginAsync(client, AuthCenterWebApplicationFactory.AdminEmail, AuthCenterWebApplicationFactory.AdminPassword);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.AccessToken);
+
+        var wrong = await client.PostAsJsonAsync("/api/auth/reauth/password", new PasswordReauthenticationRequest
+        {
+            Purpose = "admin.mfa.reset",
+            Password = AuthCenterWebApplicationFactory.AdminPassword + "-wrong"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        Assert.Equal("INVALID_REAUTHENTICATION", (await wrong.Content.ReadFromJsonAsync<ApiResponse<object>>())!.ErrorCode);
+
+        var right = await client.PostAsJsonAsync("/api/auth/reauth/password", new PasswordReauthenticationRequest
+        {
+            Purpose = "admin.mfa.reset",
+            Password = AuthCenterWebApplicationFactory.AdminPassword
+        });
+        Assert.False(string.IsNullOrWhiteSpace((await ReadDataAsync<ReauthenticationProofResponse>(right)).ProofToken));
+    }
+
+    [Fact]
     public async Task ForcedChangePassword_BlocksLoginAndAllowsChangeAndIssuesTokens()
     {
         using var client = _factory.CreateClient();

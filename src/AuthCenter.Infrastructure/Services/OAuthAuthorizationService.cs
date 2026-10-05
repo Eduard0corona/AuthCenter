@@ -299,6 +299,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             FederationAvailable = providers.Count > 0,
             AllowSelfRegistration = settings is not null &&
                 ApplicationRegistrationSettings.AllowsSelfRegistration(settings.RegistrationMode, settings.AllowPasswordLogin),
+            Audience = (settings?.Audience ?? ApplicationAudience.Employees).ToString(),
             IdentityProvider = identityProvider is null ? null : new FederationProviderSummary
             {
                 Id = identityProvider.Id,
@@ -345,11 +346,38 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             ApplicationCode = client.ApplicationSystem.Code,
             ApplicationName = client.ApplicationSystem.Name,
             Scopes = session.Scopes,
+            ScopeDescriptions = await DescribeScopesAsync(session.Scopes, ct),
             RequiresConsent = await RequiresConsentAsync(session, client, caller.UserId.Value, ct),
             RequiresReauthentication = existing is null || RequiresReauthentication(session, existing, _dateTimeProvider.UtcNow) ||
                 (session.IdTokenHintSubject is not null && !string.Equals(session.IdTokenHintSubject, caller.UserId.Value.ToString(), StringComparison.OrdinalIgnoreCase)),
             ExpiresAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc).AddMinutes(AuthorizationLifetimeMinutes)
         });
+    }
+
+    // The consent screen speaks the user's language: the standard OIDC scopes have fixed wording and
+    // an API scope uses the name its API gave it.
+    private static readonly IReadOnlyDictionary<string, string> StandardScopeDescriptions = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        [DomainConstants.OAuthScopes.OpenId] = "Confirmar quién eres",
+        [DomainConstants.OAuthScopes.Profile] = "Ver tu nombre y tu foto de perfil",
+        [DomainConstants.OAuthScopes.Email] = "Ver tu dirección de correo",
+        [DomainConstants.OAuthScopes.OfflineAccess] = "Mantener el acceso aunque no estés usando la aplicación"
+    };
+
+    private async Task<IList<ScopeDescription>> DescribeScopesAsync(IList<string> scopes, CancellationToken ct)
+    {
+        var apiScopeNames = scopes.Where(scope => !StandardScopeDescriptions.ContainsKey(scope)).ToList();
+        var apiScopes = apiScopeNames.Count == 0
+            ? new Dictionary<string, (string DisplayName, string? Description)>()
+            : await _db.ApiScopes.AsNoTracking()
+                .Where(scope => apiScopeNames.Contains(scope.Name))
+                .ToDictionaryAsync(scope => scope.Name, scope => (scope.DisplayName, scope.Description), ct);
+        return scopes.Select(scope => StandardScopeDescriptions.TryGetValue(scope, out var standard)
+                ? new ScopeDescription { Scope = scope, Description = standard }
+                : apiScopes.TryGetValue(scope, out var api)
+                    ? new ScopeDescription { Scope = scope, Description = string.IsNullOrWhiteSpace(api.DisplayName) ? scope : api.DisplayName, Detail = api.Description }
+                    : new ScopeDescription { Scope = scope, Description = scope })
+            .ToList();
     }
 
     public async Task<OperationResult<AuthorizationResponse>> CompleteAuthorizationAsync(

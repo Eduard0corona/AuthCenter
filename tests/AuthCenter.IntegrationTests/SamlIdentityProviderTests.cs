@@ -117,6 +117,7 @@ public sealed class SamlIdentityProviderTests : IClassFixture<FederationAuthCent
         var context = await DataAsync(await browser.GetAsync($"/saml/idp/interactions/{interaction}/context"));
         Assert.Equal(DomainConstants.SystemCodes.AuthCenter, context.GetProperty("applicationCode").GetString());
         Assert.Equal(provider.Name, context.GetProperty("clientDisplayName").GetString());
+        Assert.Equal("Employees", context.GetProperty("audience").GetString());
         using (var stranger = CreateBrowser())
             Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync($"/saml/idp/interactions/{interaction}/context")).StatusCode);
 

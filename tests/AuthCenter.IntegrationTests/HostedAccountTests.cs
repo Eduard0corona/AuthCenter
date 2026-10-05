@@ -147,6 +147,52 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
         }
     }
 
+    [Theory]
+    [InlineData("Open", null, "Consumers")]
+    [InlineData("ApprovalRequired", null, "Employees")]
+    [InlineData("InviteOnly", null, "Employees")]
+    [InlineData("Open", "Employees", "Employees")]
+    [InlineData("Closed", "Consumers", "Consumers")]
+    public async Task Audience_DefaultsFromTheRegistrationMode_AndReachesTheLogin(string registrationMode, string? audience, string expected)
+    {
+        using var admin = await CreateAdminClientAsync();
+        var code = "AUD" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var created = await ReadDataAsync(await admin.PostAsJsonAsync("/api/applications", new
+        {
+            Code = code,
+            Name = "Audience " + code,
+            RegistrationMode = registrationMode,
+            Audience = audience,
+            AllowPasswordLogin = true
+        }));
+        Assert.Equal(expected, created.GetProperty("registrationSettings").GetProperty("audience").GetString());
+
+        using var browser = CreateBrowser();
+        var options = await ReadDataAsync(await browser.GetAsync($"/ui-api/session/login-options?applicationCode={code}"));
+        Assert.Equal(expected, options.GetProperty("audience").GetString());
+    }
+
+    [Fact]
+    public async Task Audience_IsKeptWhenAnUpdateLeavesItOut_AndRejectsUnknownValues()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (id, code) = await CreateApplicationAsync(admin, registrationMode: "Open");
+
+        object Update(string? audience) => new { Name = "Hosted " + code, RegistrationMode = "Closed", AllowPasswordLogin = true, Audience = audience };
+        var kept = await ReadDataAsync(await admin.PutAsJsonAsync($"/api/applications/{id}", Update(null)));
+        Assert.Equal("Consumers", kept.GetProperty("registrationSettings").GetProperty("audience").GetString());
+
+        var changed = await ReadDataAsync(await admin.PutAsJsonAsync($"/api/applications/{id}", Update("Employees")));
+        Assert.Equal("Employees", changed.GetProperty("registrationSettings").GetProperty("audience").GetString());
+
+        var unknown = await admin.PutAsJsonAsync($"/api/applications/{id}", Update("1"));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Equal("INVALID_AUDIENCE", await ErrorCodeAsync(unknown));
+
+        var refused = await admin.PostAsJsonAsync("/api/applications", new { Code = "AUDX" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant(), Name = "X", RegistrationMode = "Open", Audience = "Everyone" });
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+    }
+
     [Fact]
     public async Task SignUp_WhereTheEmailMustBeConfirmed_SignsInOnlyAfterTheLinkIsFollowed()
     {

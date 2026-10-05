@@ -8,6 +8,9 @@ public class UpdateApplicationRequest
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }
     public string RegistrationMode { get; init; } = "Open";
+
+    /// <summary>"Employees" or "Consumers"; when omitted, the application keeps its audience.</summary>
+    public string? Audience { get; init; }
     public bool AllowGoogleLogin { get; init; }
     public bool AllowMicrosoftLogin { get; init; }
     public bool AllowGitHubLogin { get; init; }

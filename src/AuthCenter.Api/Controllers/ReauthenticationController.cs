@@ -34,8 +34,10 @@ public sealed class ReauthenticationController : ControllerBase
             HttpContext.Connection.RemoteIpAddress?.ToString(),
             Request.Headers.UserAgent.ToString(),
             ct);
+        // A wrong password is a 400, not a 401: the caller still holds a valid session, and clients
+        // treat 401 as "signed out" and leave the page with the form the proof was for.
         return result.IsSuccess
             ? Ok(ApiResponse<object>.Ok(result.Data!))
-            : Unauthorized(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
+            : BadRequest(ApiResponse<object>.Fail(result.ErrorCode, result.Message));
     }
 }

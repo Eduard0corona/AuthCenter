@@ -44,6 +44,7 @@ public sealed class FederationHostedLoginTests : IClassFixture<FederationAuthCen
 
         var context = await ReadDataAsync(await browser.GetAsync($"/oauth/interactions/{interactionId}/context"));
         Assert.True(context.GetProperty("federationAvailable").GetBoolean());
+        Assert.Equal("Employees", context.GetProperty("audience").GetString());
         Assert.Equal(provider.Id, context.GetProperty("identityProvider").GetProperty("id").GetGuid());
         Assert.Equal("Oidc", context.GetProperty("identityProvider").GetProperty("protocol").GetString());
 

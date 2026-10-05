@@ -214,6 +214,10 @@ public class OAuthFlowTests : IClassFixture<AuthCenterWebApplicationFactory>
         Assert.Equal("AUTHCENTER", interaction.ApplicationCode);
         Assert.True(interaction.RequiresConsent);
         Assert.Contains("offline_access", interaction.Scopes);
+        // The consent screen describes each scope in the user's words, in the requested order.
+        Assert.Equal(interaction.Scopes, interaction.ScopeDescriptions.Select(item => item.Scope).ToList());
+        Assert.Equal("Ver tu dirección de correo", interaction.ScopeDescriptions.Single(item => item.Scope == "email").Description);
+        Assert.Equal("Mantener el acceso aunque no estés usando la aplicación", interaction.ScopeDescriptions.Single(item => item.Scope == "offline_access").Description);
 
         var authClient = _factory.CreateClient(
             new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });

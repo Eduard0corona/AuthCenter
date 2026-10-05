@@ -18,6 +18,8 @@ public class OAuthInteractionContextResponse
     public bool FederationAvailable { get; init; }
     /// <summary>The hosted login offers to create an account (open or approval-based registration).</summary>
     public bool AllowSelfRegistration { get; init; }
+    /// <summary>"Employees" or "Consumers": who signs in, which sets the login's wording.</summary>
+    public string Audience { get; init; } = string.Empty;
 
     /// <summary>Provider requested with <c>idp</c>: the hosted login redirects to it directly.</summary>
     public Federation.FederationProviderSummary? IdentityProvider { get; init; }

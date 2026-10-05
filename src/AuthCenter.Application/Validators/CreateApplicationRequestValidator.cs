@@ -6,6 +6,7 @@ namespace AuthCenter.Application.Validators;
 public class CreateApplicationRequestValidator : AbstractValidator<CreateApplicationRequest>
 {
     private static readonly string[] ValidModes = ["Closed", "Open", "InviteOnly", "ApprovalRequired"];
+    private static readonly string[] ValidAudiences = ["Employees", "Consumers"];
 
     public CreateApplicationRequestValidator()
     {
@@ -22,5 +23,9 @@ public class CreateApplicationRequestValidator : AbstractValidator<CreateApplica
             .NotEmpty()
             .Must(m => ValidModes.Contains(m))
             .WithMessage($"RegistrationMode must be one of: {string.Join(", ", ValidModes)}.");
+
+        RuleFor(x => x.Audience)
+            .Must(audience => audience is null || ValidAudiences.Contains(audience))
+            .WithMessage($"Audience must be one of: {string.Join(", ", ValidAudiences)}.");
     }
 }

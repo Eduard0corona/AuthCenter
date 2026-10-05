@@ -6,6 +6,12 @@ public class CreateApplicationRequest
     public string Name { get; init; } = string.Empty;
     public string? Description { get; init; }
     public string RegistrationMode { get; init; } = "Open";
+
+    /// <summary>
+    /// "Employees" or "Consumers": the hosted login's wording. When omitted, open registration means
+    /// consumers and any other mode employees.
+    /// </summary>
+    public string? Audience { get; init; }
     public bool AllowGoogleLogin { get; init; }
     public bool AllowMicrosoftLogin { get; init; }
     public bool AllowGitHubLogin { get; init; }
