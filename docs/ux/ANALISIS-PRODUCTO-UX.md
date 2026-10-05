@@ -461,6 +461,23 @@ decisiones del §11. Además de la tabla:
 Antes de desplegar hay que aplicar la migración `20261005003754_AddApplicationAudience` (OPS-03)
 y revisar OPS-18 (nombre de la cuenta, remitente y emisor de la app de autenticación).
 
+Capturas después de la Fase 0 (API real en local, 2026-10-05), en [`capturas/fase-0/`](capturas/fase-0/):
+
+<p>
+<img src="capturas/fase-0/01-login-marca-escritorio.jpg" alt="Login de Paquetenvia: tarjeta centrada sobre el fondo de la marca, sin panel técnico" width="420">
+<img src="capturas/fase-0/03-reenviar-confirmacion-movil.jpg" alt="Login en móvil: el error bajo el título y el botón para reenviar la confirmación" width="200">
+<img src="capturas/fase-0/04-consentimiento.jpg" alt="Consentimiento con lo que podrá hacer la aplicación, la cuenta conectada y ¿No eres tú?" width="420">
+</p>
+<p>
+<img src="capturas/fase-0/05-solicitud-caducada.jpg" alt="Solicitud caducada: No podemos continuar, con Volver a Paquetenvia Web" width="420">
+<img src="capturas/fase-0/06-portal-movil.jpg" alt="Portal en un teléfono de 390 px: menú que se ajusta y nombres de aplicación legibles" width="200">
+<img src="capturas/fase-0/07-correo-confirmacion.jpg" alt="Correo de confirmación en español, con el nombre de la aplicación y la vigencia real" width="320">
+</p>
+<p>
+<img src="capturas/fase-0/08-consola-inicio.jpg" alt="Inicio de la consola: acciones rápidas y lo que requiere atención primero" width="420">
+<img src="capturas/fase-0/09-consola-nuevo-cliente-oauth.jpg" alt="Nuevo cliente OAuth con la aplicación preseleccionada y la URL de inicio de sesión en opciones avanzadas" width="420">
+</p>
+
 ### Fase 1 — Fundamentos (3–5 semanas)
 
 - Tokens y componentes compartidos; foco y bordes ≥3:1; objetivos de 44 px (UX-16, UX-20, ADM-UX-30).
