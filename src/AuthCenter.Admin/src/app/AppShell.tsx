@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "../auth/session";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { GlobalErrorBanner } from "../components/GlobalErrorBanner";
+import { CONSOLE_TITLE } from "../hooks/useDocumentTitle";
 import { describeEnvironment, describeVersion, useAdminMetadata, useVersion } from "../hooks/usePlatform";
 
 interface NavigationItem {
@@ -74,6 +75,9 @@ export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const location = useLocation();
+  // A new page starts with the console's name; its header (an effect, so later) names it. A page
+  // still loading or failing to load never keeps the previous page's title.
+  useLayoutEffect(() => { document.title = CONSOLE_TITLE; }, [location.pathname]);
   // On small screens the navigation is a drawer: Escape closes it and focus returns to its button.
   useEffect(() => {
     if (!menuOpen) return;

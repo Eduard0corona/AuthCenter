@@ -107,7 +107,7 @@ export function AppRouter() {
           <Route path="groups" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupsPage /></PermissionRoute>} />
           <Route path="groups/new" element={<PermissionRoute permission="AUTHCENTER_GROUPS_WRITE"><GroupEditorPage create /></PermissionRoute>} />
           <Route path="groups/:groupId" element={<PermissionRoute permission="AUTHCENTER_GROUPS_READ"><GroupEditorPage /></PermissionRoute>} />
-          <Route path="404" element={<PageState title="Ruta no encontrada" detail="La sección solicitada no existe o cambió de ubicación." />} />
+          <Route path="404" element={<PageState title="Ruta no encontrada" documentTitle="Ruta no encontrada" detail="La sección solicitada no existe o cambió de ubicación." />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Route>
       </Routes>

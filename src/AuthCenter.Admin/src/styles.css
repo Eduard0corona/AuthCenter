@@ -37,6 +37,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 a { color: var(--blue-700); }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: .55rem; font-size: clamp(1.75rem, 3vw, 2.4rem); line-height: 1.15; letter-spacing: -.035em; }
+/* Each page focuses its heading so screen readers announce it; that is not keyboard focus, so no ring. */
+h1[tabindex="-1"]:focus { outline: none; }
 h2 { letter-spacing: -.02em; }
 code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .85em; }
 

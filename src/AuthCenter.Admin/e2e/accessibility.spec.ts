@@ -64,7 +64,10 @@ test("the skip link moves focus to the content and navigation focuses each page'
   await mockEmptyApi(page);
   await page.goto("/admin-v2/");
   // Each page starts with focus on its heading, so screen readers announce it.
-  await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
+  const heading = page.getByRole("heading", { level: 1 });
+  await expect(heading).toBeFocused();
+  // That focus is not keyboard navigation: no focus ring around the heading.
+  expect(await heading.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe("none");
 
   const skip = page.getByRole("link", { name: "Saltar al contenido" });
   await expect(skip).not.toBeInViewport();
@@ -78,6 +81,27 @@ test("the skip link moves focus to the content and navigation focuses each page'
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin-v2\/system-log$/);
   await expect(page.getByRole("heading", { level: 1, name: "System Log" })).toBeFocused();
+});
+
+test("names each browser tab after its page", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Titles do not depend on the layout.");
+  await mockEmptyApi(page);
+  await page.goto("/admin-v2/");
+  await expect(page).toHaveTitle("Inicio · Consola de administración");
+  await page.goto("/admin-v2/groups/new");
+  await expect(page).toHaveTitle("Nuevo grupo · Consola de administración");
+  await page.goto("/admin-v2/no-existe");
+  await expect(page).toHaveURL(/\/admin-v2\/404$/);
+  await expect(page).toHaveTitle("Ruta no encontrada · Consola de administración");
+});
+
+test("names the browser tab of a section the operator cannot open", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Titles do not depend on the layout.");
+  await page.route((url) => url.pathname.startsWith("/api/"), (route) => json(route, paged([])));
+  await mockShell(page, ["AUTHCENTER_USERS_READ"]);
+  await page.goto("/admin-v2/roles");
+  await expect(page.getByRole("heading", { level: 1, name: "Acceso restringido" })).toBeVisible();
+  await expect(page).toHaveTitle("Acceso restringido · Consola de administración");
 });
 
 test("dialogs keep focus inside, close with Escape and give focus back to their trigger", async ({ page }, testInfo) => {

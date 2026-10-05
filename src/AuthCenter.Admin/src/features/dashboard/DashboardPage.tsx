@@ -41,7 +41,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Overview" title={`Hola, ${user.name?.split(" ")[0] ?? "operador"}`} description="Opera AuthCenter desde módulos cargados bajo demanda. Cada acción vuelve a autorizarse en el servidor." />
+      <PageHeader eyebrow="Overview" title={`Hola, ${user.name?.split(" ")[0] ?? "operador"}`} documentTitle="Inicio" description="Opera AuthCenter desde módulos cargados bajo demanda. Cada acción vuelve a autorizarse en el servidor." />
       {canReadMetrics ? (
         <section className="settings-panel dashboard-panel" aria-labelledby="platform-status" aria-busy={dashboard.isFetching || undefined}>
           <div className="settings-panel__heading">
