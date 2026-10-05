@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, OAuthClientCreated, OAuthClientSecret, OAuthClientSummary } from "../../api/types";
+import { askForPermission, needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
@@ -95,7 +96,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
 
   if (!create && client.isPending) return <PageState title="Cargando cliente OAuth" busy />;
   if (!create && client.isError) return <PageState title="No pudimos cargar el cliente OAuth" detail={errorMessage(client.error)} tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
-  if (create && !canReadApplications) return <PageState title="No puedes registrar clientes OAuth" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación propietaria." tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
+  if (create && !canReadApplications) return <PageState title="No puedes registrar clientes OAuth" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación propietaria")} tone="error" action={<Link className="button" to="/oauth-clients">Volver</Link>} />;
 
   const title = create ? "Nuevo cliente OAuth" : current?.displayName ?? "Cliente OAuth";
   const hasAuthorizationCode = selectedGrants.includes("authorization_code");
@@ -143,7 +144,7 @@ export default function OAuthClientEditorPage({ create = false }: { create?: boo
           <Checkbox label="Incluir el identificador de sesión (sid) en el aviso" registration={form.register("backchannelLogoutSessionRequired")} />
         </section>
       </fieldset>
-      {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/oauth-clients">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear cliente OAuth" : "Guardar configuración"}</button></div> : <p className="muted">Solicita AUTHCENTER_OAUTH_CLIENTS_WRITE para modificar esta configuración.</p>}
+      {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/oauth-clients">Cancelar</Link><button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear cliente OAuth" : "Guardar configuración"}</button></div> : <p className="muted">{askForPermission("AUTHCENTER_OAUTH_CLIENTS_WRITE", "cambiar esta configuración")}</p>}
     </form>
     {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="oauth-actions"><div className="settings-panel__heading"><div><h2 id="oauth-actions">Credencial y estado</h2><p>Estas acciones requieren comprobar de nuevo tu identidad y consumen una prueba de un solo uso.</p></div></div><div className="button-group">{current.clientType === 0 ? <button className="button button--secondary" type="button" onClick={() => { rotate.reset(); setSensitiveAction("rotate"); }}>Rotar secreto</button> : null}<button className={current.isActive ? "button button--danger-quiet" : "button button--secondary"} type="button" onClick={() => { changeStatus.reset(); setSensitiveAction(current.isActive ? "deactivate" : "activate"); }}>{current.isActive ? "Desactivar cliente" : "Activar cliente"}</button></div>{actionError ? <p className="alert alert--error" role="alert">{errorMessage(actionError)}</p> : null}</section> : null}
     <ReauthenticationDialog open={sensitiveAction !== null} purpose={sensitiveAction === "rotate" ? "admin.oauth-client.rotate-secret" : sensitiveAction === "activate" ? "admin.oauth-client.activate" : "admin.oauth-client.deactivate"} title={sensitiveAction === "rotate" ? "Rotar el secreto del cliente" : sensitiveAction === "activate" ? "Activar cliente OAuth" : "Desactivar cliente OAuth"} detail={sensitiveAction === "rotate" ? "El secreto actual dejará de funcionar de inmediato. Asegúrate de poder actualizar la aplicación que lo usa." : sensitiveAction === "activate" ? "El cliente volverá a poder emitir tokens con sus flujos y permisos actuales." : "Se bloqueará la emisión de tokens nuevos para este cliente."} confirmLabel={sensitiveAction === "rotate" ? "Verificar y rotar" : sensitiveAction === "activate" ? "Verificar y activar" : "Verificar y desactivar"} dangerous={sensitiveAction === "deactivate"} onCancel={() => setSensitiveAction(null)} onProof={async (proof) => { if (sensitiveAction === "rotate") await rotate.mutateAsync(proof); else if (sensitiveAction) await changeStatus.mutateAsync({ proofToken: proof, activate: sensitiveAction === "activate" }); }} />

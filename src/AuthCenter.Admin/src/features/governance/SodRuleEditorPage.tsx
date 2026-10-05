@@ -7,6 +7,7 @@ import { useApplicationsCatalog, useRolesCatalog } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { SeparationOfDutiesRule } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -73,7 +74,7 @@ export default function SodRuleEditorPage({ create = false }: { create?: boolean
 
   if (!create && rule.isPending) return <PageState title="Cargando regla" busy />;
   if (!create && rule.isError) return <PageState title="No pudimos cargar la regla" detail={errorMessage(rule.error)} tone="error" action={<Link className="button" to="/sod-rules">Volver</Link>} />;
-  if (!canReadRoles) return <PageState title="No puedes editar reglas" detail="Necesitas AUTHCENTER_ROLES_READ para elegir los roles." tone="forbidden" action={<Link className="button" to="/sod-rules">Volver</Link>} />;
+  if (!canReadRoles) return <PageState title="No puedes editar reglas" detail={needPermission("AUTHCENTER_ROLES_READ", "elegir los roles")} tone="forbidden" action={<Link className="button" to="/sod-rules">Volver</Link>} />;
   const title = create ? "Nueva regla" : current?.name ?? "Regla";
 
   return <>

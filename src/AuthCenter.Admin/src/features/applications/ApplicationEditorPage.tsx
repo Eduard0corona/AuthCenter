@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationBranding, ApplicationSummary, RoleSummary } from "../../api/types";
+import { askForPermission, needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -139,7 +140,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
             <Field label="Dominios permitidos" error={form.formState.errors.allowedEmailDomains?.message} help="Separados por coma; vacío permite cualquier dominio."><input {...form.register("allowedEmailDomains")} placeholder="empresa.com, filial.mx" autoComplete="off" /></Field>
           </div>
           {!create && canReadRoles ? <Field label="Rol predeterminado" error={undefined} help="Se asignará automáticamente después del registro aprobado."><select {...form.register("defaultRoleId", { setValueAs: (value) => value || null })}><option value="">Sin rol predeterminado</option>{currentDefaultRoleId && !currentRoleListed ? <option value={currentDefaultRoleId}>Rol actual</option> : null}{availableRoles.data?.items.filter((role) => role.isActive).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></Field> : null}
-          {!create && !canReadRoles ? <p className="alert alert--info">El rol predeterminado actual se conservará. Necesitas AUTHCENTER_ROLES_READ para cambiarlo.</p> : null}
+          {!create && !canReadRoles ? <p className="alert alert--info">El rol predeterminado actual se conservará. {needPermission("AUTHCENTER_ROLES_READ", "cambiarlo")}</p> : null}
           {create ? <p className="alert alert--info">Crea primero la aplicación; después podrás asignar uno de sus roles como predeterminado.</p> : null}
           <fieldset className="check-group"><legend>Métodos de autenticación</legend><div className="checkbox-grid">
             <Checkbox label="Contraseña" registration={form.register("allowPasswordLogin")} />
@@ -158,7 +159,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         {canWrite ? <div className="form-footer">
           <Link className="button button--secondary" to="/applications">Cancelar</Link>
           <button className="button" type="submit" disabled={save.isPending}>{save.isPending ? "Guardando…" : create ? "Crear aplicación" : "Guardar configuración"}</button>
-        </div> : <p className="muted">Solicita el permiso AUTHCENTER_APPLICATIONS_WRITE para modificar esta configuración.</p>}
+        </div> : <p className="muted">{askForPermission("AUTHCENTER_APPLICATIONS_WRITE", "cambiar esta configuración")}</p>}
       </form>
 
       {current && permissions.has("AUTHCENTER_GOVERNANCE_READ") ? <ApplicationGovernancePanel applicationId={current.id} /> : null}

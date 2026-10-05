@@ -7,6 +7,7 @@ import { useApplicationsCatalog } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApiResource } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -65,7 +66,7 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
 
   if (!create && resource.isPending) return <PageState title="Cargando API" busy />;
   if (!create && resource.isError) return <PageState title="No pudimos cargar el API" detail={errorMessage(resource.error, RESOURCE_ERRORS)} tone="error" action={<Link className="button" to="/api-resources">Volver</Link>} />;
-  if (create && !canReadApplications) return <PageState title="No puedes registrar APIs" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para elegir la aplicación dueña del API." tone="error" action={<Link className="button" to="/api-resources">Volver</Link>} />;
+  if (create && !canReadApplications) return <PageState title="No puedes registrar APIs" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación dueña del API")} tone="error" action={<Link className="button" to="/api-resources">Volver</Link>} />;
   const title = create ? "Nuevo API" : current?.displayName ?? "API";
   const errors = form.formState.errors;
 

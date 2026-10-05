@@ -7,6 +7,7 @@ import { useApplicationsCatalog } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ProfileAttributeDefinition, SamlCertificate, SamlServiceProvider, SamlServiceProviderMetadata } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -92,7 +93,7 @@ function SamlAppEditorPage({ create }: { create: boolean }) {
 
   if (!create && provider.isPending) return <PageState title="Cargando aplicación SAML" busy />;
   if (!create && provider.isError) return <PageState title="No pudimos cargar la aplicación SAML" detail={errorMessage(provider.error, SAML_ERRORS)} tone="error" action={<Link className="button" to="/saml-apps">Volver</Link>} />;
-  if (create && !canReadApplications) return <PageState title="No puedes registrar aplicaciones SAML" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para elegir la aplicación de AuthCenter a la que pertenece." tone="error" action={<Link className="button" to="/saml-apps">Volver</Link>} />;
+  if (create && !canReadApplications) return <PageState title="No puedes registrar aplicaciones SAML" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación de AuthCenter a la que pertenece")} tone="error" action={<Link className="button" to="/saml-apps">Volver</Link>} />;
   const title = create ? "Nueva aplicación SAML" : current?.name ?? "Aplicación SAML";
   const errors = form.formState.errors;
   const sources = [...attributeSources, ...(schema.data?.filter((definition) => definition.isActive).map((definition) => ({ value: `profile:${definition.key}`, label: `Perfil: ${definition.displayName} (${definition.key})` })) ?? [])];

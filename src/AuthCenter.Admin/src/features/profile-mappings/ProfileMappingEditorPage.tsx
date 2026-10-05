@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, ProfileAttributeDefinition, ProfileMapping, ProfileMappingSimulation } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -80,8 +81,8 @@ export default function ProfileMappingEditorPage({ create = false }: { create?: 
 
   if (!create && mapping.isPending) return <PageState title="Cargando mapeo de perfil" busy />;
   if (!create && mapping.isError) return <PageState title="No pudimos cargar el mapeo de perfil" detail={errorMessage(mapping.error)} tone="error" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
-  if (!canReadSchema) return <PageState title="No puedes administrar mapeos de perfil" detail="Necesitas AUTHCENTER_PROFILE_SCHEMAS_READ para seleccionar el atributo destino del perfil universal." tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
-  if (create && !canReadApplications) return <PageState title="No puedes crear mapeos de perfil" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación de origen." tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
+  if (!canReadSchema) return <PageState title="No puedes administrar mapeos de perfil" detail={needPermission("AUTHCENTER_PROFILE_SCHEMAS_READ", "elegir el atributo destino del perfil universal")} tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
+  if (create && !canReadApplications) return <PageState title="No puedes crear mapeos de perfil" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación de origen")} tone="forbidden" action={<Link className="button" to="/profile-mappings">Volver</Link>} />;
   const title = create ? "Nuevo mapeo de perfil" : current ? `${current.sourcePath} → ${current.targetAttributeName}` : "Mapeo de perfil";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
   const formError = validate.error ?? (conflict ? null : save.error);

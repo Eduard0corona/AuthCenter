@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FederationProvider, FederationRoutingRule, ProfileAttributeDefinition } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { convertExpectedValue } from "../group-rules/group-rule";
 
 export const federationProtocols = ["Oidc", "Saml2"] as const;
@@ -186,7 +187,7 @@ export function routingRulePayload(values: RoutingRuleFormValues, definition: Pr
     } else if (unchanged) {
       expectedProfileValueJson = original.expectedProfileValueJson;
     } else {
-      return { ok: false, error: "No puedes definir el valor de un atributo cuyo esquema no puedes consultar (AUTHCENTER_PROFILE_SCHEMAS_READ)." };
+      return { ok: false, error: needPermission("AUTHCENTER_PROFILE_SCHEMAS_READ", "definir el valor de un atributo del perfil") };
     }
   }
   const body: Record<string, unknown> = {

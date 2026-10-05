@@ -334,7 +334,8 @@ test("application detail is read-only without write permission", async ({ page }
   await expect(page.getByLabel("Nombre", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Guardar configuración" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Editar marca" })).toHaveCount(0);
-  await expect(page.getByText("AUTHCENTER_APPLICATIONS_WRITE")).toBeVisible();
+  await expect(page.getByText("pide a un administrador el permiso «Editar aplicaciones»")).toBeVisible();
+  await expect(page.getByText("AUTHCENTER_APPLICATIONS_WRITE")).toHaveCount(0);
 });
 
 test("a single sign-on session opened for another application asks for an AuthCenter sign-in", async ({ page }) => {
@@ -1179,7 +1180,7 @@ test("editing a routing rule without directory permissions preserves its group a
 
   await page.getByLabel("Valor esperado").fill("Ventas");
   await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("AUTHCENTER_PROFILE_SCHEMAS_READ");
+  await expect(page.getByRole("alert")).toContainText("«Consultar el esquema de perfil»");
   expect(updatePayload).toBeNull();
 
   await page.getByLabel("Valor esperado").fill("Ingeniería");

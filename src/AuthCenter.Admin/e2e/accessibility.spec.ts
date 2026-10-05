@@ -102,6 +102,9 @@ test("names the browser tab of a section the operator cannot open", async ({ pag
   await page.goto("/admin-v2/roles");
   await expect(page.getByRole("heading", { level: 1, name: "Acceso restringido" })).toBeVisible();
   await expect(page).toHaveTitle("Acceso restringido · Consola de administración");
+  // It names the permission to ask for by what it allows; the code is only a detail.
+  await expect(page.getByText("necesitas el permiso «Consultar roles»")).toBeVisible();
+  await expect(page.getByText("AUTHCENTER_ROLES_READ")).toBeVisible();
 });
 
 test("dialogs keep focus inside, close with Escape and give focus back to their trigger", async ({ page }, testInfo) => {

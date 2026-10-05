@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { DirectoryGroupSummary, DynamicGroupRule, GroupRulePreview, ProfileAttributeDefinition } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -114,7 +115,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
 
   if (!create && rule.isPending) return <PageState title="Cargando regla de grupo" busy />;
   if (!create && rule.isError) return <PageState title="No pudimos cargar la regla de grupo" detail={errorMessage(rule.error)} tone="error" action={<Link className="button" to="/group-rules">Volver</Link>} />;
-  if (!canReadSchema) return <PageState title="No puedes administrar reglas de grupo" detail="Necesitas AUTHCENTER_PROFILE_SCHEMAS_READ para elegir el atributo evaluado por la regla." tone="forbidden" action={<Link className="button" to="/group-rules">Volver</Link>} />;
+  if (!canReadSchema) return <PageState title="No puedes administrar reglas de grupo" detail={needPermission("AUTHCENTER_PROFILE_SCHEMAS_READ", "elegir el atributo que evalúa la regla")} tone="forbidden" action={<Link className="button" to="/group-rules">Volver</Link>} />;
   const title = create ? "Nueva regla de grupo" : current ? `${current.groupName}: ${describeRule(current)}` : "Regla de grupo";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
   const formError = conflict || !(save.error instanceof ApiError) ? null : save.error;

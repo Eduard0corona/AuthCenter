@@ -3,6 +3,7 @@ import { useState } from "react";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationGovernance, GovernanceUser } from "../../api/types";
+import { permissionLabel } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { PageState } from "../../components/PageState";
 import { SaveError } from "../../components/SaveError";
@@ -60,7 +61,7 @@ export function ApplicationGovernancePanel({ applicationId }: { applicationId: s
       <SaveError error={save.error} messages={governanceMessages} onReload={() => { save.reset(); setDraft(null); void governance.refetch(); }} />
       <fieldset className="settings-fieldset" disabled={!canWrite || save.isPending}>
         <legend className="sr-only">Responsables</legend>
-        {current.owners.length === 0 ? <p className="muted">Sin responsables: las solicitudes y revisiones las decide un administrador con AUTHCENTER_GOVERNANCE_WRITE.</p> : (
+        {current.owners.length === 0 ? <p className="muted">Sin responsables: las solicitudes y revisiones las decide un administrador con el permiso «{permissionLabel("AUTHCENTER_GOVERNANCE_WRITE")}».</p> : (
           <ul className="owner-list" aria-label="Responsables">
             {current.owners.map((owner) => <li key={owner.id}>
               <span><strong>{owner.fullName}</strong> {owner.email ? <span className="muted">{owner.email}</span> : null}{owner.isActive ? null : <span className="tag tag--inactive">Inactivo</span>}</span>

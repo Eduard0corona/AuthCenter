@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, ProvisioningTokenCreated, ProvisioningTokenMetadata } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { HistoryLink } from "../../components/HistoryLink";
@@ -81,7 +82,7 @@ function ProvisioningTokenEditorPage({ create }: { create: boolean }) {
 
   if (!create && token.isPending) return <PageState title="Cargando token de aprovisionamiento" busy />;
   if (!create && token.isError) return <PageState title="No pudimos cargar el token de aprovisionamiento" detail={errorMessage(token.error)} tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
-  if (create && !canReadApplications) return <PageState title="No puedes crear tokens de aprovisionamiento" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación propietaria." tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
+  if (create && !canReadApplications) return <PageState title="No puedes crear tokens de aprovisionamiento" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación propietaria")} tone="error" action={<Link className="button" to="/provisioning-tokens">Volver</Link>} />;
   const title = create ? "Nuevo token de aprovisionamiento" : current?.name ?? "Token de aprovisionamiento";
   const actionError = rotate.error ?? revoke.error;
 

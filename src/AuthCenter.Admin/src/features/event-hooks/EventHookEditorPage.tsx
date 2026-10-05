@@ -7,6 +7,7 @@ import { useApplicationsCatalog } from "../../api/catalog";
 import { ApiError, apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { EventHook, EventHookSecret, EventTypeInfo } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { Field } from "../../components/Field";
@@ -125,7 +126,7 @@ function EventHookEditorPage({ create }: { create: boolean }) {
           <div className="form-grid">
             <Field label="Nombre" error={form.formState.errors.name?.message}><input {...form.register("name")} autoComplete="off" placeholder="SIEM corporativo" /></Field>
             <Field label="URL del endpoint" error={form.formState.errors.url?.message} help="HTTPS público. AuthCenter rechaza direcciones privadas y no sigue redirecciones."><input {...form.register("url")} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://hooks.example.com/authcenter" /></Field>
-            {create ? <Field label="Alcance" help={canReadApplications ? "Un webhook de aplicación recibe sólo los eventos de esa aplicación." : "Necesitas AUTHCENTER_APPLICATIONS_READ para limitar el hook a una aplicación."}><select {...form.register("applicationSystemId")}><option value="">Toda la plataforma</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
+            {create ? <Field label="Alcance" help={canReadApplications ? "Un webhook de aplicación recibe sólo los eventos de esa aplicación." : needPermission("AUTHCENTER_APPLICATIONS_READ", "limitar el webhook a una aplicación")}><select {...form.register("applicationSystemId")}><option value="">Toda la plataforma</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
               : <Field label="Alcance" help="El alcance se fija al crear el webhook."><input value={current?.applicationName ?? "Toda la plataforma"} readOnly /></Field>}
             {!create ? <label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>Webhook activo: recibe eventos nuevos</span></label> : null}
           </div>
