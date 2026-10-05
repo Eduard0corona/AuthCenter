@@ -291,8 +291,8 @@ nombran a AuthCenter y llevan la marca de la aplicación. Tres nombres dependen 
 1. **La cuenta (app del sistema `AUTHCENTER`).** El login directo (`/login`), el portal y los correos
    sin aplicación no muestran ningún nombre mientras su marca siga llamándose "AuthCenter", como la
    dejan las migraciones. Para mostrar el de tu organización, en la consola abre *Aplicaciones* →
-   *AuthCenter* → *Marca* y cambia el nombre visible (por ejemplo "Paquetenvia"), el logo y los
-   colores.
+   *AuthCenter* → *Editar marca* y cambia el nombre visible (por ejemplo "Paquetenvia"), el logo y
+   los colores.
 2. **El remitente.** Los correos de una aplicación salen con su nombre; los que no tienen aplicación
    usan `Email__FromName` (OPS-17). Ponle el nombre de tu organización.
 3. **La app de autenticación.** La cuenta que ven Google Authenticator o Microsoft Authenticator
