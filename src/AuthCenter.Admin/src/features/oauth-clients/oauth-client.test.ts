@@ -1,5 +1,50 @@
 import { describe, expect, it } from "vitest";
-import { grantLabel, oauthClientPayload, oauthClientSchema } from "./oauth-client";
+import { grantLabel, hostedLoginUrl, newOAuthClientDefaults, oauthClientPayload, oauthClientSchema, REQUIRED, suggestClientId } from "./oauth-client";
+
+describe("suggestClientId", () => {
+  it("turns the name into lowercase ASCII words joined by hyphens", () => {
+    expect(suggestClientId("Portal de Socios Ñandú")).toBe("portal-de-socios-nandu");
+    expect(suggestClientId("  Tienda — Web (BFF) 2.0 ")).toBe("tienda-web-bff-2-0");
+    expect(suggestClientId("日本")).toBe("");
+  });
+
+  it("stays within the Client ID's length and format", () => {
+    const suggestion = suggestClientId(`${"a".repeat(99)} b`);
+    expect(suggestion).toBe("a".repeat(99));
+    expect(suggestion).toMatch(/^[a-z0-9\-_]+$/);
+  });
+});
+
+describe("new client defaults", () => {
+  it("prefill the hosted login and the scopes the .NET BFF SDK asks for", () => {
+    const values = newOAuthClientDefaults("https://id.example.com/", "11111111-1111-4111-8111-111111111111");
+    expect(hostedLoginUrl("https://id.example.com")).toBe("https://id.example.com/login");
+    expect(values.loginUrl).toBe("https://id.example.com/login");
+    expect(values.applicationSystemId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(values.allowedScopes).toEqual(["openid", "profile", "email", "offline_access"]);
+    expect(values.grantTypes).toEqual(["authorization_code", "refresh_token"]);
+  });
+});
+
+describe("required fields", () => {
+  const messages = (values: Record<string, unknown>) => {
+    const result = oauthClientSchema.safeParse(values);
+    return result.success ? {} : Object.fromEntries(result.error.issues.map((issue) => [issue.path.join("."), issue.message]).reverse());
+  };
+
+  it("say an empty field is required, apart from the format error", () => {
+    const empty = messages({ ...newOAuthClientDefaults("https://id.example.com"), loginUrl: "  " });
+    expect(empty).toMatchObject({ applicationSystemId: REQUIRED, displayName: REQUIRED, clientId: REQUIRED, loginUrl: REQUIRED });
+    const wrong = messages({ ...newOAuthClientDefaults("https://id.example.com"), applicationSystemId: "app", clientId: "Mi App", loginUrl: "ftp://id.example.com/login" });
+    expect(wrong.applicationSystemId).toBe("Selecciona una aplicación válida.");
+    expect(wrong.clientId).toBe("Usa minúsculas, números, guiones o guion bajo.");
+    expect(wrong.loginUrl).toBe("Usa una URL HTTPS (o HTTP en localhost), sin fragmentos ni credenciales.");
+  });
+
+  it("asks for a return URL when the authorization code flow is on", () => {
+    expect(messages({ ...newOAuthClientDefaults("https://id.example.com"), redirectUris: "" }).redirectUris).toBe("Este campo es obligatorio para el flujo de código de autorización.");
+  });
+});
 
 describe("grantLabel", () => {
   it("names the grants by what they do and keeps unknown ones", () => {

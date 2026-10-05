@@ -557,11 +557,15 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
   });
 
   await page.goto("/admin-v2/oauth-clients/new");
+  const origin = await page.evaluate(() => window.location.origin);
   await page.getByLabel("Aplicación").selectOption(applicationId);
   await page.getByLabel("Nombre", { exact: true }).fill(oauthClient.displayName);
+  // The Client ID follows the name until the operator types one.
+  await expect(page.getByLabel("Client ID")).toHaveValue("partner-portal");
   await page.getByLabel("Client ID").fill(oauthClient.clientId);
+  await page.getByLabel("Nombre", { exact: true }).fill("Partner Portal 2");
+  await expect(page.getByLabel("Client ID")).toHaveValue(oauthClient.clientId);
   await page.getByLabel("URLs de regreso").fill(oauthClient.redirectUris[0]);
-  await page.getByLabel("URL de inicio de sesión").fill(oauthClient.loginUrl);
   await page.getByLabel("URLs después de cerrar sesión").fill("https://partner.example.test/signout-callback-authcenter");
   await page.getByLabel("URL de aviso de cierre de sesión").fill("https://partner.example.test/auth/backchannel-logout");
   await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
@@ -573,6 +577,10 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
     clientId: oauthClient.clientId,
     clientType: 0,
     redirectUris: oauthClient.redirectUris,
+    // Nobody typed a Login URL: the hosted login was already there.
+    loginUrl: `${origin}/login`,
+    allowedScopes: ["openid", "profile", "email", "offline_access"],
+    grantTypes: ["authorization_code", "refresh_token"],
     postLogoutRedirectUris: ["https://partner.example.test/signout-callback-authcenter"],
     backchannelLogoutUri: "https://partner.example.test/auth/backchannel-logout"
   });
@@ -589,6 +597,49 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
+});
+
+test("keeps the hosted login under advanced options and tells a required field from a wrong one", async ({ page }) => {
+  let created = 0;
+  await page.route("**/api/oauth/clients", async (route) => {
+    created += 1;
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { client: oauthClient, clientSecret: "unused" } }) });
+  });
+
+  await page.goto("/admin-v2/oauth-clients/new");
+  const origin = await page.evaluate(() => window.location.origin);
+  const loginUrl = page.getByLabel("URL de inicio de sesión");
+  const advanced = page.getByText("Opciones avanzadas", { exact: true });
+  // Collapsed, and already holding the hosted login.
+  await expect(loginUrl).toBeHidden();
+  await expect(loginUrl).toHaveValue(`${origin}/login`);
+  await expect(page.getByLabel("URLs de regreso")).toBeVisible();
+  await expect(page.getByLabel("URLs después de cerrar sesión")).toBeVisible();
+  await advanced.click();
+  await expect(loginUrl).toBeVisible();
+  await loginUrl.fill("");
+  await advanced.click();
+  await expect(loginUrl).toBeHidden();
+
+  await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
+  // Empty required fields say so; an error in the collapsed section opens it.
+  await expect(page.getByText("Este campo es obligatorio.", { exact: true })).toHaveCount(4);
+  await expect(loginUrl).toBeVisible();
+  await expect(loginUrl).toHaveAccessibleDescription(/Este campo es obligatorio\./);
+
+  await loginUrl.fill("ftp://id.example.test/login");
+  await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
+  await expect(page.getByText("Usa una URL HTTPS (o HTTP en localhost), sin fragmentos ni credenciales.")).toBeVisible();
+  expect(created).toBe(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("preselects the application a link names when creating an OAuth client", async ({ page }) => {
+  await page.goto(`/admin-v2/oauth-clients/new?applicationId=${applicationId}`);
+  await expect(page.getByLabel("Aplicación")).toHaveValue(applicationId);
+  await page.goto("/admin-v2/oauth-clients/new?applicationId=no-es-un-id");
+  await expect(page.getByRole("heading", { level: 1, name: "Nuevo cliente OAuth" })).toBeVisible();
+  await expect(page.getByLabel("Aplicación")).toHaveValue("");
 });
 
 test("creates, rotates and revokes a scoped provisioning token with step-up", async ({ page }) => {

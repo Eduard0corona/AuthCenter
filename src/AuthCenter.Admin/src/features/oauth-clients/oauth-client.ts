@@ -23,6 +23,31 @@ export const scopeLabels: Record<(typeof oauthScopes)[number], string> = {
 export function grantLabel(grant: string): string {
   return grantLabels[grant as (typeof oauthGrants)[number]] ?? grant;
 }
+
+/** An empty required field; a value in the wrong format gets its own message. */
+export const REQUIRED = "Este campo es obligatorio.";
+const URL_FORMAT = "Usa una URL HTTPS (o HTTP en localhost), sin fragmentos ni credenciales.";
+const clientIdPattern = /^[a-z0-9\-_]+$/;
+
+/**
+ * The Client ID suggested for a display name: lowercase ASCII words joined by hyphens, accents
+ * dropped ("Portal de Socios Ñandú" → "portal-de-socios-nandu"). Empty when nothing is left.
+ */
+export function suggestClientId(displayName: string): string {
+  return displayName
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100)
+    .replace(/-+$/, "");
+}
+
+/** AuthCenter's hosted login: the Login URL of every client, unless AuthCenter moves to another domain. */
+export function hostedLoginUrl(origin: string): string {
+  return `${origin.replace(/\/+$/, "")}/login`;
+}
 // API scopes come from the API catalog; the server checks that each one exists.
 const apiScopePattern = /^[a-z][a-z0-9_.:-]{1,127}$/;
 const isOidcScope = (scope: string): scope is (typeof oauthScopes)[number] => (oauthScopes as readonly string[]).includes(scope);
@@ -51,16 +76,16 @@ const isOrigin = (value: string): boolean => {
 const uriLines = z.string().transform((value) => value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean));
 
 export const oauthClientSchema = z.object({
-  applicationSystemId: z.string().uuid("Selecciona una aplicación válida."),
-  clientId: z.string().trim().min(1, "El client ID es obligatorio.").max(100, "Usa máximo 100 caracteres.")
-    .regex(/^[a-z0-9\-_]+$/, "Usa minúsculas, números, guiones o guion bajo."),
-  displayName: z.string().trim().min(1, "El nombre es obligatorio.").max(200, "Usa máximo 200 caracteres."),
+  applicationSystemId: z.string().min(1, REQUIRED).uuid("Selecciona una aplicación válida."),
+  clientId: z.string().trim().min(1, REQUIRED).max(100, "Usa máximo 100 caracteres.")
+    .regex(clientIdPattern, "Usa minúsculas, números, guiones o guion bajo."),
+  displayName: z.string().trim().min(1, REQUIRED).max(200, "Usa máximo 200 caracteres."),
   clientType: z.enum(["0", "1"]),
   redirectUris: z.string(),
   allowedScopes: z.array(z.enum(oauthScopes)),
   apiScopes: z.string(),
   grantTypes: z.array(z.enum(oauthGrants)).min(1, "Selecciona al menos un flujo."),
-  loginUrl: z.string().trim().refine(secureBrowserUrl, "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales."),
+  loginUrl: z.string().trim().min(1, REQUIRED).refine((value) => !value || secureBrowserUrl(value), URL_FORMAT),
   allowedCorsOrigins: z.string(),
   postLogoutRedirectUris: z.string(),
   backchannelLogoutUri: z.string().trim(),
@@ -86,30 +111,30 @@ export const oauthClientSchema = z.object({
   }
   const redirects = uriLines.parse(values.redirectUris);
   if (values.grantTypes.includes("authorization_code") && redirects.length === 0) {
-    context.addIssue({ code: "custom", path: ["redirectUris"], message: "Authorization code requiere al menos un redirect URI." });
+    context.addIssue({ code: "custom", path: ["redirectUris"], message: "Este campo es obligatorio para el flujo de código de autorización." });
   }
   if (redirects.some((uri) => !secureBrowserUrl(uri))) {
-    context.addIssue({ code: "custom", path: ["redirectUris"], message: "Cada URI debe usar HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
+    context.addIssue({ code: "custom", path: ["redirectUris"], message: "Cada URL debe usar HTTPS (o HTTP en localhost), sin fragmentos ni credenciales." });
   }
   if (new Set(redirects).size !== redirects.length) {
     context.addIssue({ code: "custom", path: ["redirectUris"], message: "No repitas URLs de regreso." });
   }
   const corsOrigins = uriLines.parse(values.allowedCorsOrigins);
   if (corsOrigins.some((origin) => !isOrigin(origin))) {
-    context.addIssue({ code: "custom", path: ["allowedCorsOrigins"], message: "Usa sólo esquema y host (https://app.example.com), con HTTPS o HTTP loopback." });
+    context.addIssue({ code: "custom", path: ["allowedCorsOrigins"], message: "Usa sólo esquema y host (https://app.example.com), con HTTPS o HTTP en localhost." });
   }
   if (new Set(corsOrigins).size !== corsOrigins.length) {
     context.addIssue({ code: "custom", path: ["allowedCorsOrigins"], message: "No repitas orígenes." });
   }
   const postLogout = uriLines.parse(values.postLogoutRedirectUris);
   if (postLogout.some((uri) => !secureBrowserUrl(uri))) {
-    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "Cada URI debe usar HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
+    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "Cada URL debe usar HTTPS (o HTTP en localhost), sin fragmentos ni credenciales." });
   }
   if (new Set(postLogout).size !== postLogout.length) {
-    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "No repitas URIs de cierre de sesión." });
+    context.addIssue({ code: "custom", path: ["postLogoutRedirectUris"], message: "No repitas URLs." });
   }
   if (values.backchannelLogoutUri && !secureBrowserUrl(values.backchannelLogoutUri)) {
-    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
+    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: URL_FORMAT });
   }
   if (values.backchannelLogoutUri && !values.grantTypes.includes("authorization_code")) {
     context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "El aviso de cierre de sesión sólo aplica al flujo de código de autorización." });
@@ -140,7 +165,8 @@ export function oauthClientDefaults(client?: OAuthClientSummary): OAuthClientFor
     displayName: client?.displayName ?? "",
     clientType: String(client?.clientType ?? 0) as "0" | "1",
     redirectUris: client?.redirectUris.join("\n") ?? "",
-    allowedScopes: client ? client.allowedScopes.filter(isOidcScope) : ["openid", "profile", "email"],
+    // offline_access with refresh tokens: what the .NET BFF SDK asks for out of the box.
+    allowedScopes: client ? client.allowedScopes.filter(isOidcScope) : ["openid", "profile", "email", "offline_access"],
     apiScopes: client?.allowedScopes.filter((scope) => !isOidcScope(scope)).join("\n") ?? "",
     grantTypes: client?.grantTypes as OAuthClientFormValues["grantTypes"] ?? ["authorization_code", "refresh_token"],
     loginUrl: client?.loginUrl ?? "",
@@ -153,6 +179,11 @@ export function oauthClientDefaults(client?: OAuthClientSummary): OAuthClientFor
     autoConsent: client?.autoConsent ?? false,
     isActive: client?.isActive ?? true
   };
+}
+
+/** A new client: the hosted login prefilled and, when the link names one, its application. */
+export function newOAuthClientDefaults(origin: string, applicationSystemId = ""): OAuthClientFormValues {
+  return { ...oauthClientDefaults(), applicationSystemId, loginUrl: hostedLoginUrl(origin) };
 }
 
 /** The API scopes of the form, one per line. */

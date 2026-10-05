@@ -123,6 +123,11 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .settings-panel__heading h2 { margin-bottom: .25rem; font-size: 1.08rem; }
 .settings-panel__heading p { margin-bottom: 0; color: var(--slate-500); font-size: .83rem; line-height: 1.5; }
 .settings-panel--actions { margin-top: 1rem; }
+/* Settings most clients never change, collapsed until needed. */
+.advanced-options { padding: 1rem 1.25rem; border: 1px solid var(--slate-200); border-radius: .8rem; background: var(--white); box-shadow: 0 2px 8px rgb(16 24 40 / .035); }
+.advanced-options > summary { padding: .25rem 0; color: var(--slate-950); cursor: pointer; line-height: 1.5; }
+.advanced-options > summary span { color: var(--slate-500); font-size: .83rem; }
+.advanced-options[open] > summary { margin-bottom: 1rem; padding-bottom: .9rem; border-bottom: 1px solid var(--slate-200); }
 .check-group { min-width: 0; margin: 0; padding: 0; border: 0; }
 .check-group legend { margin-bottom: .65rem; color: var(--slate-700); font-size: .78rem; font-weight: 750; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
