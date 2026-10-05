@@ -50,7 +50,7 @@ export default function OAuthClientsPage() {
   }
 
   return <>
-    <PageHeader eyebrow="Integraciones" title="Clientes OAuth" description="Administra clientes, redirects exactos, grants, scopes y credenciales de integración." actions={canWrite ? <Link className="button" to="/oauth-clients/new">Nuevo cliente OAuth</Link> : undefined} />
+    <PageHeader eyebrow="Integraciones" title="Clientes OAuth" description="Un cliente OAuth conecta una aplicación web, móvil o un servicio con AuthCenter para iniciar sesión u obtener tokens. Crea uno por cada aplicación que integres." actions={canWrite ? <Link className="button" to="/oauth-clients/new">Nuevo cliente OAuth</Link> : undefined} />
     <section className="toolbar toolbar--wide" aria-label="Filtros de clientes OAuth">
       <label className="field"><span>Buscar</span><input type="search" value={search} onChange={(event) => update("search", event.target.value)} placeholder="Nombre o client ID" /></label>
       {canReadApplications ? <label className="field"><span>Aplicación</span><select value={applicationId} onChange={(event) => update("applicationId", event.target.value)}><option value="">Todas</option>{applications.data?.items.map((application) => <option key={application.id} value={application.id}>{application.name}</option>)}</select></label> : null}

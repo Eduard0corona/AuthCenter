@@ -112,7 +112,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
       <PageHeader
         eyebrow={create ? "Alta" : current?.code ?? "Aplicaciones"}
         title={title}
-        description={create ? "Registra una aplicación y define sus métodos de acceso iniciales." : canWrite ? "Configura registro, autenticación y postura de seguridad desde una ruta enlazable." : "Consulta la configuración efectiva. Tu acceso actual es de sólo lectura."}
+        description={create ? "Registra la aplicación y decide quién puede crear una cuenta y cómo inicia sesión. Después le conectarás un cliente OAuth o SAML." : canWrite ? "Decide quién puede crear una cuenta y cómo inicia sesión. Desde aquí llegas a sus clientes, a las personas con acceso y a su política." : "Consulta la configuración. Tu acceso actual es de sólo lectura."}
         actions={<>{create ? null : <HistoryLink entityName="ApplicationSystem" entityId={current?.id} />}<Link className="button button--secondary" to="/applications">Volver al listado</Link></>}
       />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
@@ -129,7 +129,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         </section>
 
         <section className="settings-panel" aria-labelledby="registration-policy">
-          <div className="settings-panel__heading"><div><h2 id="registration-policy">Registro y acceso</h2><p>La autorización efectiva siempre se vuelve a comprobar en el backend.</p></div></div>
+          <div className="settings-panel__heading"><div><h2 id="registration-policy">Registro y acceso</h2><p>Quién puede crear una cuenta, con qué métodos inicia sesión y qué verificación se le pide.</p></div></div>
           <div className="form-grid">
             <Field label="Modo de registro" error={form.formState.errors.registrationMode?.message}>
               <select {...form.register("registrationMode")}>

@@ -25,7 +25,7 @@ export default function PermissionsPage() {
   function update(name: string, value: string): void { setParams((current) => { const next = new URLSearchParams(current); if (value) next.set(name, value); else next.delete(name); if (name !== "page") next.set("page", "1"); return next; }); }
 
   return <>
-    <PageHeader eyebrow="Acceso" title="Permisos" description="Catálogo de capacidades que la API vuelve a autorizar en cada operación." actions={canWrite ? <Link className="button" to="/permissions/new">Nuevo permiso</Link> : undefined} />
+    <PageHeader eyebrow="Acceso" title="Permisos" description="Cada permiso nombra algo que una persona puede hacer en una aplicación. Agrúpalos en roles para darlos a usuarios y grupos." actions={canWrite ? <Link className="button" to="/permissions/new">Nuevo permiso</Link> : undefined} />
     {canReadApplications ? <section className="toolbar" aria-label="Filtros de permisos"><label className="field"><span>Aplicación</span><select value={applicationId} onChange={(event) => update("applicationId", event.target.value)}><option value="">Todas</option>{applications.data?.items.map((application) => <option key={application.id} value={application.id}>{application.name}</option>)}</select></label></section> : null}
     {permissions.isPending ? <PageState title="Cargando permisos" busy /> : null}
     {permissions.isError ? <PageState title="No pudimos cargar los permisos" detail={errorMessage(permissions.error)} tone="error" /> : null}

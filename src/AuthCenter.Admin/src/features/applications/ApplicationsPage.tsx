@@ -56,7 +56,7 @@ export default function ApplicationsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones" description="Administra identidad, registro y autenticación desde rutas que puedes compartir." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
+      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones" description="Cada aplicación agrupa sus clientes de inicio de sesión, quién puede entrar y cómo. Empieza registrando una." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       {applications.isPending ? <PageState title="Cargando aplicaciones" busy /> : null}
       {applications.isError ? <PageState title="No pudimos cargar aplicaciones" detail={errorMessage(applications.error)} tone="error" action={<button className="button" type="button" onClick={() => void applications.refetch()}>Reintentar</button>} /> : null}

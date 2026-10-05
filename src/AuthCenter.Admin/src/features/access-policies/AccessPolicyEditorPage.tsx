@@ -88,7 +88,7 @@ export default function AccessPolicyEditorPage() {
 
   return <>
     <Breadcrumbs items={[{ label: "Políticas de acceso", to: "/access-policies" }, { label: title }]} />
-    <PageHeader eyebrow={application.data?.code ?? "Seguridad"} title={title} description="Edita únicamente drafts, simula decisiones con contexto explícito y publica después de revisar el diff." actions={<Link className="button button--secondary" to="/access-policies">Volver al listado</Link>} />
+    <PageHeader eyebrow={application.data?.code ?? "Seguridad"} title={title} description="Decide quién entra a esta aplicación y con qué verificación. Prepara los cambios en un borrador, simula decisiones y publícalo cuando estés listo." actions={<Link className="button button--secondary" to="/access-policies">Volver al listado</Link>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
     {operationError ? <p className="alert alert--error" role="alert">{errorMessage(operationError)}</p> : null}
     <section className="settings-panel" aria-labelledby="policy-versions"><div className="settings-panel__heading"><div><h2 id="policy-versions">Historial de versiones</h2><p>Las versiones publicadas y archivadas son inmutables.</p></div>{canWrite && !draft ? <button className="button" type="button" disabled={createDraft.isPending} onClick={() => createDraft.mutate()}>Crear borrador</button> : null}</div>

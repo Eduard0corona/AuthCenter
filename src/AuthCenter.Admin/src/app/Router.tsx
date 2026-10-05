@@ -45,7 +45,7 @@ const AccessReviewDetailPage = lazy(() => import("../features/governance/AccessR
 const SodRulesPage = lazy(() => import("../features/governance/SodRulesPage"));
 const SodRuleEditorPage = lazy(() => import("../features/governance/SodRuleEditorPage"));
 
-const loading = <PageState title="Cargando módulo" detail="Estamos preparando esta sección." busy />;
+const loading = <PageState title="Cargando" detail="Estamos abriendo esta sección." busy />;
 
 export function AppRouter() {
   return (
