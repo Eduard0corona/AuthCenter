@@ -80,7 +80,12 @@ export default function FederationPage() {
   const conflict = actionError instanceof ApiError && actionError.code === "CONCURRENCY_CONFLICT";
 
   return <>
-    <PageHeader eyebrow="Federación" title="Proveedores y enrutamiento" description="Conecta el proveedor de identidad de una organización (OIDC o SAML) para que su gente entre con su cuenta de trabajo. Las reglas de enrutamiento deciden a quién se envía a cada proveedor." actions={canWrite && applicationId ? <Link className="button" to={`/federation/providers/new?applicationId=${applicationId}`}>Nuevo proveedor</Link> : undefined} />
+    <PageHeader
+      eyebrow="Federación"
+      title="Proveedores y enrutamiento"
+      description="Conecta el proveedor de identidad de una organización (OIDC o SAML) para que su gente entre con su cuenta de trabajo. Las reglas de enrutamiento deciden a quién se envía a cada proveedor."
+      actions={canWrite && applicationId ? <Link className="button" to={`/federation/providers/new?applicationId=${applicationId}`}>Nuevo proveedor</Link> : undefined}
+    />
     <section className="toolbar" aria-label="Selección de aplicación">
       <label className="field"><span>Aplicación</span><select value={applicationId} onChange={(event) => selectApplication(event.target.value)}><option value="">Selecciona una aplicación</option>{applications.data?.items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className="field"><span>Código</span><input value={application?.code ?? ""} readOnly className="mono" /></label>

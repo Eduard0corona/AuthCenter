@@ -109,12 +109,24 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
         </section>
         {/* Distinct keys: switching protocol (or loading a SAML provider) must remount the panel instead of turning uncontrolled inputs into controlled ones. */}
         {protocol === "Oidc" ? <section key="oidc" className="settings-panel" aria-labelledby="provider-oidc">
-          <div className="settings-panel__heading"><div><h2 id="provider-oidc">OpenID Connect</h2><p>Se usa el flujo de código de autorización con PKCE y nonce. Registra en el IdP la URL de retorno (callback) hospedada de AuthCenter: es la única que funciona desde el inicio de sesión hospedado.</p></div>{current?.hasClientSecret ? <span className="tag">Secreto configurado</span> : current ? <span className="tag tag--warning">Sin secreto</span> : null}</div>
+          <div className="settings-panel__heading">
+            <div>
+              <h2 id="provider-oidc">OpenID Connect</h2>
+              <p>Se usa el flujo de código de autorización con PKCE y nonce. Registra en el IdP la URL de retorno (callback) hospedada de AuthCenter: es la única que funciona desde el inicio de sesión hospedado.</p>
+            </div>
+            {current?.hasClientSecret ? <span className="tag">Secreto configurado</span> : current ? <span className="tag tag--warning">Sin secreto</span> : null}
+          </div>
           <div className="form-grid">
             <Field label="Client ID" error={form.formState.errors.clientId?.message}><input {...form.register("clientId")} className="mono" autoComplete="off" spellCheck={false} /></Field>
             <Field label="URL de retorno (callback)" error={form.formState.errors.oidcCallbackUrl?.message} help={serviceProvider.data?.oidcCallbackUrl ? `Déjala vacía para usar la URL de retorno hospedada: ${serviceProvider.data.oidcCallbackUrl}` : "Déjala vacía para usar la URL de retorno hospedada de AuthCenter."}><input {...form.register("oidcCallbackUrl")} className="mono" autoComplete="off" spellCheck={false} placeholder={serviceProvider.data?.oidcCallbackUrl ?? "https://authcenter.example.test/api/federation/oidc/callback"} /></Field>
             <Field label="URL de descubrimiento (discovery)" error={form.formState.errors.discoveryEndpoint?.message} help="Opcional; por defecto se usa la del emisor: {emisor}/.well-known/openid-configuration."><input {...form.register("discoveryEndpoint")} className="mono" autoComplete="off" spellCheck={false} /></Field>
-            <Field label={create ? "Secreto del cliente (client secret)" : "Nuevo secreto del cliente (client secret)"} error={form.formState.errors.clientSecret?.message} help={create ? "Opcional para clientes públicos. Se protege en reposo y nunca se muestra." : "Déjalo vacío para conservar el secreto actual."}><input type="password" {...form.register("clientSecret")} autoComplete="new-password" /></Field>
+            <Field
+              label={create ? "Secreto del cliente (client secret)" : "Nuevo secreto del cliente (client secret)"}
+              error={form.formState.errors.clientSecret?.message}
+              help={create ? "Opcional para clientes públicos. Se protege en reposo y nunca se muestra." : "Déjalo vacío para conservar el secreto actual."}
+            >
+              <input type="password" {...form.register("clientSecret")} autoComplete="new-password" />
+            </Field>
           </div>
           <div className="checkbox-grid">
             <label className="checkbox-field"><input type="checkbox" {...form.register("requireVerifiedEmail")} /><span>Exigir email_verified del IdP. Sin él, sólo se confía en los correos de los dominios de sus reglas de enrutamiento.</span></label>

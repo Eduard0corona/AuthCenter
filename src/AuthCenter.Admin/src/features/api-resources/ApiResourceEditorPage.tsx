@@ -102,7 +102,13 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
           </div>
         </section>
         <section className="settings-panel" aria-labelledby="api-scopes">
-          <div className="settings-panel__heading"><div><h2 id="api-scopes">Permisos (scopes)</h2><p>Los nombres son únicos entre todos los APIs. Los clientes deben tenerlos en sus scopes permitidos para pedirlos. Ej.: «orders.read», con nombre visible «Leer pedidos».</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => scopes.append({ name: "", displayName: "", description: "" })} disabled={scopes.fields.length >= 100}>Agregar scope</button> : null}</div>
+          <div className="settings-panel__heading">
+            <div>
+              <h2 id="api-scopes">Permisos (scopes)</h2>
+              <p>Los nombres son únicos entre todos los APIs. Los clientes deben tenerlos en sus scopes permitidos para pedirlos. Ej.: «orders.read», con nombre visible «Leer pedidos».</p>
+            </div>
+            {canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => scopes.append({ name: "", displayName: "", description: "" })} disabled={scopes.fields.length >= 100}>Agregar scope</button> : null}
+          </div>
           {errors.scopes?.message ? <p className="field-error">{errors.scopes.message}</p> : null}
           <ol className="scope-list">
             {scopes.fields.map((field, index) => <li className="scope-row" key={field.id}>

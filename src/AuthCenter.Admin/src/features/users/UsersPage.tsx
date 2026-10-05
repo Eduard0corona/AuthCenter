@@ -66,7 +66,12 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Directorio" title="Usuarios" description="Busca a una persona para ver su acceso, darle aplicaciones o desactivarla. Para dar de alta a alguien, invítalo o crea su cuenta." actions={canWrite ? <span className="button-group"><Link className="button button--secondary" to="/users/invite">Invitar usuario</Link><Link className="button" to="/users/new">Crear usuario</Link></span> : null} />
+      <PageHeader
+        eyebrow="Directorio"
+        title="Usuarios"
+        description="Busca a una persona para ver su acceso, darle aplicaciones o desactivarla. Para dar de alta a alguien, invítalo o crea su cuenta."
+        actions={canWrite ? <span className="button-group"><Link className="button button--secondary" to="/users/invite">Invitar usuario</Link><Link className="button" to="/users/new">Crear usuario</Link></span> : null}
+      />
       <section className="toolbar toolbar--wide" aria-label="Filtros de usuarios">
         <DebouncedTextField label="Buscar" value={params.get("search") ?? ""} onCommit={commitSearch} placeholder="Nombre o correo" />
         <label className="field"><span>Estado</span><select value={activeFilter} onChange={(event) => updateParam("active", event.target.value)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Inactivos</option></select></label>
@@ -93,7 +98,19 @@ export default function UsersPage() {
           <Pagination page={users.data.page} pageSize={users.data.pageSize} totalCount={users.data.totalCount} totalPages={users.data.totalPages} onPageChange={(value) => updateParam("page", String(value))} onPageSizeChange={(value) => updateParam("pageSize", String(value))} />
         </>
       ) : null}
-      <ConfirmDialog open={target !== null} title={target?.isActive ? "Desactivar usuario" : "Activar usuario"} detail={target ? (target.isActive ? `${target.fullName} (${target.email}) no podrá iniciar sesión y sus sesiones abiertas se cerrarán.` : `${target.fullName} (${target.email}) podrá volver a iniciar sesión en las aplicaciones a las que tiene acceso.`) : ""} confirmLabel={target?.isActive ? "Desactivar" : "Activar"} dangerous={Boolean(target?.isActive)} busy={changeStatus.isPending} error={changeStatus.error} onCancel={() => setTarget(null)} onConfirm={() => { if (target) changeStatus.mutate(target); }} />
+      <ConfirmDialog
+        open={target !== null}
+        title={target?.isActive ? "Desactivar usuario" : "Activar usuario"}
+        detail={target ? (target.isActive
+          ? `${target.fullName} (${target.email}) no podrá iniciar sesión y sus sesiones abiertas se cerrarán.`
+          : `${target.fullName} (${target.email}) podrá volver a iniciar sesión en las aplicaciones a las que tiene acceso.`) : ""}
+        confirmLabel={target?.isActive ? "Desactivar" : "Activar"}
+        dangerous={Boolean(target?.isActive)}
+        busy={changeStatus.isPending}
+        error={changeStatus.error}
+        onCancel={() => setTarget(null)}
+        onConfirm={() => { if (target) changeStatus.mutate(target); }}
+      />
     </>
   );
 }

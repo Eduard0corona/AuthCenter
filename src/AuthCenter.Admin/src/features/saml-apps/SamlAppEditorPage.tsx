@@ -155,7 +155,13 @@ function SamlAppEditorPage({ create }: { create: boolean }) {
           {current?.signingCertificate ? <CertificateSummary certificate={current.signingCertificate} /> : null}
         </section>
         <section className="settings-panel" aria-labelledby="saml-attributes">
-          <div className="settings-panel__heading"><div><h2 id="saml-attributes">Atributos</h2><p>Cada atributo de la aserción y de dónde sale su valor. Los roles y permisos son los de la aplicación de AuthCenter. Ej.: un atributo «email» con el correo de la persona.</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => attributes.append({ name: "", source: "email" })} disabled={attributes.fields.length >= 30}>Agregar atributo</button> : null}</div>
+          <div className="settings-panel__heading">
+            <div>
+              <h2 id="saml-attributes">Atributos</h2>
+              <p>Cada atributo de la aserción y de dónde sale su valor. Los roles y permisos son los de la aplicación de AuthCenter. Ej.: un atributo «email» con el correo de la persona.</p>
+            </div>
+            {canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => attributes.append({ name: "", source: "email" })} disabled={attributes.fields.length >= 30}>Agregar atributo</button> : null}
+          </div>
           {errors.attributes?.message ? <p className="field-error">{errors.attributes.message}</p> : null}
           {attributes.fields.length === 0 ? <p className="muted">La aserción sólo llevará el NameID.</p> : null}
           <ol className="scope-list">
