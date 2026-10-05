@@ -384,10 +384,10 @@ public sealed partial class AccessGovernanceService
         if (user is { IsActive: true, Email: { } email })
         {
             var applicationName = await EmailBranding.NameAsync(_db, application.Id, ct);
-            var asked = role is null ? $"acceso a {applicationName}" : $"el rol {role.DisplayName} en {applicationName}";
+            var yourRequest = role is null ? $"Tu solicitud de acceso a {applicationName}" : $"Tu solicitud del rol {role.DisplayName} en {applicationName}";
             var (subject, detail) = approve
-                ? ($"Acceso a {applicationName} aprobado", $"Tu solicitud de {asked} fue aprobada{(comment is null ? "." : $": {comment}")}")
-                : ($"Acceso a {applicationName} no aprobado", $"Tu solicitud de {asked} no fue aprobada: {comment}");
+                ? ($"Acceso a {applicationName} aprobado", $"{yourRequest} fue aprobada{(comment is null ? "." : $": {comment}")}")
+                : ($"Acceso a {applicationName} no aprobado", $"{yourRequest} no fue aprobada: {comment}");
             await _email.SendNotificationAsync(email, user.FullName, subject, detail, PortalUrl("applications"), "Abrir mi cuenta", ct);
         }
         if (transaction is not null)

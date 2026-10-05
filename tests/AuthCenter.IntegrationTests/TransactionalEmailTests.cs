@@ -61,7 +61,7 @@ public sealed class TransactionalEmailTests : IClassFixture<HttpsAuthCenterFacto
         Assert.Equal("Paquetenvia", mail.FromName);
         Assert.StartsWith("<!doctype html>", mail.Html);
         Assert.Contains("<html lang=\"es\">", mail.Html);
-        Assert.Contains($"Confirma que esta dirección es tuya para terminar de crear tu cuenta en Paquetenvia.", mail.Text);
+        Assert.Contains("Confirma que esta dirección es tuya para terminar de crear tu cuenta en Paquetenvia.", mail.Text);
         Assert.Contains("Si no fuiste tú, ignora este mensaje; tu correo no quedará confirmado.", mail.Text);
         Assert.Contains($"Paquetenvia · Ayuda: {SupportUrl}", mail.Text);
         // The action is the first link and the help link comes last.
