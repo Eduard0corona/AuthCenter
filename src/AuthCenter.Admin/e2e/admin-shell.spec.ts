@@ -1072,6 +1072,59 @@ test("creates an OIDC federation provider with step-up and never echoes the secr
   await expect(page.getByText("upstream-secret")).toHaveCount(0);
 });
 
+test("a mistyped password stays in the dialog and keeps the federation form", async ({ page }) => {
+  let attempts = 0;
+  let createPayload: Record<string, unknown> | null = null;
+  const wrongPassword = { success: false, errorCode: "INVALID_REAUTHENTICATION", message: "Reauthentication failed." };
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    attempts += 1;
+    // A wrong password is a 400; an older server answered 401. Neither ends the session.
+    if (attempts <= 2) {
+      await route.fulfill({ status: attempts === 1 ? 400 : 401, contentType: "application/json", body: JSON.stringify(wrongPassword) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "single-use-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+  await page.route("**/api/federation/providers", async (route) => {
+    if (route.request().method() === "POST") {
+      createPayload = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: oidcProvider }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider] }) });
+  });
+
+  await page.goto(`/admin-v2/federation/providers/new?applicationId=${applicationId}`);
+  await page.getByLabel("Nombre").fill(oidcProvider.name);
+  await page.getByLabel("Emisor (issuer)", { exact: true }).fill(oidcProvider.issuer);
+  await page.getByLabel("Client ID").fill("authcenter");
+  await page.getByLabel("Secreto del cliente (client secret)").fill("upstream-secret");
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+
+  const dialog = page.getByRole("dialog");
+  const password = dialog.getByLabel("Tu contraseña actual");
+  for (const typo of ["AdminSecre123", "AdminSecret12"]) {
+    await password.fill(typo);
+    await dialog.getByRole("button", { name: "Verificar y crear" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("La contraseña no es correcta. Inténtalo de nuevo.");
+    await expect(dialog).toBeVisible();
+    await expect(password).toHaveValue("");
+    await expect(password).toBeFocused();
+  }
+  // Still on the form with everything typed, the IdP's secret included.
+  await expect(page).toHaveURL(/\/admin-v2\/federation\/providers\/new\?/);
+  await expect(page.getByLabel("Nombre")).toHaveValue(oidcProvider.name);
+  await expect(page.getByLabel("Secreto del cliente (client secret)")).toHaveValue("upstream-secret");
+  expect(createPayload).toBeNull();
+  expect((await new AxeBuilder({ page }).include("dialog[open]").analyze()).violations).toEqual([]);
+
+  await password.fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y crear" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/federation/providers/${oidcProviderId}$`));
+  expect(attempts).toBe(3);
+  expect(createPayload).toMatchObject({ name: oidcProvider.name, clientSecret: "upstream-secret" });
+});
+
 test("maps IdP groups, trusts its MFA and tests the provider connection", async ({ page }) => {
   let updatePayload: Record<string, unknown> | null = null;
   await mockStepUp(page, () => undefined);
