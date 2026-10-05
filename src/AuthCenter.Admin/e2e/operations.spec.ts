@@ -39,6 +39,16 @@ test("shows platform metrics that link to filtered pages, the environment and th
   const status = page.getByRole("region", { name: "Estado de la plataforma" });
   await expect(status.getByRole("link", { name: /1,280\s*Usuarios activos/ })).toBeVisible();
   await expect(status.getByText("Inicios de sesión de riesgo alto")).toBeVisible();
+  // What needs attention comes first: the failed deliveries (critical), then the pending requests.
+  const cards = status.getByRole("listitem");
+  await expect(cards.first()).toContainText("Entregas fallidas");
+  await expect(cards.nth(1)).toContainText("Solicitudes de acceso pendientes");
+  // Quick actions replace the cards that repeated the menu.
+  const quick = page.getByRole("region", { name: "Acciones rápidas" });
+  await expect(quick.getByRole("link", { name: "Registrar aplicación" })).toHaveAttribute("href", "/admin-v2/applications/new");
+  await expect(quick.getByRole("link", { name: "Crear cliente OAuth" })).toHaveAttribute("href", "/admin-v2/oauth-clients/new");
+  await expect(quick.getByRole("link", { name: "Invitar usuario" })).toHaveAttribute("href", "/admin-v2/users/invite");
+  await expect(page.getByText("Abrir módulo")).toHaveCount(0);
   if (page.viewportSize()!.width > 760) {
     await expect(page.locator(".environment-pill")).toHaveText(/Producción/);
     await expect(page.locator(".sidebar__version")).toHaveText("AuthCenter v1.4.0 · 0123456");
@@ -58,6 +68,8 @@ test("hides the metrics from operators without the audit permission", async ({ p
   await page.goto("/admin-v2/");
   await expect(page.getByRole("heading", { name: "Hola, Ada" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Estado de la plataforma" })).toHaveCount(0);
+  // Read-only operators get no quick actions: they could not complete them.
+  await expect(page.getByRole("region", { name: "Acciones rápidas" })).toHaveCount(0);
   expect(dashboardRequests).toBe(0);
 });
 

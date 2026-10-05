@@ -172,7 +172,7 @@ test.beforeEach(async ({ page }) => {
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
   await page.goto("/admin-v2/");
   await expect(page.getByRole("heading", { name: "Hola, Ada" })).toBeVisible();
-  await page.getByRole("link", { name: /Usuarios Directorio/ }).click();
+  await page.getByRole("link", { name: /Usuarios activos/ }).click();
   await expect(page.getByRole("heading", { name: "Usuarios", exact: true })).toBeVisible();
   await expect(page.getByText("Grace Hopper")).toBeVisible();
 
