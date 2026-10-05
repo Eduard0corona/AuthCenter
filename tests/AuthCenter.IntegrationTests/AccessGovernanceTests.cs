@@ -117,7 +117,7 @@ internal sealed class AccessGovernanceScenarios(WebApplicationFactory<Program> f
             Assert.True(await db.UserRoles.AnyAsync(userRole => userRole.UserId == requester.Id && userRole.RoleId == role.Id));
             Assert.True(await db.AuditLogs.AnyAsync(log => log.Action == "ACCESS_REQUEST_APPROVED" && log.EntityId == request.Id.ToString() && log.UserId == owner.Id));
         }
-        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == requester.Email && mail.Secret.Contains("was approved"));
+        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == requester.Email && mail.Secret.Contains("fue aprobada"));
         Assert.Equal("ACCESS_ALREADY_ACTIVE", await ErrorCodeAsync(await requesterClient.PostAsJsonAsync("/api/auth/access-requests",
             new CreateAccessRequestRequest { ApplicationSystemId = application.Id, Justification = "Ya tengo acceso" })));
         var mine = await ReadDataAsync<List<AccessRequestDto>>(await requesterClient.GetAsync("/api/auth/access-requests"));
@@ -137,7 +137,7 @@ internal sealed class AccessGovernanceScenarios(WebApplicationFactory<Program> f
         var requests = await ReadDataAsync<PagedResult<AccessRequestDto>>(await admin.GetAsync($"/api/governance/access-requests?status=Pending&applicationSystemId={application.Id}"));
         Assert.Equal(2, requests.TotalCount);
         Assert.All(requests.Items, item => Assert.Equal("Registration", item.Source));
-        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == owner.Email && mail.Secret.Contains("waits for approval"));
+        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == owner.Email && mail.Secret.Contains("espera tu aprobación"));
 
         // Rejecting needs a reason the user will read; afterwards the access is not pending anymore.
         var firstRequest = requests.Items.Single(item => item.Requester.Id == first);
@@ -260,7 +260,7 @@ internal sealed class AccessGovernanceScenarios(WebApplicationFactory<Program> f
         {
             Name = "Otra", ApplicationSystemId = application.Id, DueAt = DateTime.UtcNow.AddDays(14)
         })));
-        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == owner.Email && mail.Secret.Contains("4 accesses"));
+        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == owner.Email && mail.Secret.Contains("4 accesos"));
 
         await GrantAuthCenterAccessAsync(admin, owner.Id);
         using var ownerClient = await SignInAsync(owner);
@@ -343,7 +343,7 @@ internal sealed class AccessGovernanceScenarios(WebApplicationFactory<Program> f
         Assert.Equal("Expired", (await ReadDataAsync<AccessRequestDto>(await admin.GetAsync($"/api/governance/access-requests/{request.Id}"))).Status);
         using var ownerClient = await SignInAsync(owner);
         Assert.Equal(HttpStatusCode.Conflict, (await ownerClient.PostAsJsonAsync($"/api/auth/approvals/requests/{request.Id}/approve", new DecideAccessRequestRequest())).StatusCode);
-        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == user.Email && mail.ApplicationName!.Contains("expired"));
+        Assert.Contains(await ReadMailAsync(), mail => mail.ToEmail == user.Email && mail.ApplicationName!.Contains("venció"));
 
         // The requester may ask again, and cancel it.
         var again = await ReadDataAsync<AccessRequestDto>(await client.PostAsJsonAsync("/api/auth/access-requests",

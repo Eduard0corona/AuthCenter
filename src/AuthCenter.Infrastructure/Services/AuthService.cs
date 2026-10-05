@@ -204,10 +204,10 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByEmailAsync(email);
         if (user is null || !user.IsActive || user.DeletedAt is not null)
             return answer;
-        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Sign-up attempt with your email",
-            $"Someone tried to create an account for {application?.Name ?? "an application"} with this email address. " +
-            "If it was you, you already have an account: sign in, or reset your password if you do not remember it. " +
-            "Otherwise you can ignore this message.", ct);
+        // The application brands the notice (AuthCenter's own stays unnamed), so the text does not name it.
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Intentaron crear una cuenta con tu correo",
+            "Alguien intentó crear una cuenta nueva con este correo. Si fuiste tú, ya tienes una cuenta: inicia sesión, " +
+            "o restablece tu contraseña si no la recuerdas. Nadie puede crear otra cuenta con tu correo.", ct, application?.Code);
         await _auditService.LogAsync("REGISTRATION_ATTEMPT_EXISTING_ACCOUNT", user.Id, application?.Code, ipAddress: ipAddress, ct: ct);
         return answer;
     }
@@ -1062,7 +1062,7 @@ public class AuthService : IAuthService
         if (await _transientState.IsConsumedAsync(SingleUsePurposes.Mfa, pending.TokenId, ct))
             return OperationResult.Failure("TOKEN_ALREADY_USED", "MFA token has already been used.");
 
-        var sent = await _mfaService.SendMfaEmailOtpAsync(pending.UserId, pending.TokenId, ct);
+        var sent = await _mfaService.SendMfaEmailOtpAsync(pending.UserId, pending.TokenId, ct, pending.ApplicationCode);
         if (!sent)
             return OperationResult.Failure("EMAIL_OTP_SEND_FAILED", "Failed to send the sign-in code.");
 
@@ -1187,8 +1187,8 @@ public class AuthService : IAuthService
         if (user is null || !user.IsActive || user.DeletedAt is not null || appSystem is null || !appSystem.IsActive)
             return OperationResult<MfaEnrollmentResult>.Failure("USER_INACTIVE", "The account or the application is no longer active.");
         await _auditService.LogAsync("MFA_ENROLLED_AT_SIGN_IN", user.Id, appSystem.Code, null, null, ipAddress, userAgent, new { method = "totp" }, ct);
-        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Two-step verification enabled",
-            "An authenticator app was set up for your account while signing in.", ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Se activó la verificación en dos pasos",
+            "Se configuró una app de autenticación para tu cuenta al iniciar sesión.", ct, appSystem.Code);
 
         if (!await _userAccessService.HasActiveAccessAsync(user.Id, appSystem.Id, ct))
             return OperationResult<MfaEnrollmentResult>.Failure("ACCESS_DENIED", "You do not have access to this application.");
@@ -1215,7 +1215,8 @@ public class AuthService : IAuthService
         var user = await _userManager.FindByIdAsync(enrollment.UserId.ToString());
         await _auditService.LogAsync("PASSKEY_ENROLLED_AT_SIGN_IN", enrollment.UserId, enrollment.ApplicationCode, null, null, ipAddress, userAgent, ct: ct);
         if (user?.Email is not null)
-            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Passkey added", "A passkey was registered for your account while signing in.", ct);
+            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Se agregó una passkey",
+                "Se registró una passkey para tu cuenta al iniciar sesión.", ct, enrollment.ApplicationCode);
     }
 
     /// <summary>

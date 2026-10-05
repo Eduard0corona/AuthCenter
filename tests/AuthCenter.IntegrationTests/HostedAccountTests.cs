@@ -208,7 +208,7 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
 
         // The same answer as a new account that must confirm its email: the form reveals no account.
         Assert.True(attempt.GetProperty("confirmationRequired").GetBoolean());
-        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Sign-up attempt with your email");
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Intentaron crear una cuenta con tu correo");
         Assert.DoesNotContain(await OutboxAsync(), mail => mail.Kind == "email-confirmation" && mail.ToEmail == email);
         // The account is untouched: its own password still signs in.
         var signedIn = await ReadDataAsync(await browser.PostAsJsonAsync("/ui-api/session/login", new LoginRequest { Email = email, Password = password, ApplicationCode = application.Code }));
@@ -290,7 +290,7 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
 
         var status = (await (await client.GetAsync("/api/auth/mfa/status")).Content.ReadFromJsonAsync<ApiResponse<MfaStatusDto>>())!.Data!;
         Assert.False(status.IsEnabled);
-        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Two-step verification disabled");
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Se desactivó la verificación en dos pasos");
         // Without an enabled email factor there is nothing to confirm.
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/api/auth/mfa/email-otp/verification", null)).StatusCode);
     }
@@ -308,10 +308,10 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
         var confirmation = await LatestMailAsync(newEmail, "email-change");
         var userId = QueryHelpers.ParseQuery(new Uri(confirmation.ActionUrl!).Query)["userId"].ToString();
         Assert.True(Guid.TryParse(userId, out _));
-        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Email change requested");
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Se pidió cambiar tu correo");
         var confirmed = await client.PostAsJsonAsync("/api/auth/email-change/confirm", new ConfirmEmailChangeRequest { UserId = Guid.Parse(userId), NewEmail = newEmail, Token = confirmation.Secret });
         Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
-        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Email address changed");
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Se cambió tu correo");
         Assert.Equal(HttpStatusCode.OK, (await _factory.CreateAuthCenterClient().PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = newEmail, Password = password, ApplicationCode = DomainConstants.SystemCodes.AuthCenter })).StatusCode);
     }
 
@@ -323,7 +323,7 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
 
         var changed = await client.PostAsJsonAsync("/api/auth/change-password", new ChangePasswordRequest { CurrentPassword = password, NewPassword = TestSecretGenerator.CreatePassword() });
         Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
-        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Password changed");
+        Assert.Contains(await OutboxAsync(), mail => mail.Kind == "security-notice" && mail.ToEmail == email && mail.ApplicationName == "Se cambió tu contraseña");
 
         await _factory.CreateAuthCenterClient().PostAsJsonAsync("/api/auth/forgot-password", new ForgotPasswordRequest { Email = email, ApplicationCode = DomainConstants.SystemCodes.AuthCenter });
         Assert.Contains($"application={DomainConstants.SystemCodes.AuthCenter}", (await LatestMailAsync(email, "password-reset")).ActionUrl);

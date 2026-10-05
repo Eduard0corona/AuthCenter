@@ -280,11 +280,13 @@ public sealed class AccessReviewService : IAccessReviewService
             .Where(owner => owner.ApplicationSystemId == application.Id && owner.User.IsActive && owner.User.Email != null)
             .Select(owner => new { owner.User.Email, owner.User.FullName })
             .ToListAsync(ct);
+        var applicationName = await EmailBranding.NameAsync(_db, application.Id, ct);
         foreach (var owner in owners)
         {
-            await _email.SendNotificationAsync(owner.Email!, owner.FullName, $"Access review for {application.Name}",
-                $"Review who has access to {application.Name} ({items} accesses) by {dueAt:yyyy-MM-dd HH:mm} UTC. Accesses nobody reviews by then will be {(revokeUnreviewed ? "revoked" : "kept")}.",
-                $"{_origin}/portal#approvals", "Start the review", ct);
+            await _email.SendNotificationAsync(owner.Email!, owner.FullName, $"Revisión de accesos de {applicationName}",
+                $"Revisa quién tiene acceso a {applicationName} ({(items == 1 ? "1 acceso" : $"{items} accesos")}) antes del {dueAt:yyyy-MM-dd HH:mm} UTC. " +
+                $"Los accesos que nadie revise para entonces se {(revokeUnreviewed ? "revocarán" : "conservarán")}.",
+                $"{_origin}/portal#approvals", "Empezar la revisión", ct);
         }
         return campaign;
     }

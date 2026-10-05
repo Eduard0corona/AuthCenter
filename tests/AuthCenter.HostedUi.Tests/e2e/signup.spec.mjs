@@ -78,7 +78,7 @@ test("an email that already has an account gets the same answer, and its owner a
   await submitSignUp(page, { fullName: "Otra Persona", email: user.email, password: newPassword() });
 
   await expect(page.getByRole("heading", { name: "Revisa tu correo" })).toBeVisible();
-  expect((await waitForMail(user.email, "Security notice")).html).toContain("you already have an account");
+  expect((await waitForMail(user.email, "Security notice")).html).toContain("ya tienes una cuenta");
 });
 
 test("the sign-up form explains its errors and sends the email again", async ({ page }) => {

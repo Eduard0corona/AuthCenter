@@ -60,8 +60,8 @@ public class AccountManagementService : IAccountManagementService
         await _userManager.UpdateAsync(user);
 
         await _auditService.LogAsync("CHANGE_PASSWORD", userId: userId, ct: ct);
-        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Password changed",
-            "The password of your account was changed. If this was not you, reset it now and review your sessions.", ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Se cambió tu contraseña",
+            "Se cambió la contraseña de tu cuenta. Si no fuiste tú y ya no puedes entrar, restablécela con «¿Olvidaste tu contraseña?» al iniciar sesión.", ct);
         return OperationResult.Success();
     }
 
@@ -237,8 +237,8 @@ public class AccountManagementService : IAccountManagementService
         // link may be opened in a browser that is not signed in.
         var actionUrl = QueryHelpers.AddQueryString(_actionLinkService.GetActionUrl(ActionLinkPurpose.EmailChange), "userId", user.Id.ToString());
         await _emailService.SendEmailChangeConfirmationAsync(newEmail, user.FullName, token, actionUrl, ct);
-        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Email change requested",
-            "A change of your account's email address was requested. It only applies once confirmed from the new address; if this was not you, change your password.", ct);
+        await _emailService.SendSecurityNoticeAsync(user.Email!, user.FullName, "Se pidió cambiar tu correo",
+            "Se pidió cambiar el correo de tu cuenta. El cambio sólo se aplica cuando se confirma desde la nueva dirección.", ct);
 
         await _auditService.LogAsync("REQUEST_EMAIL_CHANGE", userId: userId, ct: ct);
         return OperationResult.Success();
@@ -262,8 +262,8 @@ public class AccountManagementService : IAccountManagementService
 
         await _auditService.LogAsync("CONFIRM_EMAIL_CHANGE", userId: user.Id, ct: ct);
         if (!string.IsNullOrWhiteSpace(previousEmail))
-            await _emailService.SendSecurityNoticeAsync(previousEmail, user.FullName, "Email address changed",
-                "Your account now uses a different email address. If this was not you, contact support right away.", ct);
+            await _emailService.SendSecurityNoticeAsync(previousEmail, user.FullName, "Se cambió tu correo",
+                "Tu cuenta ahora usa otra dirección de correo. Si no fuiste tú, contacta a soporte de inmediato.", ct);
         return OperationResult.Success();
     }
 

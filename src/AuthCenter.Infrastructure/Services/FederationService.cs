@@ -323,8 +323,8 @@ public sealed partial class FederationService : IFederationService
         }
         await _db.SaveChangesAsync(ct);
         await _audit.LogAsync("FEDERATION_IDENTITY_LINKED", userId, provider.ApplicationSystem.Code, nameof(FederationProvider), provider.Id.ToString(), caller.IpAddress, caller.UserAgent, ct: ct);
-        await _email.SendSecurityNoticeAsync(user.Email!, user.FullName, "Identity provider linked",
-            $"You can now sign in with {provider.Name}. If this was not you, unlink it from your account portal and change your password.", ct);
+        await _email.SendSecurityNoticeAsync(user.Email!, user.FullName, "Se vinculó una nueva forma de iniciar sesión",
+            $"Ahora puedes iniciar sesión con {provider.Name}. Si no fuiste tú, desvincúlalo desde tu cuenta.", ct, provider.ApplicationSystem.Code);
         return OperationResult<FederationProviderSummary>.Success(new FederationProviderSummary { Id = provider.Id, Name = provider.Name, Protocol = provider.Protocol.ToString() });
     }
 

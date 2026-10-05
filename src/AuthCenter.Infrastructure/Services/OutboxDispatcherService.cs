@@ -82,7 +82,7 @@ public sealed class OutboxDispatcherService : BackgroundService
                 {
                     var payload = JsonSerializer.Deserialize<OutboxEmailService.EmailPayload>(_protector.Unprotect(message.ProtectedPayload))
                         ?? throw new InvalidOperationException("Outbox email payload is empty.");
-                    await SendAsync(scope.ServiceProvider.GetRequiredService<SmtpEmailService>(), payload, ct);
+                    await scope.ServiceProvider.GetRequiredService<SmtpEmailService>().SendAsync(payload, ct);
                 }
                 message.ProcessedAt = DateTime.UtcNow;
                 message.LockedUntil = null;
@@ -126,17 +126,4 @@ public sealed class OutboxDispatcherService : BackgroundService
             throw new HttpRequestException($"Back-channel logout to client '{client.ClientId}' returned HTTP {(int)response.StatusCode}.");
     }
 
-    private static Task SendAsync(SmtpEmailService sender, OutboxEmailService.EmailPayload payload, CancellationToken ct) =>
-        payload.Kind switch
-        {
-            "password-reset" => sender.SendPasswordResetAsync(payload.ToEmail, payload.ToName, payload.Secret, payload.ActionUrl, ct),
-            "email-confirmation" => sender.SendEmailConfirmationAsync(payload.ToEmail, payload.ToName, payload.Secret, payload.ActionUrl, ct),
-            "invitation" => sender.SendInvitationAsync(payload.ToEmail, payload.ToName, payload.ApplicationName ?? string.Empty, payload.Secret, payload.ActionUrl, ct),
-            "email-change" => sender.SendEmailChangeConfirmationAsync(payload.ToEmail, payload.ToName, payload.Secret, payload.ActionUrl, ct),
-            "magic-link" => sender.SendMagicLinkAsync(payload.ToEmail, payload.ToName, payload.Secret, payload.ActionUrl, ct),
-            "mfa-otp" => sender.SendMfaEmailOtpAsync(payload.ToEmail, payload.ToName, payload.Secret, ct),
-            "security-notice" => sender.SendSecurityNoticeAsync(payload.ToEmail, payload.ToName, payload.ApplicationName ?? "Security notice", payload.Secret, ct),
-            "notification" => sender.SendNotificationAsync(payload.ToEmail, payload.ToName, payload.ApplicationName ?? "AuthCenter", payload.Secret, payload.ActionUrl ?? string.Empty, payload.ActionLabel ?? "Open AuthCenter", ct),
-            _ => throw new InvalidOperationException($"Unsupported outbox email kind '{payload.Kind}'.")
-        };
 }
