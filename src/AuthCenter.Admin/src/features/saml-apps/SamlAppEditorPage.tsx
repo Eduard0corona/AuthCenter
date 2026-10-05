@@ -123,8 +123,8 @@ function SamlAppEditorPage({ create }: { create: boolean }) {
             {create
               ? <Field label="Aplicación de AuthCenter" error={errors.applicationSystemId?.message} help="Sus usuarios, política de acceso y MFA se aplican a esta aplicación SAML."><select {...form.register("applicationSystemId")}><option value="">Selecciona una aplicación</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
               : <Field label="Aplicación de AuthCenter"><input value={`${current?.applicationName ?? ""} (${current?.applicationCode ?? ""})`} readOnly /></Field>}
-            <Field label="Nombre" error={errors.name?.message}><input {...form.register("name")} autoComplete="off" placeholder="CRM corporativo" /></Field>
-            <Field label="Entity ID" error={errors.entityId?.message}><input {...form.register("entityId")} className="mono" autoComplete="off" spellCheck={false} placeholder="https://crm.example.com/saml" /></Field>
+            <Field label="Nombre" error={errors.name?.message} help="Ej.: CRM corporativo"><input {...form.register("name")} autoComplete="off" /></Field>
+            <Field label="Entity ID" error={errors.entityId?.message} help="Ej.: https://crm.example.com/saml"><input {...form.register("entityId")} className="mono" autoComplete="off" spellCheck={false} /></Field>
           </div>
           {!create ? <div className="checkbox-grid"><label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>Aplicación activa: acepta solicitudes de inicio de sesión</span></label></div> : null}
         </section>
@@ -155,12 +155,12 @@ function SamlAppEditorPage({ create }: { create: boolean }) {
           {current?.signingCertificate ? <CertificateSummary certificate={current.signingCertificate} /> : null}
         </section>
         <section className="settings-panel" aria-labelledby="saml-attributes">
-          <div className="settings-panel__heading"><div><h2 id="saml-attributes">Atributos</h2><p>Cada atributo de la aserción y de dónde sale su valor. Los roles y permisos son los de la aplicación de AuthCenter.</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => attributes.append({ name: "", source: "email" })} disabled={attributes.fields.length >= 30}>Agregar atributo</button> : null}</div>
+          <div className="settings-panel__heading"><div><h2 id="saml-attributes">Atributos</h2><p>Cada atributo de la aserción y de dónde sale su valor. Los roles y permisos son los de la aplicación de AuthCenter. Ej.: un atributo «email» con el correo de la persona.</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => attributes.append({ name: "", source: "email" })} disabled={attributes.fields.length >= 30}>Agregar atributo</button> : null}</div>
           {errors.attributes?.message ? <p className="field-error">{errors.attributes.message}</p> : null}
           {attributes.fields.length === 0 ? <p className="muted">La aserción sólo llevará el NameID.</p> : null}
           <ol className="scope-list">
             {attributes.fields.map((field, index) => <li className="scope-row" key={field.id}>
-              <Field label={<>Nombre del atributo<span className="sr-only"> {index + 1}</span></>} error={errors.attributes?.[index]?.name?.message}><input {...form.register(`attributes.${index}.name`)} className="mono" autoComplete="off" spellCheck={false} placeholder="email" /></Field>
+              <Field label={<>Nombre del atributo<span className="sr-only"> {index + 1}</span></>} error={errors.attributes?.[index]?.name?.message}><input {...form.register(`attributes.${index}.name`)} className="mono" autoComplete="off" spellCheck={false} /></Field>
               <Field label={<>Origen<span className="sr-only"> del atributo {index + 1}</span></>} error={errors.attributes?.[index]?.source?.message}><select {...form.register(`attributes.${index}.source`)}>{sources.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></Field>
               {canWrite ? <button className="button button--small button--danger-quiet" type="button" onClick={() => attributes.remove(index)}>Quitar<span className="sr-only"> el atributo {index + 1}</span></button> : null}
             </li>)}

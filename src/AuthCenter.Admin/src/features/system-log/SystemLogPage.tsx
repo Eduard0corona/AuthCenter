@@ -99,9 +99,9 @@ export default function SystemLogPage() {
         actions={<button className="button button--secondary" type="button" onClick={() => void exportCsv()} disabled={exporting}>{exporting ? "Exportando…" : "Exportar CSV"}</button>}
       />
       <section className="toolbar toolbar--wide" aria-label="Filtros del registro de actividad">
-        <DebouncedTextField label="Acción" value={params.get("action") ?? ""} onCommit={commits.action} placeholder="LOGIN_FAILED" normalize={upper} />
-        <DebouncedTextField label="Aplicación" value={params.get("application") ?? ""} onCommit={commits.application} placeholder="AUTHCENTER" normalize={upper} />
-        <DebouncedTextField label="Tipo de entidad" value={params.get("entity") ?? ""} onCommit={commits.entity} placeholder="ApplicationUser" />
+        <DebouncedTextField label="Acción" value={params.get("action") ?? ""} onCommit={commits.action} help="El código exacto. Ej.: LOGIN_FAILED" normalize={upper} />
+        <DebouncedTextField label="Aplicación" value={params.get("application") ?? ""} onCommit={commits.application} help="El código de la aplicación. Ej.: AUTHCENTER" normalize={upper} />
+        <DebouncedTextField label="Tipo de entidad" value={params.get("entity") ?? ""} onCommit={commits.entity} help="Ej.: ApplicationUser (usuarios)" />
         <DebouncedTextField label="ID de entidad" value={params.get("entityId") ?? ""} onCommit={commits.entityId} />
         <DebouncedTextField label="ID del actor" value={params.get("user") ?? ""} onCommit={commits.user} />
         <DebouncedTextField label="Referencia (trace ID)" value={params.get("trace") ?? ""} onCommit={commits.trace} />

@@ -95,19 +95,19 @@ function ApiResourceEditorPage({ create }: { create: boolean }) {
             {create
               ? <Field label="Aplicación dueña" error={errors.applicationSystemId?.message} help="Sus roles y permisos van en los tokens de este API."><select {...form.register("applicationSystemId")}><option value="">Selecciona una aplicación</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
               : <Field label="Aplicación dueña"><input value={`${current?.applicationName ?? ""} (${current?.applicationCode ?? ""})`} readOnly /></Field>}
-            <Field label="Identificador (audiencia)" error={errors.identifier?.message} help={create ? "URI https: o urn: sin fragmento. Ej.: https://api.example.com/orders" : undefined}><input {...form.register("identifier")} readOnly={!create} className="mono" spellCheck={false} autoComplete="off" placeholder="https://api.example.com/orders" /></Field>
-            <Field label="Nombre" error={errors.displayName?.message}><input {...form.register("displayName")} autoComplete="off" placeholder="Orders API" /></Field>
+            <Field label="Identificador (audiencia)" error={errors.identifier?.message} help={create ? "URI https: o urn: sin fragmento. Ej.: https://api.example.com/orders" : undefined}><input {...form.register("identifier")} readOnly={!create} className="mono" spellCheck={false} autoComplete="off" /></Field>
+            <Field label="Nombre" error={errors.displayName?.message} help="Ej.: API de pedidos"><input {...form.register("displayName")} autoComplete="off" /></Field>
             <Field label="Descripción" error={errors.description?.message}><input {...form.register("description")} autoComplete="off" /></Field>
             {!create ? <label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>API activo: se emiten tokens para él</span></label> : null}
           </div>
         </section>
         <section className="settings-panel" aria-labelledby="api-scopes">
-          <div className="settings-panel__heading"><div><h2 id="api-scopes">Permisos (scopes)</h2><p>Los nombres son únicos entre todos los APIs. Los clientes deben tenerlos en sus scopes permitidos para pedirlos.</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => scopes.append({ name: "", displayName: "", description: "" })} disabled={scopes.fields.length >= 100}>Agregar scope</button> : null}</div>
+          <div className="settings-panel__heading"><div><h2 id="api-scopes">Permisos (scopes)</h2><p>Los nombres son únicos entre todos los APIs. Los clientes deben tenerlos en sus scopes permitidos para pedirlos. Ej.: «orders.read», con nombre visible «Leer pedidos».</p></div>{canWrite ? <button className="button button--small button--secondary" type="button" onClick={() => scopes.append({ name: "", displayName: "", description: "" })} disabled={scopes.fields.length >= 100}>Agregar scope</button> : null}</div>
           {errors.scopes?.message ? <p className="field-error">{errors.scopes.message}</p> : null}
           <ol className="scope-list">
             {scopes.fields.map((field, index) => <li className="scope-row" key={field.id}>
-              <Field label={<>Nombre del scope<span className="sr-only"> {index + 1}</span></>} error={errors.scopes?.[index]?.name?.message}><input {...form.register(`scopes.${index}.name`)} className="mono" spellCheck={false} autoComplete="off" placeholder="orders.read" /></Field>
-              <Field label={<>Nombre visible<span className="sr-only"> del scope {index + 1}</span></>} error={errors.scopes?.[index]?.displayName?.message}><input {...form.register(`scopes.${index}.displayName`)} autoComplete="off" placeholder="Leer pedidos" /></Field>
+              <Field label={<>Nombre del scope<span className="sr-only"> {index + 1}</span></>} error={errors.scopes?.[index]?.name?.message}><input {...form.register(`scopes.${index}.name`)} className="mono" spellCheck={false} autoComplete="off" /></Field>
+              <Field label={<>Nombre visible<span className="sr-only"> del scope {index + 1}</span></>} error={errors.scopes?.[index]?.displayName?.message}><input {...form.register(`scopes.${index}.displayName`)} autoComplete="off" /></Field>
               <Field label={<>Descripción<span className="sr-only"> del scope {index + 1}</span></>} error={errors.scopes?.[index]?.description?.message}><input {...form.register(`scopes.${index}.description`)} autoComplete="off" /></Field>
               {canWrite ? <button className="button button--small button--danger-quiet" type="button" onClick={() => scopes.remove(index)} disabled={scopes.fields.length === 1}>Quitar<span className="sr-only"> el scope {index + 1}</span></button> : null}
             </li>)}

@@ -11,6 +11,7 @@ import { askForPermission, needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { Field } from "../../components/Field";
 import { HistoryLink } from "../../components/HistoryLink";
 import { SaveError } from "../../components/SaveError";
 import { PageHeader } from "../../components/PageHeader";
@@ -137,7 +138,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
                 <option value="Closed">Cerrado</option><option value="Open">Abierto</option><option value="InviteOnly">Sólo invitación</option><option value="ApprovalRequired">Requiere aprobación</option>
               </select>
             </Field>
-            <Field label="Dominios permitidos" error={form.formState.errors.allowedEmailDomains?.message} help="Separados por coma; vacío permite cualquier dominio."><input {...form.register("allowedEmailDomains")} placeholder="empresa.com, filial.mx" autoComplete="off" /></Field>
+            <Field label="Dominios permitidos" error={form.formState.errors.allowedEmailDomains?.message} help="Separados por coma; vacío permite cualquier dominio. Ej.: empresa.com, filial.mx"><input {...form.register("allowedEmailDomains")} autoComplete="off" /></Field>
           </div>
           {!create && canReadRoles ? <Field label="Rol predeterminado" error={undefined} help="Se asignará automáticamente después del registro aprobado."><select {...form.register("defaultRoleId", { setValueAs: (value) => value || null })}><option value="">Sin rol predeterminado</option>{currentDefaultRoleId && !currentRoleListed ? <option value={currentDefaultRoleId}>Rol actual</option> : null}{availableRoles.data?.items.filter((role) => role.isActive).map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></Field> : null}
           {!create && !canReadRoles ? <p className="alert alert--info">El rol predeterminado actual se conservará. {needPermission("AUTHCENTER_ROLES_READ", "cambiarlo")}</p> : null}
@@ -174,10 +175,6 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
       <ConfirmDialog open={confirmStatus} title={`${current?.isActive ? "Desactivar" : "Activar"} ${current?.name ?? "aplicación"}`} detail={current?.isActive ? "Los inicios de sesión nuevos quedarán bloqueados y las sesiones activas serán revocadas." : "La aplicación volverá a aceptar accesos según su política."} confirmLabel={current?.isActive ? "Desactivar aplicación" : "Activar aplicación"} dangerous={Boolean(current?.isActive)} busy={changeStatus.isPending} error={changeStatus.error} onCancel={() => setConfirmStatus(false)} onConfirm={() => changeStatus.mutate()} />
     </>
   );
-}
-
-function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: React.ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>;
 }
 
 function Checkbox({ label, registration }: { label: string; registration: UseFormRegisterReturn }) {

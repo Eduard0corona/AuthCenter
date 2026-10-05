@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fetchAllAsPage } from "../../api/catalog";
@@ -9,6 +9,7 @@ import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, DirectoryGroupSummary, FederationConnectionTest, FederationProvider, FederationServiceProvider } from "../../api/types";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
+import { Field } from "../../components/Field";
 import { HistoryLink } from "../../components/HistoryLink";
 import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
@@ -100,10 +101,10 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
           <div className="form-grid">
             {create ? <Field label="Aplicación" error={form.formState.errors.applicationSystemId?.message}><select key={applications.data ? "loaded" : "loading"} {...form.register("applicationSystemId")}><option value="">Selecciona una aplicación</option>{applications.data?.items.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name}</option>)}</select></Field>
               : <Field label="Aplicación" error={undefined}><input value={applications.data?.items.find((application) => application.id === current?.applicationSystemId)?.name ?? current?.applicationSystemId ?? ""} readOnly /></Field>}
-            <Field label="Nombre" error={form.formState.errors.name?.message}><input {...form.register("name")} autoComplete="off" placeholder="Entra ID corporativo" /></Field>
+            <Field label="Nombre" error={form.formState.errors.name?.message} help="Ej.: Entra ID corporativo"><input {...form.register("name")} autoComplete="off" /></Field>
             {create ? <Field label="Protocolo" error={form.formState.errors.protocol?.message}><select {...form.register("protocol")}><option value="Oidc">OpenID Connect</option><option value="Saml2">SAML 2.0</option></select></Field>
               : <Field label="Protocolo" error={undefined} help="El protocolo no se cambia; crea otro proveedor si es necesario."><input value={current?.protocol === "Saml2" ? "SAML 2.0" : "OpenID Connect"} readOnly /></Field>}
-            <Field label="Emisor (issuer)" error={form.formState.errors.issuer?.message}><input {...form.register("issuer")} className="mono" autoComplete="off" spellCheck={false} placeholder="https://login.example.test" /></Field>
+            <Field label="Emisor (issuer)" error={form.formState.errors.issuer?.message} help="OIDC: la URL del emisor, ej.: https://login.example.com. SAML: el entity ID del IdP."><input {...form.register("issuer")} className="mono" autoComplete="off" spellCheck={false} /></Field>
           </div>
         </section>
         {/* Distinct keys: switching protocol (or loading a SAML provider) must remount the panel instead of turning uncontrolled inputs into controlled ones. */}
@@ -121,12 +122,12 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
         </section> : <section key="saml" className="settings-panel" aria-labelledby="provider-saml">
           <div className="settings-panel__heading"><div><h2 id="provider-saml">SAML 2.0</h2><p>La respuesta o la aserción deben venir firmadas (SHA-256 o superior) con el certificado registrado; se aceptan aserciones cifradas para AuthCenter. Solo se muestra la huella del certificado.</p></div>{current?.samlSigningCertificateThumbprint ? <span className="tag mono">SHA-1 {current.samlSigningCertificateThumbprint}</span> : null}</div>
           <div className="form-grid">
-            <Field label="URL de inicio de sesión (SSO)" error={form.formState.errors.samlSingleSignOnUrl?.message}><input {...form.register("samlSingleSignOnUrl")} className="mono" autoComplete="off" spellCheck={false} placeholder="https://idp.example.test/sso" /></Field>
+            <Field label="URL de inicio de sesión (SSO)" error={form.formState.errors.samlSingleSignOnUrl?.message} help="Ej.: https://idp.example.com/sso"><input {...form.register("samlSingleSignOnUrl")} className="mono" autoComplete="off" spellCheck={false} /></Field>
             {metadataUrl ? <Field label="Metadatos de AuthCenter (SP)" error={undefined} help="Entrega este documento al IdP para registrar AuthCenter."><input value={`${window.location.origin}${metadataUrl}`} readOnly className="mono" /></Field> : null}
             {serviceProvider.data?.samlEntityId ? <Field label="Entity ID de AuthCenter" error={undefined}><input value={serviceProvider.data.samlEntityId} readOnly className="mono" /></Field> : null}
             {serviceProvider.data?.samlAssertionConsumerServiceUrl ? <Field label="ACS de AuthCenter" error={undefined}><input value={serviceProvider.data.samlAssertionConsumerServiceUrl} readOnly className="mono" /></Field> : null}
           </div>
-          <Field label={current?.samlSigningCertificateThumbprint ? "Nuevo certificado de firma (PEM)" : "Certificado de firma (PEM)"} error={form.formState.errors.samlSigningCertificatePem?.message} help={current?.samlSigningCertificateThumbprint ? "Déjalo vacío para conservar el certificado actual." : "Pega el certificado X.509 público en formato PEM."}><textarea {...form.register("samlSigningCertificatePem")} className="mono" rows={6} spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----" /></Field>
+          <Field label={current?.samlSigningCertificateThumbprint ? "Nuevo certificado de firma (PEM)" : "Certificado de firma (PEM)"} error={form.formState.errors.samlSigningCertificatePem?.message} help={current?.samlSigningCertificateThumbprint ? "Déjalo vacío para conservar el certificado actual." : "Pega el certificado X.509 público en formato PEM: empieza con -----BEGIN CERTIFICATE-----."}><textarea {...form.register("samlSigningCertificatePem")} className="mono" rows={6} spellCheck={false} /></Field>
         </section>}
         <section className="settings-panel" aria-labelledby="provider-lifecycle">
           <div className="settings-panel__heading"><div><h2 id="provider-lifecycle">Cuentas y vinculación</h2><p>Controla si el IdP puede crear usuarios y cómo se vinculan con cuentas existentes.</p></div></div>
@@ -144,7 +145,7 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
             <label className="checkbox-field"><input type="checkbox" {...form.register("trustUpstreamMfa")} /><span>Confiar en el MFA del IdP (amr "mfa" en OIDC, contexto de autenticación multifactor en SAML)</span></label>
           </div>
           <div className="form-grid">
-            <Field label="Claim o atributo de grupos" error={form.formState.errors.groupsClaim?.message} help="Por ejemplo groups. Déjalo vacío para no sincronizar grupos."><input {...form.register("groupsClaim")} className="mono" autoComplete="off" spellCheck={false} placeholder="groups" /></Field>
+            <Field label="Claim o atributo de grupos" error={form.formState.errors.groupsClaim?.message} help="Ej.: groups. Déjalo vacío para no sincronizar grupos."><input {...form.register("groupsClaim")} className="mono" autoComplete="off" spellCheck={false} /></Field>
           </div>
           {form.formState.errors.groupMappings?.message ? <p className="field-error" role="alert">{form.formState.errors.groupMappings.message}</p> : null}
           {mappings.fields.length ? <div className="data-table" tabIndex={0} role="region" aria-label="Mapeo de grupos, desplazamiento horizontal"><table><caption className="sr-only">Mapeo de valores del IdP a grupos del directorio</caption><thead><tr><th>Valor del IdP</th><th>Grupo del directorio</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{mappings.fields.map((field, index) => {
@@ -178,5 +179,3 @@ export default function ProviderEditorPage({ create = false }: { create?: boolea
     <ReauthenticationDialog open={sensitiveAction !== null} purpose="admin.federation.change" title={sensitiveAction === "delete" ? "Eliminar proveedor de federación" : create ? "Crear proveedor de federación" : "Guardar proveedor de federación"} detail={sensitiveAction === "delete" ? "Esta acción no se puede deshacer y queda auditada." : "Los cambios de federación afectan cómo inician sesión los usuarios de la aplicación."} confirmLabel={sensitiveAction === "delete" ? "Verificar y eliminar" : create ? "Verificar y crear" : "Verificar y guardar"} dangerous={sensitiveAction === "delete"} onCancel={() => setSensitiveAction(null)} onProof={async (proof) => { if (sensitiveAction === "delete") await remove.mutateAsync(proof); else await save.mutateAsync({ proofToken: proof, values: form.getValues() }); }} />
   </>;
 }
-
-function Field({ label, error, help, children }: { label: string; error: string | undefined; help?: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}{help ? <span className="field-help">{help}</span> : null}{error ? <span className="field-error">{error}</span> : null}</label>; }

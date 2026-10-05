@@ -95,6 +95,17 @@ test("names each browser tab after its page", async ({ page }, testInfo) => {
   await expect(page).toHaveTitle("Ruta no encontrada · Consola de administración");
 });
 
+test("examples are hints in the help text, not placeholders that look like values", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Content does not depend on the layout.");
+  await mockEmptyApi(page);
+  await page.goto("/admin-v2/event-hooks/new");
+  await expect(page.getByLabel("URL del endpoint")).not.toHaveAttribute("placeholder", /.+/);
+  await expect(page.getByText("Ej.: https://hooks.example.com/authcenter")).toBeVisible();
+  await page.goto("/admin-v2/system-log");
+  await expect(page.getByLabel("Acción")).not.toHaveAttribute("placeholder", /.+/);
+  await expect(page.getByText("Ej.: LOGIN_FAILED")).toBeVisible();
+});
+
 test("names the browser tab of a section the operator cannot open", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Titles do not depend on the layout.");
   await page.route((url) => url.pathname.startsWith("/api/"), (route) => json(route, paged([])));
