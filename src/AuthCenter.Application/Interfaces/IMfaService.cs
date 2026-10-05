@@ -19,5 +19,7 @@ public interface IMfaService
     /// <summary>Emails a code that confirms managing an enabled email factor (for example disabling it).</summary>
     Task<OperationResult> SendEmailOtpVerificationAsync(Guid userId, CancellationToken ct = default);
     Task<OperationResult> EnableEmailOtpAsync(Guid userId, EnableEmailMfaRequest request, CancellationToken ct = default);
-    Task<bool> SendMfaEmailOtpAsync(Guid userId, string pendingTokenJti, CancellationToken ct = default);
+
+    /// <summary>Emails the sign-in code of a pending sign-in, in the name of the application signed in to.</summary>
+    Task<bool> SendMfaEmailOtpAsync(Guid userId, string pendingTokenJti, CancellationToken ct = default, string? applicationCode = null);
 }

@@ -174,9 +174,10 @@ public sealed partial class AccessGovernanceService
         AddAudit("ACCESS_REQUEST_CREATED", nameof(AccessRequest), created.Id, application.Code,
             new { userId, applicationSystemId = application.Id, roleId = role?.Id, source = nameof(AccessRequestSource.Portal) }, userId);
         await _db.SaveChangesAsync(ct);
-        var asked = role is null ? $"access to {application.Name}" : $"the role {role.DisplayName} in {application.Name}";
-        await NotifyOwnersAsync(application.Id, userId, $"Access request for {application.Name}",
-            $"{user.FullName} ({user.Email}) asks for {asked}: \"{justification}\"", ct);
+        var applicationName = await EmailBranding.NameAsync(_db, application.Id, ct);
+        var asked = role is null ? $"acceso a {applicationName}" : $"el rol {role.DisplayName} en {applicationName}";
+        await NotifyOwnersAsync(application.Id, userId, $"Solicitud de acceso a {applicationName}",
+            $"{user.FullName} ({user.Email}) pide {asked}: «{justification}»", ct);
         if (transaction is not null)
             await transaction.CommitAsync(ct);
         return OperationResult<AccessRequestDto>.Success((await GetRequestAsync(created.Id, ct))!);
@@ -245,10 +246,11 @@ public sealed partial class AccessGovernanceService
         AddAudit("ACCESS_REQUEST_CREATED", nameof(AccessRequest), request.Id, application.Code,
             new { userId, applicationSystemId, roleId = request.RequestedRoleId, source = source.ToString() },
             source == AccessRequestSource.Registration ? userId : null);
+        var applicationName = await EmailBranding.NameAsync(_db, applicationSystemId, ct);
         var detail = source == AccessRequestSource.Registration
-            ? $"{user.FullName} ({user.Email}) registered in {application.Name} and waits for approval."
-            : $"{user.FullName} ({user.Email}) was given access to {application.Name} pending approval.";
-        await NotifyOwnersAsync(applicationSystemId, userId, $"Access request for {application.Name}", detail, ct);
+            ? $"{user.FullName} ({user.Email}) se registró en {applicationName} y espera tu aprobación."
+            : $"{user.FullName} ({user.Email}) recibió acceso a {applicationName}, pendiente de aprobación.";
+        await NotifyOwnersAsync(applicationSystemId, userId, $"Solicitud de acceso a {applicationName}", detail, ct);
     }
 
     public async Task<int> ExpireRequestsAsync(CancellationToken ct = default)
@@ -287,10 +289,12 @@ public sealed partial class AccessGovernanceService
                 .ToListAsync(ct);
             foreach (var request in requests)
             {
-                if (users.FirstOrDefault(user => user.Id == request.UserId) is { } user)
-                    await _email.SendNotificationAsync(user.Email!, user.FullName, $"Access request for {request.ApplicationSystem.Name} expired",
-                        $"Nobody decided your request for access to {request.ApplicationSystem.Name} in time. Request it again if you still need it.",
-                        PortalUrl("applications"), "Open your account", ct);
+                if (users.FirstOrDefault(user => user.Id == request.UserId) is not { } user)
+                    continue;
+                var applicationName = await EmailBranding.NameAsync(_db, request.ApplicationSystemId, ct);
+                await _email.SendNotificationAsync(user.Email!, user.FullName, $"Tu solicitud de acceso a {applicationName} venció",
+                    $"Nadie decidió a tiempo tu solicitud de acceso a {applicationName}. Vuelve a pedirlo si todavía lo necesitas.",
+                    PortalUrl("applications"), "Abrir mi cuenta", ct);
             }
             expired += requests.Count;
             _db.ChangeTracker.Clear();
@@ -379,11 +383,12 @@ public sealed partial class AccessGovernanceService
 
         if (user is { IsActive: true, Email: { } email })
         {
-            var asked = role is null ? $"access to {application.Name}" : $"the role {role.DisplayName} in {application.Name}";
+            var applicationName = await EmailBranding.NameAsync(_db, application.Id, ct);
+            var yourRequest = role is null ? $"Tu solicitud de acceso a {applicationName}" : $"Tu solicitud del rol {role.DisplayName} en {applicationName}";
             var (subject, detail) = approve
-                ? ($"Access to {application.Name} approved", $"Your request for {asked} was approved{(comment is null ? "." : $": {comment}")}")
-                : ($"Access to {application.Name} not approved", $"Your request for {asked} was not approved: {comment}");
-            await _email.SendNotificationAsync(email, user.FullName, subject, detail, PortalUrl("applications"), "Open your account", ct);
+                ? ($"Acceso a {applicationName} aprobado", $"{yourRequest} fue aprobada{(comment is null ? "." : $": {comment}")}")
+                : ($"Acceso a {applicationName} no aprobado", $"{yourRequest} no fue aprobada: {comment}");
+            await _email.SendNotificationAsync(email, user.FullName, subject, detail, PortalUrl("applications"), "Abrir mi cuenta", ct);
         }
         if (transaction is not null)
             await transaction.CommitAsync(ct);
@@ -403,7 +408,7 @@ public sealed partial class AccessGovernanceService
     private async Task NotifyOwnersAsync(Guid applicationSystemId, Guid requesterId, string subject, string detail, CancellationToken ct)
     {
         foreach (var (email, name) in await OwnersToNotifyAsync(applicationSystemId, requesterId, ct))
-            await _email.SendNotificationAsync(email, name, subject, detail, PortalUrl("approvals"), "Review the request", ct);
+            await _email.SendNotificationAsync(email, name, subject, detail, PortalUrl("approvals"), "Revisar la solicitud", ct);
     }
 
     /// <summary>Of these applications, the ones the user can use: direct access or an active group's.</summary>

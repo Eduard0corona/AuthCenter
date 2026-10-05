@@ -19,6 +19,9 @@ namespace AuthCenter.Infrastructure.Services;
 
 public class TotpService : IMfaService
 {
+    // A code emailed to set up or manage the email factor works this long; a sign-in code, as long as the sign-in step.
+    private const int EmailOtpManagementMinutes = 10;
+
     private readonly AuthCenterDbContext _db;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly MfaSettings _settings;
@@ -191,8 +194,8 @@ public class TotpService : IMfaService
         await _db.SaveChangesAsync(ct);
         await _auditService.LogAsync("MFA_DISABLED", userId, ct: ct);
         if (await _userManager.FindByIdAsync(userId.ToString()) is { Email: not null } user)
-            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Two-step verification disabled",
-                "Two-step verification was turned off for your account. If this was not you, change your password and turn it on again.", ct);
+            await _emailService.SendSecurityNoticeAsync(user.Email, user.FullName, "Se desactivó la verificación en dos pasos",
+                "Se desactivó la verificación en dos pasos de tu cuenta. Si no fuiste tú, vuelve a activarla después de cambiar tu contraseña.", ct);
 
         return OperationResult.Success();
     }
@@ -267,10 +270,10 @@ public class TotpService : IMfaService
             MfaStatePurposes.EmailOtpSetup,
             userId.ToString(),
             code,
-            _dateTimeProvider.UtcNow.AddMinutes(10),
+            _dateTimeProvider.UtcNow.AddMinutes(EmailOtpManagementMinutes),
             ct);
 
-        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
+        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct, EmailOtpManagementMinutes);
         await _auditService.LogAsync("MFA_EMAIL_OTP_SETUP_SENT", userId, ct: ct);
 
         return OperationResult.Success();
@@ -286,8 +289,8 @@ public class TotpService : IMfaService
             return OperationResult.Failure("MFA_NOT_ENABLED", "Email MFA is not enabled.");
 
         var code = GenerateNumericCode();
-        await _transientState.SetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), code, _dateTimeProvider.UtcNow.AddMinutes(10), ct);
-        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
+        await _transientState.SetAsync(MfaStatePurposes.EmailOtpSetup, userId.ToString(), code, _dateTimeProvider.UtcNow.AddMinutes(EmailOtpManagementMinutes), ct);
+        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct, EmailOtpManagementMinutes);
         await _auditService.LogAsync("MFA_EMAIL_OTP_VERIFICATION_SENT", userId, ct: ct);
         return OperationResult.Success();
     }
@@ -337,7 +340,7 @@ public class TotpService : IMfaService
         return OperationResult.Success();
     }
 
-    public async Task<bool> SendMfaEmailOtpAsync(Guid userId, string pendingTokenJti, CancellationToken ct = default)
+    public async Task<bool> SendMfaEmailOtpAsync(Guid userId, string pendingTokenJti, CancellationToken ct = default, string? applicationCode = null)
     {
         var user = await _userManager.FindByIdAsync(userId.ToString());
         if (user is null || !user.IsActive || user.DeletedAt is not null)
@@ -357,7 +360,7 @@ public class TotpService : IMfaService
             _dateTimeProvider.UtcNow.AddSeconds(_settings.MfaTokenExpirySeconds),
             ct);
 
-        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct);
+        await _emailService.SendMfaEmailOtpAsync(user.Email!, user.FullName, code, ct, _settings.MfaTokenExpirySeconds / 60, applicationCode);
         await _auditService.LogAsync("MFA_EMAIL_OTP_SENT", userId, ct: ct);
 
         return true;
