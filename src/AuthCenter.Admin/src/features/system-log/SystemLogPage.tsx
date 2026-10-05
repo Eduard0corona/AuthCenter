@@ -71,7 +71,7 @@ export default function SystemLogPage() {
     setExportFeedback(null);
     try {
       const response = await fetch(`/api/audit-logs/export?${filterQuery}`, { credentials: "same-origin" });
-      if (!response.ok) throw new Error(response.status === 403 ? "No tienes permiso para exportar el System Log." : `La exportación falló (${response.status}).`);
+      if (!response.ok) throw new Error(response.status === 403 ? "No tienes permiso para exportar el registro de actividad." : `La exportación falló (${response.status}).`);
       const total = Number(response.headers.get("X-Total-Count") ?? "0");
       const truncated = response.headers.get("X-AuthCenter-Export-Truncated") === "true";
       const url = URL.createObjectURL(await response.blob());
@@ -94,29 +94,29 @@ export default function SystemLogPage() {
     <>
       <PageHeader
         eyebrow="Operación"
-        title="System Log"
+        title="Registro de actividad"
         description="Eventos de seguridad y administración: quién hizo qué, sobre qué recurso y desde dónde."
         actions={<button className="button button--secondary" type="button" onClick={() => void exportCsv()} disabled={exporting}>{exporting ? "Exportando…" : "Exportar CSV"}</button>}
       />
-      <section className="toolbar toolbar--wide" aria-label="Filtros de System Log">
-        <DebouncedTextField label="Acción" value={params.get("action") ?? ""} onCommit={commits.action} placeholder="LOGIN_FAILED" normalize={upper} />
-        <DebouncedTextField label="Aplicación" value={params.get("application") ?? ""} onCommit={commits.application} placeholder="AUTHCENTER" normalize={upper} />
-        <DebouncedTextField label="Tipo de entidad" value={params.get("entity") ?? ""} onCommit={commits.entity} placeholder="ApplicationUser" />
+      <section className="toolbar toolbar--wide" aria-label="Filtros del registro de actividad">
+        <DebouncedTextField label="Acción" value={params.get("action") ?? ""} onCommit={commits.action} help="El código exacto. Ej.: LOGIN_FAILED" normalize={upper} />
+        <DebouncedTextField label="Aplicación" value={params.get("application") ?? ""} onCommit={commits.application} help="El código de la aplicación. Ej.: AUTHCENTER" normalize={upper} />
+        <DebouncedTextField label="Tipo de entidad" value={params.get("entity") ?? ""} onCommit={commits.entity} help="Ej.: ApplicationUser (usuarios)" />
         <DebouncedTextField label="ID de entidad" value={params.get("entityId") ?? ""} onCommit={commits.entityId} />
         <DebouncedTextField label="ID del actor" value={params.get("user") ?? ""} onCommit={commits.user} />
-        <DebouncedTextField label="Trace ID" value={params.get("trace") ?? ""} onCommit={commits.trace} />
+        <DebouncedTextField label="Referencia (trace ID)" value={params.get("trace") ?? ""} onCommit={commits.trace} />
         <label className="field"><span>Desde (hora local)</span><input type="date" value={params.get("from") ?? ""} onChange={(event) => update({ from: event.target.value }, false)} /></label>
         <label className="field"><span>Hasta (hora local)</span><input type="date" value={params.get("to") ?? ""} onChange={(event) => update({ to: event.target.value }, false)} /></label>
       </section>
       {activeFilters.length > 0 ? <p className="filter-summary"><span>{activeFilters.length === 1 ? "1 filtro activo" : `${activeFilters.length} filtros activos`}</span><button className="button button--small button--secondary" type="button" onClick={() => showOnly({})}>Quitar filtros</button></p> : null}
       {exportFeedback ? <p className={`alert alert--${exportFeedback.tone}`} role={exportFeedback.tone === "error" ? "alert" : "status"}>{exportFeedback.text}</p> : null}
       {log.isPending ? <PageState title="Cargando eventos" busy /> : null}
-      {log.isError ? <PageState title="No pudimos cargar System Log" detail={errorMessage(log.error)} tone="error" action={<button className="button" type="button" onClick={() => void log.refetch()}>Reintentar</button>} /> : null}
+      {log.isError ? <PageState title="No pudimos cargar el registro de actividad" detail={errorMessage(log.error)} tone="error" action={<button className="button" type="button" onClick={() => void log.refetch()}>Reintentar</button>} /> : null}
       {log.data && log.data.items.length === 0 ? <PageState title="No hay eventos" detail="No encontramos resultados con estos filtros." /> : null}
       {log.data && log.data.items.length > 0 ? <>
-        <div className="data-table" tabIndex={0} role="region" aria-label="Eventos del System Log, desplazamiento horizontal" aria-busy={log.isFetching || undefined}>
+        <div className="data-table" tabIndex={0} role="region" aria-label="Eventos del registro de actividad, desplazamiento horizontal" aria-busy={log.isFetching || undefined}>
           <table>
-            <caption className="sr-only">Eventos del System Log</caption>
+            <caption className="sr-only">Eventos del registro de actividad</caption>
             <thead><tr><th scope="col">Fecha</th><th scope="col">Acción</th><th scope="col">Actor</th><th scope="col">Aplicación</th><th scope="col">Entidad</th><th scope="col"><span className="sr-only">Detalle</span></th></tr></thead>
             <tbody>{log.data.items.map((entry) => {
               const target = entityPath(entry.entityName, entry.entityId, permissions);
@@ -154,7 +154,7 @@ function EventDetailDialog({ entry, onClose, onShowOnly, canOpen, canOpenActor }
     <dialog ref={dialog} className="dialog dialog--wide" aria-labelledby="event-detail-title" onCancel={(event) => { event.preventDefault(); onClose(); }}>
       {entry ? <>
         <div className="dialog__content">
-          <p className="eyebrow">Evento del System Log</p>
+          <p className="eyebrow">Evento del registro de actividad</p>
           <h2 id="event-detail-title"><code>{entry.action}</code></h2>
           <dl className="detail-list">
             <div><dt>Fecha</dt><dd>{formatDate(entry.createdAt)} <span className="muted mono">{entry.createdAt}</span></dd></div>
@@ -163,7 +163,7 @@ function EventDetailDialog({ entry, onClose, onShowOnly, canOpen, canOpenActor }
             <div><dt>Entidad</dt><dd>{entry.entityName ? <>{entityLabel(entry.entityName)} <span className="muted">({entry.entityName})</span>{entry.entityId ? <span className="cell-detail mono">{entry.entityId}</span> : null}</> : "—"}</dd></div>
             <div><dt>Dirección IP</dt><dd className="mono">{entry.ipAddress ?? "—"}</dd></div>
             <div><dt>Agente de usuario</dt><dd>{entry.userAgent ?? "—"}</dd></div>
-            <div><dt>Trace ID</dt><dd className="mono">{entry.traceId ?? "—"}</dd></div>
+            <div><dt>Referencia (trace ID)</dt><dd className="mono">{entry.traceId ?? "—"}</dd></div>
             <div><dt>ID del evento</dt><dd className="mono">{entry.id}</dd></div>
           </dl>
           <h3>Metadatos</h3>
@@ -172,7 +172,7 @@ function EventDetailDialog({ entry, onClose, onShowOnly, canOpen, canOpenActor }
             {entry.userId ? <button className="button button--small button--secondary" type="button" onClick={() => onShowOnly({ user: entry.userId ?? "" })}>Eventos de este actor</button> : null}
             {entry.entityName && entry.entityId ? <button className="button button--small button--secondary" type="button" onClick={() => onShowOnly({ entity: entry.entityName ?? "", entityId: entry.entityId ?? "" })}>Historial de esta entidad</button> : null}
             {entry.traceId ? <button className="button button--small button--secondary" type="button" onClick={() => onShowOnly({ trace: entry.traceId ?? "" })}>Eventos de esta traza</button> : null}
-            {target ? <Link className="button button--small button--secondary" to={target}>Abrir {entityLabel(entry.entityName).toLowerCase()}</Link> : null}
+            {target ? <Link className="button button--small button--secondary" to={target}>Abrir {lowerFirst(entityLabel(entry.entityName))}</Link> : null}
             {entry.userId && canOpenActor ? <Link className="button button--small button--secondary" to={`/users/${entry.userId}`}>Abrir actor</Link> : null}
           </div>
         </div>
@@ -180,6 +180,11 @@ function EventDetailDialog({ entry, onClose, onShowOnly, canOpen, canOpenActor }
       </> : null}
     </dialog>
   );
+}
+
+/** "Cliente OAuth" → "cliente OAuth": the label inside a sentence keeps its acronyms. */
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 function fileName(disposition: string | null): string | null {

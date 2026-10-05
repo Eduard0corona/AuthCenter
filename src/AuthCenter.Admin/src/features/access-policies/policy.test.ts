@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { AccessPolicyRule } from "../../api/types";
-import { diffPolicyRules, policyRulePayload, policyRuleSchema } from "./policy";
+import { actionLabels, assuranceLabels, assuranceLevels, dayLabels, diffPolicyRules, policyDays, policyRulePayload, policyRuleSchema, riskLabels, simulationRiskLevels, versionStatusLabels } from "./policy";
+
+describe("policy labels", () => {
+  it("names every day, risk, assurance level, action and version state the API uses", () => {
+    expect(policyDays.map((day) => dayLabels[day])).toEqual(["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]);
+    expect(simulationRiskLevels.map((risk) => riskLabels[risk])).toEqual(["Desconocido", "Bajo", "Medio", "Alto", "Crítico"]);
+    expect(assuranceLevels.every((level) => assuranceLabels[level].length > 0)).toBe(true);
+    expect([actionLabels.Allow, actionLabels.Deny]).toEqual(["Permitir", "Denegar"]);
+    expect([versionStatusLabels.Draft, versionStatusLabels.Published, versionStatusLabels.Archived]).toEqual(["Borrador", "Publicada", "Archivada"]);
+  });
+});
 
 const baseRule: AccessPolicyRule = {
   id: "11111111-1111-4111-8111-111111111111",

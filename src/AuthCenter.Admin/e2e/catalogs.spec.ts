@@ -154,7 +154,7 @@ test("picks API scopes from the catalog and keeps the client's back-channel sess
   await expect(page.getByText(/scopes que ya no existen en el catálogo: legacy.scope/)).toBeVisible();
   await page.getByRole("button", { name: "Quitar scopes retirados" }).click();
   await page.getByRole("checkbox", { name: /orders\.write/ }).check();
-  await expect(page.getByRole("checkbox", { name: /backchannel_logout_session_required/ })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /identificador de sesión/ })).not.toBeChecked();
   await page.getByRole("button", { name: "Guardar configuración" }).click();
   await expect.poll(() => updatePayload).not.toBeNull();
   expect(updatePayload).toMatchObject({ allowedScopes: ["openid", "profile", "orders.read", "orders.write"], backchannelLogoutSessionRequired: false });

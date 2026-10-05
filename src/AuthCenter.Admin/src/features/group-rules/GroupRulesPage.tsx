@@ -41,16 +41,16 @@ export default function GroupRulesPage() {
   }
 
   return <>
-    <PageHeader eyebrow="Lifecycle" title="Group rules" description="Reglas de membresía dinámica basadas en atributos del perfil universal, con vista previa de los usuarios afectados." actions={canWrite ? <Link className="button" to="/group-rules/new">Nueva regla</Link> : undefined} />
-    <section className="toolbar" aria-label="Filtros de group rules">
+    <PageHeader eyebrow="Automatización" title="Reglas de grupo" description="Reglas de membresía dinámica basadas en atributos del perfil universal, con vista previa de los usuarios afectados." actions={canWrite ? <Link className="button" to="/group-rules/new">Nueva regla</Link> : undefined} />
+    <section className="toolbar" aria-label="Filtros de reglas de grupo">
       <label className="field"><span>Grupo</span><select value={groupId} onChange={(event) => update("groupId", event.target.value)}><option value="">Todos</option>{groups.data?.items.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
       <label className="field"><span>Estado</span><select value={active} onChange={(event) => update("active", event.target.value)}><option value="">Todos</option><option value="true">Activas</option><option value="false">Inactivas</option></select></label>
     </section>
-    {rules.isPending ? <PageState title="Cargando group rules" busy /> : null}
-    {rules.isError ? <PageState title="No pudimos cargar las group rules" detail={errorMessage(rules.error)} tone="error" action={<button className="button" onClick={() => void rules.refetch()}>Reintentar</button>} /> : null}
-    {rules.data && rules.data.items.length === 0 ? <PageState title="No hay group rules" detail="Ajusta los filtros o crea la primera regla de membresía dinámica." /> : null}
+    {rules.isPending ? <PageState title="Cargando reglas de grupo" busy /> : null}
+    {rules.isError ? <PageState title="No pudimos cargar las reglas de grupo" detail={errorMessage(rules.error)} tone="error" action={<button className="button" onClick={() => void rules.refetch()}>Reintentar</button>} /> : null}
+    {rules.data && rules.data.items.length === 0 ? <PageState title="No hay reglas de grupo" detail="Ajusta los filtros o crea la primera regla de membresía dinámica." /> : null}
     {rules.data?.items.length ? <>
-      <div className="data-table" tabIndex={0} role="region" aria-label="Group rules, desplazamiento horizontal"><table><caption className="sr-only">Group rules</caption><thead><tr><th>Grupo</th><th>Condición</th><th>Creada</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{rules.data.items.map((rule) => <tr key={rule.id}><td><strong>{rule.groupName}</strong></td><td><span className="mono">{describeRule(rule)}</span></td><td>{formatDate(rule.createdAt)}</td><td><StatusBadge active={rule.isActive} activeLabel="Activa" inactiveLabel="Inactiva" /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/group-rules/${rule.id}`}>{canWrite ? "Editar" : "Consultar"}</Link></td></tr>)}</tbody></table></div>
+      <div className="data-table" tabIndex={0} role="region" aria-label="Reglas de grupo, desplazamiento horizontal"><table><caption className="sr-only">Reglas de grupo</caption><thead><tr><th>Grupo</th><th>Condición</th><th>Creada</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{rules.data.items.map((rule) => <tr key={rule.id}><td><strong>{rule.groupName}</strong></td><td><span className="mono">{describeRule(rule)}</span></td><td>{formatDate(rule.createdAt)}</td><td><StatusBadge active={rule.isActive} activeLabel="Activa" inactiveLabel="Inactiva" /></td><td className="table-action"><Link className="button button--small button--secondary" to={`/group-rules/${rule.id}`}>{canWrite ? "Editar" : "Consultar"}</Link></td></tr>)}</tbody></table></div>
       <Pagination page={rules.data.page} pageSize={rules.data.pageSize} totalCount={rules.data.totalCount} totalPages={rules.data.totalPages} onPageChange={(value) => update("page", String(value))} onPageSizeChange={(value) => update("pageSize", String(value))} />
     </> : null}
   </>;

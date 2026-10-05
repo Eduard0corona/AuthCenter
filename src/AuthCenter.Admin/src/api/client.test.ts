@@ -1,4 +1,28 @@
-import { apiRequest, ApiError, getCsrfTokenForTests, setCsrfToken } from "./client";
+import { apiRequest, ApiError, endsSession, getCsrfTokenForTests, setCsrfToken } from "./client";
+
+describe("endsSession", () => {
+  it("reads a 401 as the end of the session", () => {
+    expect(endsSession("/api/users/user-1/access", 401)).toBe(true);
+    expect(endsSession("/api/users", 403)).toBe(false);
+  });
+
+  it("never sends the operator to the login for a failed identity check", () => {
+    expect(endsSession("/api/auth/reauth/password", 401)).toBe(false);
+    expect(endsSession("/api/auth/passkeys/step-up/complete", 401)).toBe(false);
+    expect(endsSession("/api/auth/reauth/password", 400)).toBe(false);
+  });
+
+  it("rejects a wrong password with the code the dialog explains", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ success: false, errorCode: "INVALID_REAUTHENTICATION", message: "Reauthentication failed." }), {
+      status: 400,
+      headers: { "content-type": "application/json" }
+    }));
+
+    const error = await apiRequest("/api/auth/reauth/password", { method: "POST", body: "{}" }).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({ status: 400, code: "INVALID_REAUTHENTICATION", kind: "validation" });
+  });
+});
 
 describe("apiRequest", () => {
   it("keeps CSRF in memory and adds it only to unsafe requests", async () => {

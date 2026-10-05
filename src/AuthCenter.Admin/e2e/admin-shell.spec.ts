@@ -16,6 +16,7 @@ const application = {
   updatedAt: null,
   registrationSettings: {
     registrationMode: "InviteOnly",
+    audience: "Employees",
     allowGoogleLogin: true,
     allowMicrosoftLogin: false,
     allowGitHubLogin: false,
@@ -172,7 +173,7 @@ test.beforeEach(async ({ page }) => {
 test("shell and users route are keyboard-visible and axe-clean", async ({ page }) => {
   await page.goto("/admin-v2/");
   await expect(page.getByRole("heading", { name: "Hola, Ada" })).toBeVisible();
-  await page.getByRole("link", { name: /Usuarios Directorio/ }).click();
+  await page.getByRole("link", { name: /Usuarios activos/ }).click();
   await expect(page.getByRole("heading", { name: "Usuarios", exact: true })).toBeVisible();
   await expect(page.getByText("Grace Hopper")).toBeVisible();
 
@@ -269,15 +270,15 @@ test("application detail preserves the complete branding contract", async ({ pag
   await expect(heading).toBeFocused();
   await expect(page.getByRole("navigation", { name: "Migas de pan" })).toContainText("Aplicaciones");
 
-  await page.getByRole("button", { name: "Editar branding" }).click();
+  await page.getByRole("button", { name: "Editar marca" }).click();
   await expect(page.getByLabel("Privacidad HTTPS")).toHaveValue("https://tiendit.app/privacidad");
   await expect(page.getByLabel("Términos HTTPS")).toHaveValue("https://tiendit.app/terminos");
   await page.getByLabel("Nombre visible").fill("TienditApp Pro");
 
   const accessibility = await new AxeBuilder({ page }).include("dialog").analyze();
   expect(accessibility.violations).toEqual([]);
-  await page.getByRole("button", { name: "Guardar branding" }).click();
-  await expect(page.getByRole("status")).toContainText("branding");
+  await page.getByRole("button", { name: "Guardar marca" }).click();
+  await expect(page.getByRole("status")).toContainText("marca");
   expect(brandingPayload).toMatchObject({
     displayName: "TienditApp Pro",
     privacyUrl: "https://tiendit.app/privacidad",
@@ -307,6 +308,7 @@ test("creates an application with explicit secure registration defaults", async 
   expect(createPayload).toMatchObject({
     code: "PARTNER_PORTAL",
     name: "Partner Portal",
+    audience: "Employees",
     registrationMode: "Closed",
     allowPasswordLogin: true,
     requireEmailConfirmation: true,
@@ -333,8 +335,9 @@ test("application detail is read-only without write permission", async ({ page }
   await page.goto(`/admin-v2/applications/${applicationId}`);
   await expect(page.getByLabel("Nombre", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Guardar configuración" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Editar branding" })).toHaveCount(0);
-  await expect(page.getByText("AUTHCENTER_APPLICATIONS_WRITE")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Editar marca" })).toHaveCount(0);
+  await expect(page.getByText("pide a un administrador el permiso «Editar aplicaciones»")).toBeVisible();
+  await expect(page.getByText("AUTHCENTER_APPLICATIONS_WRITE")).toHaveCount(0);
 });
 
 test("a single sign-on session opened for another application asks for an AuthCenter sign-in", async ({ page }) => {
@@ -556,14 +559,18 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
   });
 
   await page.goto("/admin-v2/oauth-clients/new");
+  const origin = await page.evaluate(() => window.location.origin);
   await page.getByLabel("Aplicación").selectOption(applicationId);
-  await page.getByLabel("Nombre").fill(oauthClient.displayName);
+  await page.getByLabel("Nombre", { exact: true }).fill(oauthClient.displayName);
+  // The Client ID follows the name until the operator types one.
+  await expect(page.getByLabel("Client ID")).toHaveValue("partner-portal");
   await page.getByLabel("Client ID").fill(oauthClient.clientId);
-  await page.getByLabel("Redirect URIs exactos").fill(oauthClient.redirectUris[0]);
-  await page.getByLabel("Login URL").fill(oauthClient.loginUrl);
-  await page.getByLabel("Post-logout redirect URIs").fill("https://partner.example.test/signout-callback-authcenter");
-  await page.getByLabel("Back-channel logout URI").fill("https://partner.example.test/auth/backchannel-logout");
-  await page.getByRole("button", { name: "Crear OAuth client" }).click();
+  await page.getByLabel("Nombre", { exact: true }).fill("Partner Portal 2");
+  await expect(page.getByLabel("Client ID")).toHaveValue(oauthClient.clientId);
+  await page.getByLabel("URLs de regreso").fill(oauthClient.redirectUris[0]);
+  await page.getByLabel("URLs después de cerrar sesión").fill("https://partner.example.test/signout-callback-authcenter");
+  await page.getByLabel("URL de aviso de cierre de sesión").fill("https://partner.example.test/auth/backchannel-logout");
+  await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
 
   const createdDialog = page.getByRole("dialog");
   await expect(createdDialog).toContainText(createdCredential);
@@ -572,6 +579,10 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
     clientId: oauthClient.clientId,
     clientType: 0,
     redirectUris: oauthClient.redirectUris,
+    // Nobody typed a Login URL: the hosted login was already there.
+    loginUrl: `${origin}/login`,
+    allowedScopes: ["openid", "profile", "email", "offline_access"],
+    grantTypes: ["authorization_code", "refresh_token"],
     postLogoutRedirectUris: ["https://partner.example.test/signout-callback-authcenter"],
     backchannelLogoutUri: "https://partner.example.test/auth/backchannel-logout"
   });
@@ -588,6 +599,49 @@ test("creates and rotates a confidential OAuth client with one-time secret revea
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);
+});
+
+test("keeps the hosted login under advanced options and tells a required field from a wrong one", async ({ page }) => {
+  let created = 0;
+  await page.route("**/api/oauth/clients", async (route) => {
+    created += 1;
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: { client: oauthClient, clientSecret: "unused" } }) });
+  });
+
+  await page.goto("/admin-v2/oauth-clients/new");
+  const origin = await page.evaluate(() => window.location.origin);
+  const loginUrl = page.getByLabel("URL de inicio de sesión");
+  const advanced = page.getByText("Opciones avanzadas", { exact: true });
+  // Collapsed, and already holding the hosted login.
+  await expect(loginUrl).toBeHidden();
+  await expect(loginUrl).toHaveValue(`${origin}/login`);
+  await expect(page.getByLabel("URLs de regreso")).toBeVisible();
+  await expect(page.getByLabel("URLs después de cerrar sesión")).toBeVisible();
+  await advanced.click();
+  await expect(loginUrl).toBeVisible();
+  await loginUrl.fill("");
+  await advanced.click();
+  await expect(loginUrl).toBeHidden();
+
+  await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
+  // Empty required fields say so; an error in the collapsed section opens it.
+  await expect(page.getByText("Este campo es obligatorio.", { exact: true })).toHaveCount(4);
+  await expect(loginUrl).toBeVisible();
+  await expect(loginUrl).toHaveAccessibleDescription(/Este campo es obligatorio\./);
+
+  await loginUrl.fill("ftp://id.example.test/login");
+  await page.getByRole("button", { name: "Crear cliente OAuth" }).click();
+  await expect(page.getByText("Usa una URL HTTPS (o HTTP en localhost), sin fragmentos ni credenciales.")).toBeVisible();
+  expect(created).toBe(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test("preselects the application a link names when creating an OAuth client", async ({ page }) => {
+  await page.goto(`/admin-v2/oauth-clients/new?applicationId=${applicationId}`);
+  await expect(page.getByLabel("Aplicación")).toHaveValue(applicationId);
+  await page.goto("/admin-v2/oauth-clients/new?applicationId=no-es-un-id");
+  await expect(page.getByRole("heading", { level: 1, name: "Nuevo cliente OAuth" })).toBeVisible();
+  await expect(page.getByLabel("Aplicación")).toHaveValue("");
 });
 
 test("creates, rotates and revokes a scoped provisioning token with step-up", async ({ page }) => {
@@ -627,7 +681,7 @@ test("creates, rotates and revokes a scoped provisioning token with step-up", as
   await page.getByLabel("Aplicación").selectOption(applicationId);
   await page.getByLabel("Nombre").fill(provisioningToken.name);
   await page.getByRole("checkbox", { name: "scim.users.write" }).check();
-  await page.getByRole("button", { name: "Crear provisioning token" }).click();
+  await page.getByRole("button", { name: "Crear token de aprovisionamiento" }).click();
 
   const createdDialog = page.getByRole("dialog");
   await expect(createdDialog).toContainText(createdCredential);
@@ -711,7 +765,7 @@ test("filters paginated provisioning token metadata without exposing credentials
   });
 
   await page.goto("/admin-v2/provisioning-tokens");
-  await expect(page.getByRole("heading", { level: 1, name: "Provisioning tokens", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { level: 1, name: "Tokens de aprovisionamiento", exact: true })).toBeFocused();
   await expect(page.getByText(provisioningToken.name)).toBeVisible();
   await expect(page.getByText("1–1 de 1")).toBeVisible();
   await expect(page.locator("main")).not.toContainText("acp_");
@@ -773,8 +827,8 @@ test("creates, simulates and publishes an access policy draft with step-up", asy
   });
 
   await page.goto(`/admin-v2/access-policies/${applicationId}`);
-  await page.getByRole("button", { name: "Crear draft" }).click();
-  await expect(page.getByRole("button", { name: /v2 Draft/ })).toBeVisible();
+  await page.getByRole("button", { name: "Crear borrador" }).click();
+  await expect(page.getByRole("button", { name: /v2 Borrador/ })).toBeVisible();
   await page.getByRole("button", { name: "Nueva regla" }).click();
   await page.getByLabel("Nombre", { exact: true }).fill("Block high risk");
   await page.getByLabel("Prioridad").fill("10");
@@ -837,7 +891,7 @@ test("creates, validates and simulates a SCIM profile mapping", async ({ page })
   await expect(page.getByRole("status").filter({ hasText: "son válidos" })).toBeVisible();
   expect(validatePayload).toEqual({ applicationSystemId: applicationId, sourceSystem: "SCIM", sourcePath: profileMapping.sourcePath, targetAttributeDefinitionId: profileSchema[0].id, isAuthoritative: true });
 
-  await page.getByRole("button", { name: "Crear mapping" }).click();
+  await page.getByRole("button", { name: "Crear mapeo" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin-v2/profile-mappings/${profileMappingId}$`));
   expect(createPayload).toEqual(validatePayload);
   await expect(page.getByRole("heading", { name: "Simulación" })).toBeVisible();
@@ -862,7 +916,7 @@ test("blocks a stale profile mapping update and offers to reload", async ({ page
 
   await page.goto(`/admin-v2/profile-mappings/${profileMappingId}`);
   await expect(page.getByLabel("Ruta de origen SCIM")).toHaveValue(profileMapping.sourcePath);
-  await page.getByLabel("Mapping activo").uncheck();
+  await page.getByLabel("Mapeo activo").uncheck();
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   await expect(page.getByRole("alert")).toContainText("cambió desde que lo cargaste");
   await expect(page.getByRole("button", { name: "Recargar" })).toBeVisible();
@@ -888,7 +942,7 @@ test("creates a typed group rule and previews the affected members", async ({ pa
   await page.route(`**/api/lifecycle/group-rules/${groupRuleId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) }));
 
   await page.goto("/admin-v2/group-rules/new");
-  await page.getByLabel("Grupo").selectOption(groupId);
+  await page.getByRole("combobox", { name: "Grupo" }).selectOption(groupId);
   await page.getByLabel("Atributo del perfil").selectOption(levelDefinition.id);
   await expect(page.getByText("Número entero, por ejemplo 3.")).toBeVisible();
   await page.getByLabel("Valor esperado").fill("3.5");
@@ -921,7 +975,7 @@ test("offers the operators of the attribute's type and sends typed lists", async
   await page.route(`**/api/lifecycle/group-rules/${groupRuleId}`, async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: groupRule }) }));
 
   await page.goto("/admin-v2/group-rules/new");
-  await page.getByLabel("Grupo").selectOption(groupId);
+  await page.getByRole("combobox", { name: "Grupo" }).selectOption(groupId);
   const operator = page.getByLabel("Operador");
   await page.getByLabel("Atributo del perfil").selectOption(profileSchema[0].id);
   await expect(operator.locator("option")).toHaveText(["Es igual a", "Es distinto de", "Es uno de", "Contiene", "Empieza por", "Tiene un valor"]);
@@ -991,17 +1045,17 @@ test("creates an OIDC federation provider with step-up and never echoes the secr
   await page.goto(`/admin-v2/federation/providers/new?applicationId=${applicationId}`);
   await expect(page.getByLabel("Aplicación")).toHaveValue(applicationId);
   await page.getByLabel("Nombre").fill(oidcProvider.name);
-  await page.getByLabel("Issuer", { exact: true }).fill(oidcProvider.issuer);
+  await page.getByLabel("Emisor (issuer)", { exact: true }).fill(oidcProvider.issuer);
   await page.getByLabel("Client ID").fill("authcenter");
-  await page.getByLabel("Callback URL").fill("http://insecure.example.test/callback");
-  await page.getByLabel("Client secret").fill("upstream-secret");
-  await page.getByLabel(/Just-in-time provisioning/).check();
+  await page.getByLabel("URL de retorno (callback)").fill("http://insecure.example.test/callback");
+  await page.getByLabel("Secreto del cliente (client secret)").fill("upstream-secret");
+  await page.getByLabel(/Crear la cuenta en el primer acceso/).check();
   await page.getByLabel("Vinculación de cuentas").selectOption("VerifiedEmail");
   await page.getByRole("button", { name: "Verificar y crear" }).click();
-  await expect(page.getByText("La callback URL debe ser HTTPS y exacta.")).toBeVisible();
+  await expect(page.getByText("La URL de retorno debe ser HTTPS y exacta.")).toBeVisible();
   expect(purposes).toEqual([]);
 
-  await page.getByLabel("Callback URL").fill(oidcProvider.oidcCallbackUrl);
+  await page.getByLabel("URL de retorno (callback)").fill(oidcProvider.oidcCallbackUrl);
   await page.getByRole("button", { name: "Verificar y crear" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
@@ -1015,9 +1069,62 @@ test("creates an OIDC federation provider with step-up and never echoes the secr
     jitProvisioningEnabled: true, accountLinkingMode: "VerifiedEmail", requireVerifiedEmail: true, trustUpstreamMfa: false, groupsClaim: null, groupMappings: [],
     isActive: true, version: 0
   });
-  await expect(page.getByText("Secret configurado")).toBeVisible();
-  await expect(page.getByLabel("Nuevo client secret")).toHaveValue("");
+  await expect(page.getByText("Secreto configurado")).toBeVisible();
+  await expect(page.getByLabel("Nuevo secreto del cliente (client secret)")).toHaveValue("");
   await expect(page.getByText("upstream-secret")).toHaveCount(0);
+});
+
+test("a mistyped password stays in the dialog and keeps the federation form", async ({ page }) => {
+  let attempts = 0;
+  let createPayload: Record<string, unknown> | null = null;
+  const wrongPassword = { success: false, errorCode: "INVALID_REAUTHENTICATION", message: "Reauthentication failed." };
+  await page.route("**/api/auth/reauth/password", async (route) => {
+    attempts += 1;
+    // A wrong password is a 400; an older server answered 401. Neither ends the session.
+    if (attempts <= 2) {
+      await route.fulfill({ status: attempts === 1 ? 400 : 401, contentType: "application/json", body: JSON.stringify(wrongPassword) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: { proofToken: "single-use-proof", assuranceLevel: "Password", expiresIn: 300 } }) });
+  });
+  await page.route("**/api/federation/providers", async (route) => {
+    if (route.request().method() === "POST") {
+      createPayload = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ success: true, data: oidcProvider }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, data: [oidcProvider] }) });
+  });
+
+  await page.goto(`/admin-v2/federation/providers/new?applicationId=${applicationId}`);
+  await page.getByLabel("Nombre").fill(oidcProvider.name);
+  await page.getByLabel("Emisor (issuer)", { exact: true }).fill(oidcProvider.issuer);
+  await page.getByLabel("Client ID").fill("authcenter");
+  await page.getByLabel("Secreto del cliente (client secret)").fill("upstream-secret");
+  await page.getByRole("button", { name: "Verificar y crear" }).click();
+
+  const dialog = page.getByRole("dialog");
+  const password = dialog.getByLabel("Tu contraseña actual");
+  for (const typo of ["AdminSecre123", "AdminSecret12"]) {
+    await password.fill(typo);
+    await dialog.getByRole("button", { name: "Verificar y crear" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText("La contraseña no es correcta. Inténtalo de nuevo.");
+    await expect(dialog).toBeVisible();
+    await expect(password).toHaveValue("");
+    await expect(password).toBeFocused();
+  }
+  // Still on the form with everything typed, the IdP's secret included.
+  await expect(page).toHaveURL(/\/admin-v2\/federation\/providers\/new\?/);
+  await expect(page.getByLabel("Nombre")).toHaveValue(oidcProvider.name);
+  await expect(page.getByLabel("Secreto del cliente (client secret)")).toHaveValue("upstream-secret");
+  expect(createPayload).toBeNull();
+  expect((await new AxeBuilder({ page }).include("dialog[open]").analyze()).violations).toEqual([]);
+
+  await password.fill("AdminSecret123");
+  await dialog.getByRole("button", { name: "Verificar y crear" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/federation/providers/${oidcProviderId}$`));
+  expect(attempts).toBe(3);
+  expect(createPayload).toMatchObject({ name: oidcProvider.name, clientSecret: "upstream-secret" });
 });
 
 test("maps IdP groups, trusts its MFA and tests the provider connection", async ({ page }) => {
@@ -1036,7 +1143,7 @@ test("maps IdP groups, trusts its MFA and tests the provider connection", async 
     ] } }) }));
 
   await page.goto(`/admin-v2/federation/providers/${oidcProviderId}`);
-  await expect(page.getByLabel("Callback URL")).toHaveAttribute("placeholder", "https://authcenter.example.test/api/federation/oidc/callback");
+  await expect(page.getByLabel("URL de retorno (callback)")).toHaveAttribute("placeholder", "https://authcenter.example.test/api/federation/oidc/callback");
   await expect(page.getByLabel(/Exigir email_verified/)).toBeChecked();
   await page.getByLabel(/Confiar en el MFA del IdP/).check();
   await page.getByRole("button", { name: "Agregar mapeo de grupo" }).click();
@@ -1054,8 +1161,8 @@ test("maps IdP groups, trusts its MFA and tests the provider connection", async 
 
   await page.getByRole("button", { name: "Probar conexión" }).click();
   const results = page.getByRole("list", { name: "Resultado de la prueba de conexión" });
-  await expect(results).toContainText("Documento de discovery");
-  await expect(results.getByRole("listitem").filter({ hasText: "Issuer" })).toContainText("Error");
+  await expect(results).toContainText("Documento de descubrimiento");
+  await expect(results.getByRole("listitem").filter({ hasText: "Emisor" })).toContainText("Error");
   await expect(results.getByRole("listitem").filter({ hasText: "PKCE S256" })).toContainText("Advertencia");
   await expect(page.getByText("Con errores")).toBeVisible();
 });
@@ -1072,10 +1179,10 @@ test("updates a SAML provider without re-sending the stored certificate", async 
   await page.goto(`/admin-v2/federation/providers/${samlProviderId}`);
   await expect(page.getByRole("heading", { name: "SAML 2.0" })).toBeVisible();
   await expect(page.getByText(`SHA-1 ${samlProvider.samlSigningCertificateThumbprint}`)).toBeVisible();
-  await expect(page.getByLabel("Metadata del SP")).toHaveValue(new RegExp(`/api/federation/saml/${samlProviderId}/metadata$`));
+  await expect(page.getByLabel("Metadatos de AuthCenter (SP)")).toHaveValue(new RegExp(`/api/federation/saml/${samlProviderId}/metadata$`));
   await expect(page.getByLabel("ACS de AuthCenter")).toHaveValue("https://authcenter.example.test/api/federation/saml/acs");
   await expect(page.getByLabel("Nuevo certificado de firma (PEM)")).toHaveValue("");
-  await page.getByLabel("URL de Single Sign-On").fill("https://idp.example.test/sso2");
+  await page.getByLabel("URL de inicio de sesión (SSO)").fill("https://idp.example.test/sso2");
   await page.getByRole("button", { name: "Verificar y guardar" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel(/Tu contrase.*a actual/).fill("AdminSecret123");
@@ -1108,7 +1215,7 @@ test("creates, reorders and simulates federation routing rules with step-up", as
   });
 
   await page.goto(`/admin-v2/federation?applicationId=${applicationId}`);
-  await expect(page.getByRole("heading", { name: "Routing rules", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reglas de enrutamiento", exact: true })).toBeVisible();
   await expect(page.getByText("dominio empresa.com")).toBeVisible();
   await expect(page.getByText(`grupo ${group.name}`)).toBeVisible();
 
@@ -1179,7 +1286,7 @@ test("editing a routing rule without directory permissions preserves its group a
 
   await page.getByLabel("Valor esperado").fill("Ventas");
   await page.getByRole("button", { name: "Verificar y guardar", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("AUTHCENTER_PROFILE_SCHEMAS_READ");
+  await expect(page.getByRole("alert")).toContainText("«Consultar el esquema de perfil»");
   expect(updatePayload).toBeNull();
 
   await page.getByLabel("Valor esperado").fill("Ingeniería");

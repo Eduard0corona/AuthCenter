@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, RoleSummary, UserSummary } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { PageHeader } from "../../components/PageHeader";
@@ -57,7 +58,7 @@ export default function UserProvisioningPage({ mode }: { mode: UserProvisioningM
     <PageHeader eyebrow="Directorio" title={title} description={mode === "invite" ? "Envía un vínculo de un solo uso y concede únicamente el acceso inicial necesario." : "Crea una identidad local con una contraseña temporal que deberá cambiarse en el primer acceso."} actions={<Link className="button button--secondary" to="/users">Volver al listado</Link>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback} {created ? <Link to={`/users/${created.id}`}>Administrar {created.fullName}</Link> : null}</p> : null}
     {save.error ? <p className="alert alert--error" role="alert">{errorMessage(save.error)}</p> : null}
-    {!canReadApplications ? <p className="alert alert--info">Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar acceso inicial. Puedes crear un usuario sin acceso, pero no enviar invitaciones.</p> : null}
+    {!canReadApplications ? <p className="alert alert--info">{needPermission("AUTHCENTER_APPLICATIONS_READ", "dar acceso inicial")} Puedes crear un usuario sin acceso, pero no enviar invitaciones.</p> : null}
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
       <fieldset className="settings-fieldset" disabled={save.isPending || (mode === "invite" && !canReadApplications)}>
         <section className="settings-panel" aria-labelledby="provisioning-identity">

@@ -21,10 +21,10 @@ const STATUSES: Array<{ value: "" | EventDeliveryStatus; label: string }> = [
   { value: "", label: "Todas" },
   { value: "pending", label: "Pendientes" },
   { value: "delivered", label: "Entregadas" },
-  { value: "dead-letter", label: "Dead letters" }
+  { value: "dead-letter", label: "Fallidas" }
 ];
 
-const STATUS_LABELS: Record<EventDeliveryStatus, string> = { pending: "Pendiente", delivered: "Entregada", "dead-letter": "Dead letter" };
+const STATUS_LABELS: Record<EventDeliveryStatus, string> = { pending: "Pendiente", delivered: "Entregada", "dead-letter": "Fallida" };
 
 interface ReplayRequest {
   delivery: EventDelivery;
@@ -89,15 +89,15 @@ export default function EventDeliveriesPage() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: "Event Hooks", to: "/event-hooks" }, { label: "Entregas" }]} />
+      <Breadcrumbs items={[{ label: "Webhooks de eventos", to: "/event-hooks" }, { label: "Entregas" }]} />
       <PageHeader
         eyebrow="Operación"
-        title="Entregas de Event Hooks"
-        description="Diagnostica entregas, revisa el payload firmado y reintenta dead letters con confirmación explícita."
+        title="Entregas de webhooks"
+        description="Comprueba qué eventos llegaron a tus sistemas. Revisa el contenido firmado de cada entrega y reintenta las que fallaron."
         actions={<div className="segmented" role="group" aria-label="Estado de la entrega">{STATUSES.map((item) => <button key={item.value || "all"} type="button" aria-pressed={status === item.value} onClick={() => update({ status: item.value }, false)}>{item.label}</button>)}</div>}
       />
       <section className="toolbar toolbar--wide" aria-label="Filtros de entregas">
-        <label className="field"><span>Hook</span><select value={hookId} onChange={(event) => update({ hook: event.target.value }, false)}><option value="">Todos los hooks</option>{hooks.data?.map((hook) => <option key={hook.id} value={hook.id}>{hook.name}</option>)}</select></label>
+        <label className="field"><span>Webhook</span><select value={hookId} onChange={(event) => update({ hook: event.target.value }, false)}><option value="">Todos los webhooks</option>{hooks.data?.map((hook) => <option key={hook.id} value={hook.id}>{hook.name}</option>)}</select></label>
         <DebouncedTextField label="Tipo de evento" value={params.get("eventType") ?? ""} onCommit={commitEventType} placeholder="USER_CREATED" normalize={(value) => value.trim().toUpperCase()} />
         <DebouncedTextField label="ID del evento" value={params.get("eventId") ?? ""} onCommit={commitEventId} />
         <label className="field"><span>Desde (hora local)</span><input type="date" value={params.get("from") ?? ""} onChange={(event) => update({ from: event.target.value }, false)} /></label>
@@ -107,12 +107,12 @@ export default function EventDeliveriesPage() {
       {replay.error ? <p className="alert alert--error" role="alert">{errorMessage(replay.error)}</p> : null}
       {deliveries.isPending ? <PageState title="Cargando entregas" busy /> : null}
       {deliveries.isError ? <PageState title="No pudimos cargar entregas" detail={errorMessage(deliveries.error)} tone="error" action={<button className="button" type="button" onClick={() => void deliveries.refetch()}>Reintentar</button>} /> : null}
-      {deliveries.data?.items.length === 0 ? <PageState title="Sin entregas" detail={status === "dead-letter" ? "No existen dead letters pendientes." : filtered ? "No encontramos entregas con estos filtros." : "Todavía no hay eventos entregados."} /> : null}
+      {deliveries.data?.items.length === 0 ? <PageState title="Sin entregas" detail={status === "dead-letter" ? "No hay entregas fallidas." : filtered ? "No encontramos entregas con estos filtros." : "Todavía no hay eventos entregados."} /> : null}
       {deliveries.data && deliveries.data.items.length > 0 ? <>
-        <div className="data-table" tabIndex={0} role="region" aria-label="Entregas de Event Hooks, desplazamiento horizontal" aria-busy={deliveries.isFetching || undefined}>
+        <div className="data-table" tabIndex={0} role="region" aria-label="Entregas de webhooks, desplazamiento horizontal" aria-busy={deliveries.isFetching || undefined}>
           <table>
-            <caption className="sr-only">Entregas de Event Hooks</caption>
-            <thead><tr><th scope="col">Evento</th><th scope="col">Hook</th><th scope="col">Estado</th><th scope="col">Intentos</th><th scope="col">Registrada</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
+            <caption className="sr-only">Entregas de webhooks</caption>
+            <thead><tr><th scope="col">Evento</th><th scope="col">Webhook</th><th scope="col">Estado</th><th scope="col">Intentos</th><th scope="col">Registrada</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
             <tbody>{deliveries.data.items.map((delivery) => {
               const state = deliveryStatus(delivery);
               return <tr key={delivery.id}>
@@ -129,7 +129,7 @@ export default function EventDeliveriesPage() {
         <Pagination page={deliveries.data.page} pageSize={deliveries.data.pageSize} totalCount={deliveries.data.totalCount} totalPages={deliveries.data.totalPages} onPageChange={(value) => update({ page: String(value) }, false)} onPageSizeChange={(value) => update({ pageSize: String(value) }, false)} />
       </> : null}
       <DeliveryDetailDialog deliveryId={detailId} canReplay={canWrite} onClose={() => setDetailId(null)} onReplay={(delivery) => setTarget(delivery)} />
-      <ConfirmDialog open={target !== null} title="Reintentar dead letter" detail={target ? `El evento ${target.eventId} del hook ${target.hookName} volverá a la cola con el contador reiniciado.` : ""} confirmLabel="Reintentar" busy={replay.isPending} error={replay.error} onCancel={() => setTarget(null)} onConfirm={() => { if (target) replay.mutate({ delivery: target, idempotencyKey: crypto.randomUUID() }); }} />
+      <ConfirmDialog open={target !== null} title="Reintentar la entrega fallida" detail={target ? `El evento ${target.eventId} del webhook ${target.hookName} volverá a la cola con los intentos en cero.` : ""} confirmLabel="Reintentar" busy={replay.isPending} error={replay.error} onCancel={() => setTarget(null)} onConfirm={() => { if (target) replay.mutate({ delivery: target, idempotencyKey: crypto.randomUUID() }); }} />
     </>
   );
 }
@@ -150,22 +150,22 @@ function DeliveryDetailDialog({ deliveryId, canReplay, onClose, onReplay }: { de
   return (
     <dialog ref={dialog} className="dialog dialog--wide" aria-labelledby="delivery-detail-title" onCancel={(event) => { event.preventDefault(); onClose(); }}>
       <div className="dialog__content">
-        <p className="eyebrow">Entrega de Event Hook</p>
+        <p className="eyebrow">Entrega de webhook</p>
         <h2 id="delivery-detail-title">{delivery ? <code>{delivery.eventType}</code> : "Detalle de la entrega"}</h2>
         {detail.isPending ? <p className="muted">Cargando la entrega…</p> : null}
         {detail.isError ? <p className="alert alert--error" role="alert">{errorMessage(detail.error)}</p> : null}
         {delivery && state ? <>
           <dl className="detail-list">
             <div><dt>Estado</dt><dd><span className={`tag delivery-status--${state}`}>{STATUS_LABELS[state]}</span></dd></div>
-            <div><dt>Hook</dt><dd>{delivery.hookName}</dd></div>
+            <div><dt>Webhook</dt><dd>{delivery.hookName}</dd></div>
             <div><dt>ID del evento</dt><dd className="mono">{delivery.eventId}</dd></div>
             <div><dt>Intentos</dt><dd>{delivery.attemptCount}</dd></div>
             <div><dt>Registrada</dt><dd>{formatDate(delivery.createdAt ?? null)}</dd></div>
-            <div><dt>{state === "delivered" ? "Entregada" : state === "dead-letter" ? "Dead letter desde" : "Próximo intento"}</dt><dd>{formatDate(state === "delivered" ? delivery.deliveredAt : state === "dead-letter" ? delivery.deadLetteredAt : delivery.nextAttemptAt)}</dd></div>
+            <div><dt>{state === "delivered" ? "Entregada" : state === "dead-letter" ? "Fallida desde" : "Próximo intento"}</dt><dd>{formatDate(state === "delivered" ? delivery.deliveredAt : state === "dead-letter" ? delivery.deadLetteredAt : delivery.nextAttemptAt)}</dd></div>
           </dl>
           {delivery.lastError ? <><h3>Último error</h3><pre className="mono code-block delivery-error">{delivery.lastError}</pre></> : null}
-          <h3>Payload firmado</h3>
-          {delivery.payload ? <pre className="mono code-block">{formatPayload(delivery.payload)}</pre> : <p className="muted">La entrega no conserva el payload.</p>}
+          <h3>Contenido firmado (payload)</h3>
+          {delivery.payload ? <pre className="mono code-block">{formatPayload(delivery.payload)}</pre> : <p className="muted">La entrega no conserva su contenido.</p>}
         </> : null}
       </div>
       <div className="dialog__actions">

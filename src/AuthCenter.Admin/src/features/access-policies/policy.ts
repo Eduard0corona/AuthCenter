@@ -1,8 +1,24 @@
 import { z } from "zod";
-import type { AccessPolicyRule } from "../../api/types";
+import type { AccessPolicyRule, AccessPolicyVersion } from "../../api/types";
 
 export const policyDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 export const riskLevels = ["", "Unknown", "Low", "Medium", "High", "Critical"] as const;
+/** The risk of a simulated sign-in ("" is only a rule's "no condition"). */
+export const simulationRiskLevels = ["Unknown", "Low", "Medium", "High", "Critical"] as const;
+export const assuranceLevels = ["Password", "Mfa", "PhishingResistant"] as const;
+
+// The API's values, as the console shows them.
+export const dayLabels: Record<(typeof policyDays)[number], string> = {
+  Monday: "Lunes", Tuesday: "Martes", Wednesday: "Miércoles", Thursday: "Jueves", Friday: "Viernes", Saturday: "Sábado", Sunday: "Domingo"
+};
+export const riskLabels: Record<(typeof simulationRiskLevels)[number], string> = {
+  Unknown: "Desconocido", Low: "Bajo", Medium: "Medio", High: "Alto", Critical: "Crítico"
+};
+export const assuranceLabels: Record<(typeof assuranceLevels)[number], string> = {
+  Password: "Contraseña", Mfa: "Verificación en dos pasos (MFA)", PhishingResistant: "Resistente a phishing (llave de acceso)"
+};
+export const actionLabels: Record<AccessPolicyRule["action"], string> = { Allow: "Permitir", Deny: "Denegar" };
+export const versionStatusLabels: Record<AccessPolicyVersion["status"], string> = { Draft: "Borrador", Published: "Publicada", Archived: "Archivada" };
 
 const uuidOrEmpty = z.string().refine((value) => !value || z.string().uuid().safeParse(value).success, "Usa un UUID válido.");
 
@@ -23,7 +39,7 @@ export const policyRuleSchema = z.object({
   dailyEndTimeUtc: z.string(),
   minimumRiskLevel: z.enum(riskLevels),
   maximumRiskLevel: z.enum(riskLevels),
-  requiredAssuranceLevel: z.enum(["Password", "Mfa", "PhishingResistant"]),
+  requiredAssuranceLevel: z.enum(assuranceLevels),
   isActive: z.boolean()
 }).superRefine((values, context) => {
   if (values.targetType !== "all" && !values.targetId) context.addIssue({ code: "custom", path: ["targetId"], message: "Especifica el UUID del objetivo." });

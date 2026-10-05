@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { ApplicationSummary, PermissionSummary } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -39,7 +40,7 @@ export default function PermissionEditorPage({ create = false }: { create?: bool
   if (!create && permission.isError) return <PageState title="No pudimos cargar el permiso" detail={errorMessage(permission.error)} tone="error" />;
   const current = permission.data;
   const title = create ? "Nuevo permiso" : current?.name ?? "Permiso";
-  if (create && !canReadApplications) return <PageState tone="forbidden" title="Acceso complementario requerido" detail="Necesitas AUTHCENTER_APPLICATIONS_READ para seleccionar la aplicación del nuevo permiso." />;
+  if (create && !canReadApplications) return <PageState tone="forbidden" title="Acceso complementario requerido" detail={needPermission("AUTHCENTER_APPLICATIONS_READ", "elegir la aplicación del nuevo permiso")} />;
   return <>
     <Breadcrumbs items={[{ label: "Permisos", to: "/permissions" }, { label: title }]} />
     <PageHeader eyebrow={current?.code ?? "Catálogo"} title={title} description={canWrite ? "Define una capacidad estable y explícita para una aplicación." : "Consulta la capacidad efectiva. Tu acceso es de sólo lectura."} actions={<>{create ? null : <HistoryLink entityName="Permission" entityId={permissionId} />}<Link className="button button--secondary" to="/permissions">Volver</Link></>} />

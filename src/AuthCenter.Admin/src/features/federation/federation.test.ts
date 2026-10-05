@@ -65,7 +65,7 @@ describe("routing rules", () => {
     expect(routingRulePayload(values, undefined, original)).toEqual({ ok: true, payload: { priority: 10, emailDomain: "empresa.com", directoryGroupId: original.directoryGroupId, profileAttributeDefinitionId: definition.id, expectedProfileValueJson: "3", isActive: true, version: 2 } });
     const changed = routingRulePayload({ ...values, expectedValue: "4" }, undefined, original);
     expect(changed.ok).toBe(false);
-    expect(changed.ok ? "" : changed.error).toContain("AUTHCENTER_PROFILE_SCHEMAS_READ");
+    expect(changed.ok ? "" : changed.error).toContain("«Consultar el esquema de perfil»");
     expect(routingRulePayload({ ...values, expectedValue: "4" }, definition, original)).toMatchObject({ ok: true, payload: { expectedProfileValueJson: "4" } });
   });
 

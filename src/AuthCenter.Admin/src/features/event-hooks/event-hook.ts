@@ -6,7 +6,7 @@ export const WILDCARD = "*";
 const CATEGORY_LABELS: Record<string, string> = {
   authentication: "Autenticación",
   mfa: "Verificación en dos pasos",
-  passkeys: "Passkeys",
+  passkeys: "Llaves de acceso (passkeys)",
   sessions: "Sesiones y dispositivos",
   tokens: "Tokens",
   oauth: "OAuth y OpenID Connect",
@@ -18,8 +18,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   applications: "Aplicaciones",
   "access-policies": "Políticas de acceso",
   profiles: "Perfiles",
-  provisioning: "Provisioning",
-  "event-hooks": "Event hooks",
+  provisioning: "Aprovisionamiento (SCIM)",
+  "event-hooks": "Webhooks de eventos",
   administration: "Administración"
 };
 

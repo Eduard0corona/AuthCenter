@@ -7,6 +7,7 @@ import { useApplicationsCatalog } from "../../api/catalog";
 import { ApiError, apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { EventHook, EventHookSecret, EventTypeInfo } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { Field } from "../../components/Field";
@@ -22,9 +23,9 @@ import { EventTypePicker } from "./EventTypePicker";
 
 const HOOK_ERRORS: Record<string, string> = {
   INVALID_EVENT_HOOK: "Revisa el nombre, que la URL sea HTTPS y resuelva a un endpoint público, y que haya entre 1 y 100 tipos de evento.",
-  EVENT_HOOK_EXISTS: "Ya existe un hook con ese nombre en este alcance.",
+  EVENT_HOOK_EXISTS: "Ya existe un webhook con ese nombre en este alcance.",
   APP_NOT_FOUND: "La aplicación no existe o está inactiva.",
-  EVENT_HOOK_NOT_FOUND: "El hook no existe o está desactivado.",
+  EVENT_HOOK_NOT_FOUND: "El webhook no existe o está desactivado.",
   EVENT_HOOK_UNSAFE_URL: "La URL ya no resuelve a un endpoint público. Corrígela antes de verificar.",
   EVENT_HOOK_VERIFICATION_FAILED: "El endpoint no devolvió el reto de verificación. Debe responder 2xx con el valor recibido en el encabezado X-AuthCenter-Verification o en el cuerpo.",
   REAUTHENTICATION_REQUIRED: "La confirmación de identidad expiró. Vuelve a intentarlo."
@@ -83,16 +84,16 @@ function EventHookEditorPage({ create }: { create: boolean }) {
   });
   const verify = useMutation({
     mutationFn: () => apiRequest<void>(`/api/event-hooks/${hookId}/verify`, { method: "POST" }),
-    onSuccess: async () => { setFeedback("Endpoint verificado. El hook ya recibe eventos."); await refresh(); }
+    onSuccess: async () => { setFeedback("Endpoint verificado. El webhook ya recibe eventos."); await refresh(); }
   });
   const rotate = useMutation({
     mutationFn: (proofToken: string) => apiRequest<EventHookSecret>(`/api/event-hooks/${hookId}/rotate-secret`, { method: "POST", headers: { "X-AuthCenter-Reauthentication": proofToken } }),
     onSuccess: async (result) => { setRotating(false); setSecret(result); await refresh(); }
   });
 
-  if (!create && hook.isPending) return <PageState title="Cargando Event Hook" busy />;
-  if (!create && hook.isError) return <PageState title="No pudimos cargar el Event Hook" detail={errorMessage(hook.error, HOOK_ERRORS)} tone="error" action={<Link className="button" to="/event-hooks">Volver</Link>} />;
-  const title = create ? "Nuevo Event Hook" : current?.name ?? "Event Hook";
+  if (!create && hook.isPending) return <PageState title="Cargando webhook" busy />;
+  if (!create && hook.isError) return <PageState title="No pudimos cargar el webhook" detail={errorMessage(hook.error, HOOK_ERRORS)} tone="error" action={<Link className="button" to="/event-hooks">Volver</Link>} />;
+  const title = create ? "Nuevo webhook" : current?.name ?? "Webhook";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
 
   // Discards the local edits and shows what the server has now.
@@ -109,11 +110,11 @@ function EventHookEditorPage({ create }: { create: boolean }) {
   }
 
   return <>
-    <Breadcrumbs items={[{ label: "Event Hooks", to: "/event-hooks" }, { label: title }]} />
+    <Breadcrumbs items={[{ label: "Webhooks de eventos", to: "/event-hooks" }, { label: title }]} />
     <PageHeader
       eyebrow={create ? "Alta" : current?.applicationName ?? "Toda la plataforma"}
       title={title}
-      description={create ? "Define el endpoint HTTPS y los eventos que recibirá. El secreto de firma se muestra una sola vez." : canWrite ? "Edita el destino y la suscripción, verifica el endpoint y rota el secreto de firma." : "Consulta la configuración del hook. Tu acceso es de sólo lectura."}
+      description={create ? "Define el endpoint HTTPS y los eventos que recibirá. El secreto de firma se muestra una sola vez." : canWrite ? "Edita el destino y la suscripción, verifica el endpoint y rota el secreto de firma." : "Consulta la configuración del webhook. Tu acceso es de sólo lectura."}
       actions={<>{create ? null : <><HistoryLink entityName="EventHook" entityId={hookId} /><Link className="button button--secondary" to={`/event-hooks/deliveries?hook=${hookId}`}>Ver entregas</Link></>}<Link className="button button--secondary" to="/event-hooks">Volver al listado</Link></>}
     />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
@@ -121,30 +122,30 @@ function EventHookEditorPage({ create }: { create: boolean }) {
     <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => { setFeedback(""); return save.mutateAsync(values); })(event)}>
       <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="hook-destination">
-          <div className="settings-panel__heading"><div><h2 id="hook-destination">Destino</h2><p>AuthCenter entrega cada evento con un POST JSON firmado, reintenta con espera exponencial y deja en dead letter lo que no logra entregar.</p></div>{current ? <StatusBadge active={current.isActive} activeLabel="Activo" inactiveLabel="Desactivado" /> : null}</div>
+          <div className="settings-panel__heading"><div><h2 id="hook-destination">Destino</h2><p>AuthCenter entrega cada evento con un POST JSON firmado, reintenta con espera exponencial y marca como fallido lo que no logra entregar.</p></div>{current ? <StatusBadge active={current.isActive} activeLabel="Activo" inactiveLabel="Desactivado" /> : null}</div>
           <div className="form-grid">
-            <Field label="Nombre" error={form.formState.errors.name?.message}><input {...form.register("name")} autoComplete="off" placeholder="SIEM corporativo" /></Field>
-            <Field label="URL del endpoint" error={form.formState.errors.url?.message} help="HTTPS público. AuthCenter rechaza direcciones privadas y no sigue redirecciones."><input {...form.register("url")} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://hooks.example.com/authcenter" /></Field>
-            {create ? <Field label="Alcance" help={canReadApplications ? "Un hook de aplicación recibe sólo los eventos de esa aplicación." : "Necesitas AUTHCENTER_APPLICATIONS_READ para limitar el hook a una aplicación."}><select {...form.register("applicationSystemId")}><option value="">Toda la plataforma</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
-              : <Field label="Alcance" help="El alcance se fija al crear el hook."><input value={current?.applicationName ?? "Toda la plataforma"} readOnly /></Field>}
-            {!create ? <label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>Hook activo: recibe eventos nuevos</span></label> : null}
+            <Field label="Nombre" error={form.formState.errors.name?.message} help="Ej.: SIEM corporativo"><input {...form.register("name")} autoComplete="off" /></Field>
+            <Field label="URL del endpoint" error={form.formState.errors.url?.message} help="HTTPS público. AuthCenter rechaza direcciones privadas y no sigue redirecciones. Ej.: https://hooks.example.com/authcenter"><input {...form.register("url")} type="url" inputMode="url" autoComplete="off" spellCheck={false} /></Field>
+            {create ? <Field label="Alcance" help={canReadApplications ? "Un webhook de aplicación recibe sólo los eventos de esa aplicación." : needPermission("AUTHCENTER_APPLICATIONS_READ", "limitar el webhook a una aplicación")}><select {...form.register("applicationSystemId")}><option value="">Toda la plataforma</option>{applications.data?.filter((application) => application.isActive).map((application) => <option key={application.id} value={application.id}>{application.name} ({application.code})</option>)}</select></Field>
+              : <Field label="Alcance" help="El alcance se fija al crear el webhook."><input value={current?.applicationName ?? "Toda la plataforma"} readOnly /></Field>}
+            {!create ? <label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>Webhook activo: recibe eventos nuevos</span></label> : null}
           </div>
         </section>
         <section className="settings-panel" aria-labelledby="hook-events">
-          <div className="settings-panel__heading"><div><h2 id="hook-events">Eventos</h2><p>Suscríbete sólo a lo que el receptor procesa. Los tipos corresponden a las acciones del System Log.</p></div></div>
+          <div className="settings-panel__heading"><div><h2 id="hook-events">Eventos</h2><p>Suscríbete sólo a lo que el receptor procesa. Los tipos corresponden a las acciones del registro de actividad.</p></div></div>
           {catalog.isError ? <p className="alert alert--error" role="alert">{errorMessage(catalog.error)}</p> : null}
           {catalog.isPending ? <p className="muted">Cargando el catálogo de eventos…</p> : null}
           {catalog.data ? <Controller control={form.control} name="eventTypes" render={({ field, fieldState }) => <EventTypePicker catalog={catalog.data} value={field.value} onChange={field.onChange} disabled={!canWrite} error={fieldState.error?.message} />} /> : null}
         </section>
       </fieldset>
-      {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/event-hooks">Cancelar</Link><button className="button" type="submit" disabled={save.isPending || !catalog.data}>{save.isPending ? "Guardando…" : create ? "Crear hook" : "Guardar cambios"}</button></div> : null}
+      {canWrite ? <div className="form-footer"><Link className="button button--secondary" to="/event-hooks">Cancelar</Link><button className="button" type="submit" disabled={save.isPending || !catalog.data}>{save.isPending ? "Guardando…" : create ? "Crear webhook" : "Guardar cambios"}</button></div> : null}
     </form>
     {current ? <>
       <section className="settings-panel settings-panel--actions" aria-labelledby="hook-verification">
-        <div className="settings-panel__heading"><div><h2 id="hook-verification">Verificación del endpoint</h2><p>Mientras no esté verificado, el hook no recibe eventos. Cambiar la URL exige verificarlo de nuevo.</p></div>{current.isVerified ? <span className="tag tag--direct">Verificado {formatDate(current.verifiedAt)}</span> : <span className="tag tag--warning">Sin verificar</span>}</div>
+        <div className="settings-panel__heading"><div><h2 id="hook-verification">Verificación del endpoint</h2><p>Mientras no esté verificado, el webhook no recibe eventos. Cambiar la URL exige verificarlo de nuevo.</p></div>{current.isVerified ? <span className="tag tag--direct">Verificado {formatDate(current.verifiedAt)}</span> : <span className="tag tag--warning">Sin verificar</span>}</div>
         <p>AuthCenter envía <code>GET</code> a la URL con <code>?verification_challenge=&lt;reto&gt;</code> y el encabezado <code>X-AuthCenter-Verification</code>. El endpoint debe responder 2xx devolviendo el mismo reto en ese encabezado o en el cuerpo.</p>
         {verify.error ? <p className="alert alert--error" role="alert">{errorMessage(verify.error, HOOK_ERRORS)}</p> : null}
-        {canWrite ? <div className="button-row"><button className="button button--secondary" type="button" onClick={() => { setFeedback(""); verify.mutate(); }} disabled={verify.isPending || !current.isActive}>{verify.isPending ? "Verificando…" : current.isVerified ? "Verificar de nuevo" : "Verificar endpoint"}</button>{!current.isActive ? <span className="muted">Activa el hook para verificarlo.</span> : null}</div> : null}
+        {canWrite ? <div className="button-row"><button className="button button--secondary" type="button" onClick={() => { setFeedback(""); verify.mutate(); }} disabled={verify.isPending || !current.isActive}>{verify.isPending ? "Verificando…" : current.isVerified ? "Verificar de nuevo" : "Verificar endpoint"}</button>{!current.isActive ? <span className="muted">Activa el webhook para verificarlo.</span> : null}</div> : null}
       </section>
       <section className="settings-panel settings-panel--actions" aria-labelledby="hook-secret">
         <div className="settings-panel__heading"><div><h2 id="hook-secret">Secreto de firma</h2><p>Cada entrega lleva <code>X-AuthCenter-Timestamp</code> y <code>X-AuthCenter-Signature: v1=&lt;HMAC-SHA256 de "timestamp.cuerpo"&gt;</code>.</p></div></div>
@@ -155,6 +156,6 @@ function EventHookEditorPage({ create }: { create: boolean }) {
       </section>
     </> : null}
     <ReauthenticationDialog open={rotating} purpose="admin.event-hook.rotate-secret" title="Rotar el secreto de firma" detail="Se generará un secreto nuevo que verás una sola vez. Durante 24 horas las entregas también se firmarán con el anterior." confirmLabel="Verificar y rotar" onCancel={() => setRotating(false)} onProof={async (proofToken) => { await rotate.mutateAsync(proofToken); }} />
-    <SecretRevealDialog open={secret !== null} secret={secret?.secret ?? ""} title={create ? `Secreto de ${form.getValues("name") || "el hook"}` : `Nuevo secreto de ${title}`} onClose={closeSecret} />
+    <SecretRevealDialog open={secret !== null} secret={secret?.secret ?? ""} title={create ? `Secreto de ${form.getValues("name") || "el webhook"}` : `Nuevo secreto de ${title}`} onClose={closeSecret} />
   </>;
 }

@@ -40,7 +40,7 @@ test("editors send the version they loaded", async ({ page }) => {
   await page.route("**/api/roles?**", (route) => json(route, paged([], 1, 100)));
   await page.route(`**/api/applications/${applicationId}`, async (route) => {
     if (route.request().method() === "PUT") applicationUpdate = route.request().postDataJSON() as Record<string, unknown>;
-    await json(route, { ...application, registrationSettings: { registrationMode: "Closed", allowGoogleLogin: false, allowMicrosoftLogin: false, allowGitHubLogin: false, allowAppleLogin: false, allowMagicLink: false, allowPasswordLogin: true, requireEmailConfirmation: false, requireMfa: false, allowedEmailDomains: null, defaultRoleId: null } });
+    await json(route, { ...application, registrationSettings: { registrationMode: "Closed", audience: "Employees", allowGoogleLogin: false, allowMicrosoftLogin: false, allowGitHubLogin: false, allowAppleLogin: false, allowMagicLink: false, allowPasswordLogin: true, requireEmailConfirmation: false, requireMfa: false, allowedEmailDomains: null, defaultRoleId: null } });
   });
 
   await page.goto(`/admin-v2/applications/${applicationId}`);

@@ -53,7 +53,7 @@ async function send<T>(path: string, init: RequestInit, mayRenewCsrf: boolean): 
 
   const response = await fetch(path, { ...init, method, headers, credentials: "same-origin" });
   const envelope = await readEnvelope<T>(response);
-  if (response.status === 401) redirectToLoginOnce();
+  if (endsSession(path, response.status)) redirectToLoginOnce();
   // The double-submit cookie is replaced whenever another tab (the portal, another console) reads
   // the session, and expires with it. Renew it once and repeat the request.
   if (mayRenewCsrf && !isSafeMethod(method) && response.status === 400 && envelope?.errorCode === "INVALID_CSRF_TOKEN" && await renewCsrfToken())
@@ -106,6 +106,18 @@ async function readEnvelope<T>(response: Response): Promise<ApiEnvelope<T> | nul
   } catch {
     return null;
   }
+}
+
+// Confirming one's identity (password or passkey) answers a wrong attempt with a 400; servers
+// before INVALID_REAUTHENTICATION answered 401. Either way the session is still valid.
+const STEP_UP_PATHS = ["/api/auth/reauth/", "/api/auth/passkeys/step-up/"];
+
+/**
+ * Whether a response means the session ended: any 401, except from a step-up check, where leaving
+ * for the login would lose the form the operator was confirming.
+ */
+export function endsSession(path: string, status: number): boolean {
+  return status === 401 && !STEP_UP_PATHS.some((prefix) => path.startsWith(prefix));
 }
 
 export function redirectToLoginOnce(): void {

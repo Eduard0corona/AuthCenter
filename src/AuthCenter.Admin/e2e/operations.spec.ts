@@ -39,14 +39,24 @@ test("shows platform metrics that link to filtered pages, the environment and th
   const status = page.getByRole("region", { name: "Estado de la plataforma" });
   await expect(status.getByRole("link", { name: /1,280\s*Usuarios activos/ })).toBeVisible();
   await expect(status.getByText("Inicios de sesión de riesgo alto")).toBeVisible();
+  // What needs attention comes first: the failed deliveries (critical), then the pending requests.
+  const cards = status.getByRole("listitem");
+  await expect(cards.first()).toContainText("Entregas fallidas");
+  await expect(cards.nth(1)).toContainText("Solicitudes de acceso pendientes");
+  // Quick actions replace the cards that repeated the menu.
+  const quick = page.getByRole("region", { name: "Acciones rápidas" });
+  await expect(quick.getByRole("link", { name: "Registrar aplicación" })).toHaveAttribute("href", "/admin-v2/applications/new");
+  await expect(quick.getByRole("link", { name: "Crear cliente OAuth" })).toHaveAttribute("href", "/admin-v2/oauth-clients/new");
+  await expect(quick.getByRole("link", { name: "Invitar usuario" })).toHaveAttribute("href", "/admin-v2/users/invite");
+  await expect(page.getByText("Abrir módulo")).toHaveCount(0);
   if (page.viewportSize()!.width > 760) {
     await expect(page.locator(".environment-pill")).toHaveText(/Producción/);
     await expect(page.locator(".sidebar__version")).toHaveText("AuthCenter v1.4.0 · 0123456");
   }
 
-  await status.getByRole("link", { name: /4\s*Entregas en dead letter/ }).click();
+  await status.getByRole("link", { name: /4\s*Entregas fallidas/ }).click();
   await expect(page).toHaveURL(/\/admin-v2\/event-hooks\/deliveries\?status=dead-letter$/);
-  await expect(page.getByRole("button", { name: "Dead letters" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Fallidas" })).toHaveAttribute("aria-pressed", "true");
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
@@ -58,6 +68,8 @@ test("hides the metrics from operators without the audit permission", async ({ p
   await page.goto("/admin-v2/");
   await expect(page.getByRole("heading", { name: "Hola, Ada" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Estado de la plataforma" })).toHaveCount(0);
+  // Read-only operators get no quick actions: they could not complete them.
+  await expect(page.getByRole("region", { name: "Acciones rápidas" })).toHaveCount(0);
   expect(dashboardRequests).toBe(0);
 });
 
@@ -73,11 +85,11 @@ test("narrows the System Log to one trace, typed or from an event's detail", asy
   await page.getByRole("button", { name: /Detalle del evento EVENT_HOOK_UPDATED/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Eventos de esta traza" }).click();
   await expect(page).toHaveURL(new RegExp(`trace=${auditEntry.traceId}$`));
-  await expect(page.getByLabel("Trace ID")).toHaveValue(auditEntry.traceId);
+  await expect(page.getByLabel("Referencia (trace ID)")).toHaveValue(auditEntry.traceId);
   await expect.poll(() => requests.at(-1) ?? "").toContain(`traceId=${auditEntry.traceId}`);
 
   // The reference support copies from an error message works the same way.
-  await page.getByLabel("Trace ID").fill("0af7651916cd43dd8448eb211c80319c");
+  await page.getByLabel("Referencia (trace ID)").fill("0af7651916cd43dd8448eb211c80319c");
   await expect.poll(() => requests.at(-1) ?? "").toContain("traceId=0af7651916cd43dd8448eb211c80319c");
   await expect(page).toHaveURL(/trace=0af7651916cd43dd8448eb211c80319c/);
 });
@@ -105,7 +117,7 @@ test("filters the System Log with debounce, shows the actor and details, and exp
   expect(requests.length - initialRequests).toBeLessThanOrEqual(2);
   await expect(page.getByLabel("Acción")).toHaveValue("EVENT_HOOK_UPDATED");
 
-  await page.getByRole("link", { name: "Event hook" }).first().isVisible();
+  await page.getByRole("link", { name: "Webhook de eventos" }).first().isVisible();
   await page.getByRole("button", { name: /Detalle del evento EVENT_HOOK_UPDATED/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("203.0.113.7");
@@ -140,7 +152,7 @@ test("creates a hook from the event catalog and reveals its secret once", async 
   await page.goto("/admin-v2/event-hooks/new");
   await page.getByLabel("Nombre").fill(hook.name);
   await page.getByLabel("URL del endpoint").fill("http://siem.example.test/authcenter");
-  await page.getByRole("button", { name: "Crear hook" }).click();
+  await page.getByRole("button", { name: "Crear webhook" }).click();
   await expect(page.getByText(/Usa una URL HTTPS pública/)).toBeVisible();
   await expect(page.getByText("Selecciona al menos un tipo de evento.")).toBeVisible();
 
@@ -151,7 +163,7 @@ test("creates a hook from the event catalog and reveals its secret once", async 
   await page.getByLabel("Filtrar tipos").fill("");
   await page.getByRole("checkbox", { name: "LOGIN_FAILED" }).check();
   await expect(page.getByText("3 tipos seleccionados")).toBeVisible();
-  await page.getByRole("button", { name: "Crear hook" }).click();
+  await page.getByRole("button", { name: "Crear webhook" }).click();
 
   const secretDialog = page.getByRole("dialog");
   await expect(secretDialog).toContainText("whsec_e2e_revealed_once");
@@ -247,7 +259,7 @@ test("inspects a dead letter's payload and replays it once with an idempotency k
 
   await page.goto(`/admin-v2/event-hooks/deliveries?hook=${hookId}`);
   await expect.poll(() => lastQuery).toContain(`hookId=${hookId}`);
-  await page.getByRole("button", { name: "Dead letters" }).click();
+  await page.getByRole("button", { name: "Fallidas" }).click();
   await expect.poll(() => lastQuery).toContain("status=dead-letter");
   await expect(page.getByText("HTTP 503 Service Unavailable")).toBeVisible();
 
@@ -255,7 +267,7 @@ test("inspects a dead letter's payload and replays it once with an idempotency k
   const detail = page.getByRole("dialog", { name: /USER_CREATED/ });
   await expect(detail).toContainText("\"subjectId\": \"user-1\"");
   await detail.getByRole("button", { name: "Reintentar entrega" }).click();
-  const confirm = page.getByRole("dialog", { name: "Reintentar dead letter" });
+  const confirm = page.getByRole("dialog", { name: "Reintentar la entrega fallida" });
   await confirm.getByRole("button", { name: "Reintentar" }).click();
   await expect(page.getByRole("status")).toContainText(`El evento ${eventId} volvió a la cola.`);
   expect(replayKeys).toHaveLength(1);
@@ -270,7 +282,7 @@ test("operators without write access see hooks read-only", async ({ page }) => {
 
   await page.goto("/admin-v2/event-hooks");
   await expect(page.getByRole("cell", { name: /SIEM corporativo https/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Nuevo hook" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Nuevo webhook" })).toHaveCount(0);
   await page.getByRole("link", { name: /Abrir SIEM corporativo/ }).click();
   await expect(page.getByLabel("Nombre")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Rotar secreto" })).toHaveCount(0);

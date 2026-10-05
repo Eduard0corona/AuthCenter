@@ -7,6 +7,7 @@ import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest, ApiError } from "../../api/client";
 import { errorMessage } from "../../api/errors";
 import type { DirectoryGroupSummary, DynamicGroupRule, GroupRulePreview, ProfileAttributeDefinition } from "../../api/types";
+import { needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -112,17 +113,17 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
     if (!operatorsFor(next?.dataType).includes(form.getValues("operator"))) form.setValue("operator", "eq");
   }
 
-  if (!create && rule.isPending) return <PageState title="Cargando group rule" busy />;
-  if (!create && rule.isError) return <PageState title="No pudimos cargar la group rule" detail={errorMessage(rule.error)} tone="error" action={<Link className="button" to="/group-rules">Volver</Link>} />;
-  if (!canReadSchema) return <PageState title="No puedes administrar group rules" detail="Necesitas AUTHCENTER_PROFILE_SCHEMAS_READ para elegir el atributo evaluado por la regla." tone="forbidden" action={<Link className="button" to="/group-rules">Volver</Link>} />;
-  const title = create ? "Nueva group rule" : current ? `${current.groupName}: ${describeRule(current)}` : "Group rule";
+  if (!create && rule.isPending) return <PageState title="Cargando regla de grupo" busy />;
+  if (!create && rule.isError) return <PageState title="No pudimos cargar la regla de grupo" detail={errorMessage(rule.error)} tone="error" action={<Link className="button" to="/group-rules">Volver</Link>} />;
+  if (!canReadSchema) return <PageState title="No puedes administrar reglas de grupo" detail={needPermission("AUTHCENTER_PROFILE_SCHEMAS_READ", "elegir el atributo que evalúa la regla")} tone="forbidden" action={<Link className="button" to="/group-rules">Volver</Link>} />;
+  const title = create ? "Nueva regla de grupo" : current ? `${current.groupName}: ${describeRule(current)}` : "Regla de grupo";
   const conflict = save.error instanceof ApiError && save.error.code === "CONCURRENCY_CONFLICT";
   const formError = conflict || !(save.error instanceof ApiError) ? null : save.error;
   const users = preview.data?.users;
 
   return <>
-    <Breadcrumbs items={[{ label: "Group rules", to: "/group-rules" }, { label: title }]} />
-    <PageHeader eyebrow={create ? "Alta" : current?.groupName ?? "Lifecycle"} title={title} description={create ? "Los usuarios cuyo perfil cumple la condición entran al grupo automáticamente y salen cuando deja de cumplirse." : canWrite ? "Ajusta la condición y revisa qué usuarios quedarían dentro antes de activar la regla." : "Consulta la condición y la vista previa de usuarios afectados. No tienes permisos de escritura."} actions={<>{create ? null : <HistoryLink entityName="DynamicGroupRule" entityId={ruleId} />}<Link className="button button--secondary" to="/group-rules">Volver al listado</Link></>} />
+    <Breadcrumbs items={[{ label: "Reglas de grupo", to: "/group-rules" }, { label: title }]} />
+    <PageHeader eyebrow={create ? "Alta" : current?.groupName ?? "Automatización"} title={title} description={create ? "Los usuarios cuyo perfil cumple la condición entran al grupo automáticamente y salen cuando deja de cumplirse." : canWrite ? "Ajusta la condición y revisa qué usuarios quedarían dentro antes de activar la regla." : "Consulta la condición y la vista previa de usuarios afectados. No tienes permisos de escritura."} actions={<>{create ? null : <HistoryLink entityName="DynamicGroupRule" entityId={ruleId} />}<Link className="button button--secondary" to="/group-rules">Volver al listado</Link></>} />
     {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
     {conflict ? <p className="alert alert--error" role="alert">La regla cambió desde que la cargaste. Recarga para ver la versión vigente antes de volver a guardar. <button className="button button--small button--secondary" type="button" onClick={() => { save.reset(); void rule.refetch(); }}>Recargar</button></p> : null}
     {formError ? <p className="alert alert--error" role="alert">{errorMessage(formError)}</p> : null}
@@ -171,7 +172,7 @@ export default function GroupRuleEditorPage({ create = false }: { create?: boole
       {remove.error ? <p className="alert alert--error" role="alert">{errorMessage(remove.error)}</p> : null}
       <div className="button-group"><button className="button button--danger-quiet" type="button" onClick={() => { remove.reset(); setConfirmDelete(true); }}>Eliminar regla</button></div>
     </section> : null}
-    <ConfirmDialog open={confirmDelete} title="Eliminar group rule" detail={`Se eliminará la regla ${current ? describeRule(current) : ""} del grupo ${current?.groupName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} error={remove.error} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
+    <ConfirmDialog open={confirmDelete} title="Eliminar regla de grupo" detail={`Se eliminará la regla ${current ? describeRule(current) : ""} del grupo ${current?.groupName ?? ""}. Esta acción queda auditada y no se puede deshacer.`} confirmLabel="Eliminar" dangerous busy={remove.isPending} error={remove.error} onCancel={() => setConfirmDelete(false)} onConfirm={() => remove.mutate()} />
   </>;
 }
 

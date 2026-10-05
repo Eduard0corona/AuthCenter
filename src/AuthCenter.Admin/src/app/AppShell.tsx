@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "../auth/session";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { GlobalErrorBanner } from "../components/GlobalErrorBanner";
+import { CONSOLE_TITLE } from "../hooks/useDocumentTitle";
 import { describeEnvironment, describeVersion, useAdminMetadata, useVersion } from "../hooks/usePlatform";
 
 interface NavigationItem {
@@ -17,7 +18,7 @@ interface NavigationGroup {
 }
 
 const navigation: NavigationGroup[] = [
-  { label: "Inicio", items: [{ label: "Overview", to: "/" }] },
+  { label: "Inicio", items: [{ label: "Inicio", to: "/" }] },
   {
     label: "Directorio",
     items: [
@@ -30,20 +31,20 @@ const navigation: NavigationGroup[] = [
     label: "Aplicaciones",
     items: [
       { label: "Aplicaciones", to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ" },
-      { label: "OAuth clients", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
+      { label: "Clientes OAuth", to: "/oauth-clients", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
       { label: "Recursos de API", to: "/api-resources", permission: "AUTHCENTER_OAUTH_CLIENTS_READ" },
       { label: "Aplicaciones SAML", to: "/saml-apps", permission: "AUTHCENTER_SAML_APPS_READ" }
     ]
   },
   {
-    label: "Lifecycle",
+    label: "Automatización",
     items: [
-      { label: "Provisioning tokens", to: "/provisioning-tokens", permission: "AUTHCENTER_PROVISIONING_READ" },
-      { label: "Profile mappings", to: "/profile-mappings", permission: "AUTHCENTER_USERS_READ" },
-      { label: "Group rules", to: "/group-rules", permission: "AUTHCENTER_GROUPS_READ" }
+      { label: "Tokens de aprovisionamiento", to: "/provisioning-tokens", permission: "AUTHCENTER_PROVISIONING_READ" },
+      { label: "Mapeos de perfil", to: "/profile-mappings", permission: "AUTHCENTER_USERS_READ" },
+      { label: "Reglas de grupo", to: "/group-rules", permission: "AUTHCENTER_GROUPS_READ" }
     ]
   },
-  { label: "Federación", items: [{ label: "Proveedores y routing", to: "/federation", permission: "AUTHCENTER_FEDERATION_READ" }] },
+  { label: "Federación", items: [{ label: "Proveedores y enrutamiento", to: "/federation", permission: "AUTHCENTER_FEDERATION_READ" }] },
   {
     label: "Seguridad",
     items: [
@@ -63,8 +64,8 @@ const navigation: NavigationGroup[] = [
   {
     label: "Operación",
     items: [
-      { label: "Event Hooks", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ" },
-      { label: "System Log", to: "/system-log", permission: "AUTHCENTER_AUDIT_LOGS_READ" }
+      { label: "Webhooks de eventos", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ" },
+      { label: "Registro de actividad", to: "/system-log", permission: "AUTHCENTER_AUDIT_LOGS_READ" }
     ]
   }
 ];
@@ -74,6 +75,9 @@ export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const location = useLocation();
+  // A new page starts with the console's name; its header (an effect, so later) names it. A page
+  // still loading or failing to load never keeps the previous page's title.
+  useLayoutEffect(() => { document.title = CONSOLE_TITLE; }, [location.pathname]);
   // On small screens the navigation is a drawer: Escape closes it and focus returns to its button.
   useEffect(() => {
     if (!menuOpen) return;
@@ -93,7 +97,7 @@ export function AppShell() {
       <aside id="admin-navigation" className={`sidebar ${menuOpen ? "sidebar--open" : ""}`} aria-label="Navegación administrativa">
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">A</span>
-          <div><strong>AuthCenter</strong><span>Admin Console</span></div>
+          <div><strong>AuthCenter</strong><span>Consola de administración</span></div>
         </div>
         <nav>
           {navigation.map((group) => {

@@ -39,23 +39,23 @@ export default function EventHooksPage() {
     <>
       <PageHeader
         eyebrow="Operación"
-        title="Event Hooks"
+        title="Webhooks de eventos"
         description="Envía eventos de seguridad y administración a tus sistemas por HTTPS, firmados con HMAC-SHA256."
-        actions={<><Link className="button button--secondary" to="/event-hooks/deliveries">Ver entregas</Link>{canWrite ? <Link className="button" to="/event-hooks/new">Nuevo hook</Link> : null}</>}
+        actions={<><Link className="button button--secondary" to="/event-hooks/deliveries">Ver entregas</Link>{canWrite ? <Link className="button" to="/event-hooks/new">Nuevo webhook</Link> : null}</>}
       />
-      <section className="toolbar toolbar--wide" aria-label="Filtros de Event Hooks">
+      <section className="toolbar toolbar--wide" aria-label="Filtros de webhooks">
         <DebouncedTextField label="Buscar" value={search} onCommit={commitSearch} placeholder="Nombre o URL" />
         <label className="field"><span>Estado</span><select value={active} onChange={(event) => update("active", event.target.value, false)}><option value="">Todos</option><option value="true">Activos</option><option value="false">Desactivados</option></select></label>
         <label className="field"><span>Verificación</span><select value={verified} onChange={(event) => update("verified", event.target.value, false)}><option value="">Todas</option><option value="true">Verificados</option><option value="false">Sin verificar</option></select></label>
       </section>
-      {hooks.isPending ? <PageState title="Cargando Event Hooks" busy /> : null}
-      {hooks.isError ? <PageState title="No pudimos cargar los Event Hooks" detail={errorMessage(hooks.error)} tone="error" action={<button className="button" type="button" onClick={() => void hooks.refetch()}>Reintentar</button>} /> : null}
-      {hooks.data && hooks.data.items.length === 0 ? <PageState title="Sin Event Hooks" detail={search || active || verified ? "No encontramos hooks con estos filtros." : "Crea un hook para recibir eventos en tu SIEM, CRM o flujo de automatización."} action={canWrite && !search && !active && !verified ? <Link className="button" to="/event-hooks/new">Crear el primer hook</Link> : undefined} /> : null}
+      {hooks.isPending ? <PageState title="Cargando webhooks" busy /> : null}
+      {hooks.isError ? <PageState title="No pudimos cargar los webhooks" detail={errorMessage(hooks.error)} tone="error" action={<button className="button" type="button" onClick={() => void hooks.refetch()}>Reintentar</button>} /> : null}
+      {hooks.data && hooks.data.items.length === 0 ? <PageState title="Sin webhooks" detail={search || active || verified ? "No encontramos webhooks con estos filtros." : "Crea un webhook para recibir eventos en tu SIEM, CRM o flujo de automatización."} action={canWrite && !search && !active && !verified ? <Link className="button" to="/event-hooks/new">Crear el primer webhook</Link> : undefined} /> : null}
       {hooks.data && hooks.data.items.length > 0 ? <>
-        <div className="data-table" tabIndex={0} role="region" aria-label="Event Hooks, desplazamiento horizontal" aria-busy={hooks.isFetching || undefined}>
+        <div className="data-table" tabIndex={0} role="region" aria-label="Webhooks de eventos, desplazamiento horizontal" aria-busy={hooks.isFetching || undefined}>
           <table>
-            <caption className="sr-only">Event Hooks</caption>
-            <thead><tr><th scope="col">Hook</th><th scope="col">Alcance</th><th scope="col">Eventos</th><th scope="col">Estado</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
+            <caption className="sr-only">Webhooks de eventos</caption>
+            <thead><tr><th scope="col">Webhook</th><th scope="col">Alcance</th><th scope="col">Eventos</th><th scope="col">Estado</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
             <tbody>{hooks.data.items.map((hook) => <tr key={hook.id}>
               <td><strong>{hook.name}</strong><span className="cell-detail mono">{hook.url}</span></td>
               <td>{hook.applicationName ?? "Toda la plataforma"}</td>

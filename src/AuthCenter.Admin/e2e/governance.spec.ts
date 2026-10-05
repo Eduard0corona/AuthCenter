@@ -170,7 +170,7 @@ test("names the owners of an application and opens it to requests", async ({ pag
   let saved: Record<string, unknown> | null = null;
   await page.route(`**/api/applications/${applicationId}`, (route) => json(route, {
     ...application,
-    registrationSettings: { registrationMode: "Open", allowGoogleLogin: false, allowMicrosoftLogin: false, allowGitHubLogin: false, allowAppleLogin: false, allowMagicLink: false, allowPasswordLogin: true, requireEmailConfirmation: false, requireMfa: false, allowedEmailDomains: null, defaultRoleId: null }
+    registrationSettings: { registrationMode: "Open", audience: "Consumers", allowGoogleLogin: false, allowMicrosoftLogin: false, allowGitHubLogin: false, allowAppleLogin: false, allowMagicLink: false, allowPasswordLogin: true, requireEmailConfirmation: false, requireMfa: false, allowedEmailDomains: null, defaultRoleId: null }
   }));
   await page.route("**/api/roles?**", (route) => json(route, paged([payer], 1, 100)));
   await page.route(`**/api/governance/applications/${applicationId}`, async (route) => {
