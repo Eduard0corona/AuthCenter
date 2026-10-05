@@ -108,7 +108,7 @@ test("registers an API and grants one of its scopes to an OAuth client from the 
 
   await page.goto(`/admin-v2/oauth-clients/${clientId}`);
   await page.getByRole("checkbox", { name: new RegExp(scope.replaceAll(".", "\\.")) }).check();
-  await expect(page.getByRole("checkbox", { name: /backchannel_logout_session_required/ })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Incluir el identificador de sesión (sid) en el aviso" })).not.toBeChecked();
   await page.getByRole("button", { name: "Guardar configuración" }).click();
   await expect(page.getByRole("status")).toBeVisible();
 
@@ -169,7 +169,7 @@ test("an operator without event hook permissions cannot open them", async ({ pag
 
   await signInWithPassword(page, operator, "/login?application=AUTHCENTER&return_url=%2Fadmin-v2%2Fevent-hooks");
   await expect(page.getByRole("heading", { name: "Acceso restringido" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Event Hooks/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Webhooks de eventos" })).toHaveCount(0);
   const forbidden = await page.request.get("/api/event-hooks");
   expect(forbidden.status()).toBe(403);
 });
