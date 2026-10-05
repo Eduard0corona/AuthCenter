@@ -82,8 +82,12 @@ export interface ApplicationBranding {
 
 export type ApplicationRegistrationMode = "Closed" | "Open" | "InviteOnly" | "ApprovalRequired";
 
+/** Who signs in: it sets the hosted login's wording (consumers are offered an account of their own). */
+export type ApplicationAudience = "Employees" | "Consumers";
+
 export interface ApplicationRegistrationSettings {
   registrationMode: ApplicationRegistrationMode;
+  audience: ApplicationAudience;
   allowGoogleLogin: boolean;
   allowMicrosoftLogin: boolean;
   allowGitHubLogin: boolean;

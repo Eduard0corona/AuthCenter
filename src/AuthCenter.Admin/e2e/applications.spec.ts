@@ -66,6 +66,79 @@ test("an application's page shows what it is connected to and who can enter", as
   await expect(page.getByLabel("Aplicación")).toHaveValue(applicationId);
 });
 
+test("a new application's audience sets its registration until the operator picks one", async ({ page }) => {
+  let createPayload: Record<string, unknown> | null = null;
+  await mockApplicationPage(page, 0, 0);
+  await page.route("**/api/applications", async (route) => {
+    createPayload = route.request().postDataJSON() as Record<string, unknown>;
+    await json(route, application, 201);
+  });
+
+  await page.goto("/admin-v2/applications/new");
+  const audience = page.getByLabel("Público");
+  const mode = page.getByLabel("Modo de registro");
+  const confirmation = page.getByLabel("Confirmación de correo");
+  // Employees by default, let in by an administrator.
+  await expect(audience).toHaveValue("Employees");
+  await expect(mode).toHaveValue("Closed");
+  await expect(audience).toHaveAccessibleDescription(/a los consumidores se les ofrece crear cuenta/);
+  // Consumers create their own account and confirm their email; employees again closes it.
+  await confirmation.uncheck();
+  await audience.selectOption("Consumers");
+  await expect(mode).toHaveValue("Open");
+  await expect(confirmation).toBeChecked();
+  await audience.selectOption("Employees");
+  await expect(mode).toHaveValue("Closed");
+  await audience.selectOption("Consumers");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+
+  await page.getByLabel("Código").fill("tiendit_shop");
+  await page.getByLabel("Nombre", { exact: true }).fill("Tiendit Shop");
+  await page.getByRole("button", { name: "Crear aplicación" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin-v2/applications/${applicationId}$`));
+  expect(createPayload).toMatchObject({ code: "TIENDIT_SHOP", audience: "Consumers", registrationMode: "Open", requireEmailConfirmation: true });
+});
+
+test("a registration mode the operator chose stays when the audience changes", async ({ page }) => {
+  await mockApplicationPage(page, 0, 0);
+  await page.goto("/admin-v2/applications/new");
+  await page.getByLabel("Modo de registro").selectOption("InviteOnly");
+  await page.getByLabel("Público").selectOption("Consumers");
+  await expect(page.getByLabel("Modo de registro")).toHaveValue("InviteOnly");
+});
+
+test("changing an existing application's audience keeps its registration and saves it", async ({ page }) => {
+  let updatePayload: Record<string, unknown> | null = null;
+  await mockApplicationPage(page, 1, 0);
+  await page.route(`**/api/applications/${applicationId}`, async (route) => {
+    if (route.request().method() === "PUT") {
+      updatePayload = route.request().postDataJSON() as Record<string, unknown>;
+      await json(route, { ...application, version: 4, registrationSettings: { ...registrationSettings, audience: "Consumers" } });
+      return;
+    }
+    await json(route, application);
+  });
+
+  await page.goto(`/admin-v2/applications/${applicationId}`);
+  await expect(page.getByLabel("Público")).toHaveValue("Employees");
+  await page.getByLabel("Público").selectOption("Consumers");
+  await expect(page.getByLabel("Modo de registro")).toHaveValue("Closed");
+  await page.getByRole("button", { name: "Guardar configuración" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "quedó actualizada" })).toBeVisible();
+  expect(updatePayload).toMatchObject({ audience: "Consumers", registrationMode: "Closed", version: 3 });
+  await expect(page.getByLabel("Público")).toHaveValue("Consumers");
+});
+
+test("the application list says who signs in to each application", async ({ page }) => {
+  const shop = { ...application, id: "22222222-2222-4222-8222-222222222222", code: "TIENDA", name: "Tienda", registrationSettings: { ...registrationSettings, registrationMode: "Open", audience: "Consumers" } };
+  await mockShell(page);
+  await page.route("**/api/applications?**", (route) => json(route, paged([application, shop])));
+  await page.goto("/admin-v2/applications");
+  await expect(page.getByRole("article").filter({ hasText: "TienditApp" })).toContainText("Público: Empleados");
+  await expect(page.getByRole("article").filter({ hasText: "TIENDA" })).toContainText("Público: Consumidores");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
 test("an application without clients says how its users will sign in", async ({ page }) => {
   await mockApplicationPage(page, 0, 0);
   await page.goto(`/admin-v2/applications/${applicationId}`);

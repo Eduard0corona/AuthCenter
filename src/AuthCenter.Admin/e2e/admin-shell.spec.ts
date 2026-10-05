@@ -16,6 +16,7 @@ const application = {
   updatedAt: null,
   registrationSettings: {
     registrationMode: "InviteOnly",
+    audience: "Employees",
     allowGoogleLogin: true,
     allowMicrosoftLogin: false,
     allowGitHubLogin: false,
@@ -307,6 +308,7 @@ test("creates an application with explicit secure registration defaults", async 
   expect(createPayload).toMatchObject({
     code: "PARTNER_PORTAL",
     name: "Partner Portal",
+    audience: "Employees",
     registrationMode: "Closed",
     allowPasswordLogin: true,
     requireEmailConfirmation: true,

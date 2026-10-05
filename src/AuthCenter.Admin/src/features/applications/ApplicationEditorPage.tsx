@@ -1,12 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ChangeEvent } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { fetchAllAsPage } from "../../api/catalog";
 import { apiRequest } from "../../api/client";
 import { errorMessage } from "../../api/errors";
-import type { ApplicationBranding, ApplicationSummary, RoleSummary } from "../../api/types";
+import type { ApplicationAudience, ApplicationBranding, ApplicationSummary, RoleSummary } from "../../api/types";
 import { askForPermission, needPermission } from "../../auth/permissions";
 import { useSession } from "../../auth/session";
 import { Breadcrumbs } from "../../components/Breadcrumbs";
@@ -19,8 +19,12 @@ import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
 import { ApplicationGovernancePanel } from "../governance/ApplicationGovernancePanel";
 import { ApplicationIntegrationsPanel } from "./ApplicationIntegrationsPanel";
-import { applicationDefaults, applicationPayload, applicationSchema, type ApplicationFormValues } from "./application";
+import { applicationDefaults, applicationPayload, applicationSchema, audienceOptions, audiences, registrationForAudience, type ApplicationFormValues } from "./application";
 import type { BrandingFormValues } from "./branding";
+
+const APPLICATION_ERRORS: Record<string, string> = {
+  INVALID_AUDIENCE: "Elige si la aplicación es para empleados o para consumidores."
+};
 
 const BrandingDialog = lazy(() => import("./BrandingDialog").then((module) => ({ default: module.BrandingDialog })));
 
@@ -34,6 +38,8 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   const [feedback, setFeedback] = useState("");
   const [brandingOpen, setBrandingOpen] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState(false);
+  // On a new application the registration follows the audience until the operator picks a mode.
+  const [registrationModeChosen, setRegistrationModeChosen] = useState(false);
   const application = useQuery({
     queryKey: ["application", applicationId],
     enabled: !create && Boolean(applicationId),
@@ -109,6 +115,15 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
   const currentDefaultRoleId = current?.registrationSettings?.defaultRoleId ?? null;
   const currentRoleListed = availableRoles.data?.items.some((role) => role.id === currentDefaultRoleId) ?? false;
   const title = create ? "Nueva aplicación" : current?.name ?? "Aplicación";
+  const audienceField = form.register("audience", {
+    onChange: (event: ChangeEvent<HTMLSelectElement>) => {
+      if (!create || registrationModeChosen) return;
+      const registration = registrationForAudience(event.target.value as ApplicationAudience);
+      form.setValue("registrationMode", registration.registrationMode, { shouldDirty: true });
+      if (registration.requireEmailConfirmation !== undefined) form.setValue("requireEmailConfirmation", registration.requireEmailConfirmation, { shouldDirty: true });
+    }
+  });
+  const registrationModeField = form.register("registrationMode", { onChange: () => setRegistrationModeChosen(true) });
   return (
     <>
       <Breadcrumbs items={[{ label: "Aplicaciones", to: "/applications" }, { label: title }]} />
@@ -119,7 +134,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         actions={<>{create ? null : <HistoryLink entityName="ApplicationSystem" entityId={current?.id} />}<Link className="button button--secondary" to="/applications">Volver al listado</Link></>}
       />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
-      <SaveError error={save.error} onReload={() => { save.reset(); void application.refetch().then((fresh) => { if (fresh.data) form.reset(applicationDefaults(fresh.data)); }); }} />
+      <SaveError error={save.error} messages={APPLICATION_ERRORS} onReload={() => { save.reset(); void application.refetch().then((fresh) => { if (fresh.data) form.reset(applicationDefaults(fresh.data)); }); }} />
       {current ? <ApplicationIntegrationsPanel application={current} /> : null}
       <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
         <fieldset className="settings-fieldset" disabled={!canWrite}>
@@ -135,8 +150,11 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
         <section className="settings-panel" aria-labelledby="registration-policy">
           <div className="settings-panel__heading"><div><h2 id="registration-policy">Registro y acceso</h2><p>Quién puede crear una cuenta, con qué métodos inicia sesión y qué verificación se le pide.</p></div></div>
           <div className="form-grid">
+            <Field label="Público" error={form.formState.errors.audience?.message} help="Cambia los textos del inicio de sesión: a los consumidores se les ofrece crear cuenta; a los empleados se les pide la cuenta de su organización.">
+              <select {...audienceField}>{audiences.map((audience) => <option key={audience} value={audience}>{audienceOptions[audience]}</option>)}</select>
+            </Field>
             <Field label="Modo de registro" error={form.formState.errors.registrationMode?.message}>
-              <select {...form.register("registrationMode")}>
+              <select {...registrationModeField}>
                 <option value="Closed">Cerrado</option><option value="Open">Abierto</option><option value="InviteOnly">Sólo invitación</option><option value="ApprovalRequired">Requiere aprobación</option>
               </select>
             </Field>
