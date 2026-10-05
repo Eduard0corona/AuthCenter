@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using AuthCenter.Infrastructure.Services;
@@ -14,7 +15,8 @@ namespace AuthCenter.IntegrationTests;
 
 /// <summary>
 /// On SQL Server, a queued email goes out through the outbox dispatcher in the name of the
-/// application it was queued for, with the lifetime of its link and a plain-text version.
+/// application it was queued for, with the lifetime of its link and a plain-text version; the
+/// system application the migrations create names no product.
 /// </summary>
 public sealed class TransactionalEmailRelationalTests
 {
@@ -42,8 +44,9 @@ public sealed class TransactionalEmailRelationalTests
                     }
                 });
                 await setup.SaveChangesAsync();
-                await new OutboxEmailService(setup, protection)
-                    .SendMagicLinkAsync("ana@example.com", "Ana Muñoz", "token", "https://login.example/magic-link?application=SHIP");
+                var emails = new OutboxEmailService(setup, protection);
+                await emails.SendMagicLinkAsync("ana@example.com", "Ana Muñoz", "token", "https://login.example/magic-link?application=SHIP");
+                await emails.SendPasswordResetAsync("ana@example.com", "Ana Muñoz", "token", "https://login.example/reset-password?application=AUTHCENTER");
             }
 
             var services = new ServiceCollection();
@@ -63,18 +66,26 @@ public sealed class TransactionalEmailRelationalTests
 
             await dispatcher.DispatchBatchAsync(CancellationToken.None);
 
-            var mail = JsonDocument.Parse(await File.ReadAllTextAsync(Assert.Single(Directory.GetFiles(pickup, "*.json")))).RootElement;
+            var mails = await Task.WhenAll(Directory.GetFiles(pickup, "*.json").Select(async file => JsonDocument.Parse(await File.ReadAllTextAsync(file)).RootElement));
+            Assert.Equal(2, mails.Length);
+            var mail = Assert.Single(mails, item => item.GetProperty("purpose").GetString() == "Magic link");
             Assert.Equal("ana@example.com", mail.GetProperty("to").GetString());
-            Assert.Equal("Magic link", mail.GetProperty("purpose").GetString());
             Assert.Equal("Tu enlace para entrar a Paquetenvia", mail.GetProperty("subject").GetString());
             Assert.StartsWith("<!doctype html>", mail.GetProperty("html").GetString());
             Assert.Contains("href=\"https://login.example/magic-link?application=SHIP&amp;token=token&amp;email=ana%40example.com\"", mail.GetProperty("html").GetString());
             Assert.Contains("El enlace vence en 12 minutos y sólo funciona una vez.", mail.GetProperty("text").GetString());
             Assert.Contains("Paquetenvia · Ayuda: https://ayuda.paquetenvia.example/", mail.GetProperty("text").GetString());
+            // The system application, with the branding row the migrations gave it, names no product.
+            var reset = Assert.Single(mails, item => item.GetProperty("purpose").GetString() == "Password reset");
+            Assert.Equal("Restablece tu contraseña", reset.GetProperty("subject").GetString());
+            foreach (var part in new[] { "subject", "html", "text" })
+                Assert.DoesNotContain("authcenter", Regex.Replace(reset.GetProperty(part).GetString()!, @"https?://[^\s""<]+", string.Empty), StringComparison.OrdinalIgnoreCase);
             await using var check = new AuthCenterDbContext(options);
-            var message = await check.OutboxMessages.SingleAsync(item => item.Type == "email.v1");
-            Assert.NotNull(message.ProcessedAt);
-            Assert.Null(message.LastError);
+            Assert.All(await check.OutboxMessages.Where(item => item.Type == "email.v1").ToListAsync(), message =>
+            {
+                Assert.NotNull(message.ProcessedAt);
+                Assert.Null(message.LastError);
+            });
         }
         finally
         {

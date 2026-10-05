@@ -44,7 +44,7 @@ public class SmtpEmailService : IEmailService
         _logger = logger;
     }
 
-    // Sent directly instead of through the outbox, an email names no application: finding it needs the database.
+    // Sent directly instead of through the outbox, an email has no brand (sender and help link): finding it needs the database.
     public Task SendPasswordResetAsync(string toEmail, string toName, string resetToken, string? callbackBaseUrl, CancellationToken ct = default) =>
         SendAsync(new EmailPayload("password-reset", toEmail, toName, resetToken, callbackBaseUrl, null), ct);
 
@@ -134,6 +134,8 @@ public class SmtpEmailService : IEmailService
     internal RenderedEmail Render(EmailPayload payload)
     {
         var app = payload.ApplicationDisplayName;
+        // A payload queued before the brand was resolved still knows the invitation's application.
+        var invitedTo = app ?? (string.IsNullOrWhiteSpace(payload.ApplicationName) ? null : payload.ApplicationName);
         var content = payload.Kind switch
         {
             "password-reset" => new EmailContent(
@@ -158,7 +160,16 @@ public class SmtpEmailService : IEmailService
                 Validity: $"El enlace vence en {Duration(payload.ValidMinutes ?? _identityTokenMinutes)}.",
                 ActionLabel: "Confirmar mi correo",
                 ActionUrl: BuildTokenLink(payload.ActionUrl, payload.ToEmail, payload.Secret)),
-            "invitation" => Invitation(payload, app ?? (string.IsNullOrWhiteSpace(payload.ApplicationName) ? null : payload.ApplicationName)),
+            "invitation" => new EmailContent(
+                "Invitation",
+                invitedTo is null ? "Te invitaron a crear tu cuenta" : $"Te invitaron a {invitedTo}",
+                invitedTo is null ? "Te invitaron a crear tu cuenta" : $"Te invitaron a {invitedTo}",
+                (invitedTo is null ? "Te dieron acceso con este correo." : $"Te dieron acceso a {invitedTo} con este correo.") +
+                " Acepta la invitación y elige tu contraseña para empezar.",
+                "Si no esperabas esta invitación, puedes ignorar este mensaje.",
+                Validity: $"El enlace vence en {Duration(payload.ValidMinutes ?? _identityTokenMinutes)} y sólo funciona una vez.",
+                ActionLabel: "Aceptar la invitación",
+                ActionUrl: BuildTokenLink(payload.ActionUrl, payload.ToEmail, payload.Secret)),
             "email-change" => new EmailContent(
                 "Email change confirmation",
                 "Confirma tu nuevo correo",
@@ -216,17 +227,6 @@ public class SmtpEmailService : IEmailService
             RenderHtml(content, subject, payload.ToName, app, payload.ApplicationSupportUrl),
             RenderText(content, payload.ToName, app, payload.ApplicationSupportUrl));
     }
-
-    private EmailContent Invitation(EmailPayload payload, string? application) => new(
-        "Invitation",
-        application is null ? "Te invitaron a crear tu cuenta" : $"Te invitaron a {application}",
-        application is null ? "Te invitaron a crear tu cuenta" : $"Te invitaron a {application}",
-        (application is null ? "Te dieron acceso con este correo." : $"Te dieron acceso a {application} con este correo.") +
-        " Acepta la invitación y elige tu contraseña para empezar.",
-        "Si no esperabas esta invitación, puedes ignorar este mensaje.",
-        Validity: $"El enlace vence en {Duration(payload.ValidMinutes ?? _identityTokenMinutes)} y sólo funciona una vez.",
-        ActionLabel: "Aceptar la invitación",
-        ActionUrl: BuildTokenLink(payload.ActionUrl, payload.ToEmail, payload.Secret));
 
     /// <summary>
     /// A complete, readable document (text contrast of at least 4.5:1) with one action. The action is

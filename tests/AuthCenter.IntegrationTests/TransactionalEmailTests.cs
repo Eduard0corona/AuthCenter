@@ -114,6 +114,17 @@ public sealed class TransactionalEmailTests : IClassFixture<HttpsAuthCenterFacto
     [Fact]
     public async Task EmailsOfTheSystemApplication_NameNoProduct()
     {
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            // As the migrations leave it: a branding row under AuthCenter's own name (and here a help link).
+            var db = scope.ServiceProvider.GetRequiredService<AuthCenterDbContext>();
+            var system = await db.ApplicationSystems.Include(item => item.BrandingSettings).SingleAsync(item => item.Code == DomainConstants.SystemCodes.AuthCenter);
+            if (system.BrandingSettings is null)
+                db.ApplicationBrandingSettings.Add(system.BrandingSettings = new ApplicationBrandingSettings { Id = Guid.NewGuid(), ApplicationSystemId = system.Id, CreatedAt = DateTime.UtcNow });
+            system.BrandingSettings.DisplayName = "AuthCenter";
+            system.BrandingSettings.SupportUrl = SupportUrl;
+            await db.SaveChangesAsync();
+        }
         var email = await CreateUserAsync(DomainConstants.SystemCodes.AuthCenter);
         await _factory.CreateAuthCenterClient().PostAsJsonAsync("/api/auth/forgot-password", new ForgotPasswordRequest
         {
@@ -132,7 +143,7 @@ public sealed class TransactionalEmailTests : IClassFixture<HttpsAuthCenterFacto
         Assert.Contains($"application={DomainConstants.SystemCodes.AuthCenter}", reset.ActionUrl);
         var invitation = await LatestAsync(email, "invitation");
         var notice = await LatestAsync(email, "security-notice");
-        Assert.All(new[] { reset, invitation, notice }, payload => Assert.Null(payload.ApplicationDisplayName));
+        Assert.All(new[] { reset, invitation, notice }, payload => Assert.Equal((null, null), (payload.ApplicationDisplayName, payload.ApplicationSupportUrl)));
         Assert.Null(invitation.ApplicationName);
         Assert.Equal("Restablece tu contraseña", Render(reset).Subject);
         Assert.Equal("Te invitaron a crear tu cuenta", Render(invitation).Subject);
@@ -147,7 +158,7 @@ public sealed class TransactionalEmailTests : IClassFixture<HttpsAuthCenterFacto
     }
 
     [Fact]
-    public async Task SystemApplication_IsNamedOnlyOnceItHasABrand()
+    public async Task SystemApplication_IsNamedOnlyOnceItIsCalledSomethingElse()
     {
         await using var db = new AuthCenterDbContext(new DbContextOptionsBuilder<AuthCenterDbContext>()
             .UseInMemoryDatabase($"email-branding-{Guid.NewGuid():N}").Options);
@@ -156,17 +167,25 @@ public sealed class TransactionalEmailTests : IClassFixture<HttpsAuthCenterFacto
         db.ApplicationSystems.AddRange(system, shop);
         await db.SaveChangesAsync();
 
+        // No branding row, then the one the migrations create: either way, no application.
+        Assert.Equal(new EmailBrand(null, null), await EmailBranding.ForCodeAsync(db, system.Code, CancellationToken.None));
+        var branding = new ApplicationBrandingSettings
+        {
+            Id = Guid.NewGuid(), ApplicationSystemId = system.Id, DisplayName = "AuthCenter", SupportUrl = "https://ayuda.contoso.example/", CreatedAt = DateTime.UtcNow
+        };
+        db.ApplicationBrandingSettings.Add(branding);
+        await db.SaveChangesAsync();
         Assert.Equal(new EmailBrand(null, null), await EmailBranding.ForCodeAsync(db, system.Code, CancellationToken.None));
         Assert.Equal("la consola de administración", await EmailBranding.NameAsync(db, system.Id, CancellationToken.None));
         Assert.Equal(new EmailBrand("Tienda interna", null), await EmailBranding.ForCodeAsync(db, shop.Code, CancellationToken.None));
         Assert.Null(await EmailBranding.ForCodeAsync(db, "NOPE", CancellationToken.None));
 
-        db.ApplicationBrandingSettings.Add(new ApplicationBrandingSettings
-        {
-            Id = Guid.NewGuid(), ApplicationSystemId = system.Id, DisplayName = "Cuentas Contoso", SupportUrl = "https://ayuda.contoso.example/", CreatedAt = DateTime.UtcNow
-        });
+        branding.DisplayName = "authcenter";
         await db.SaveChangesAsync();
+        Assert.Equal(new EmailBrand(null, null), await EmailBranding.ForCodeAsync(db, system.Code, CancellationToken.None));
 
+        branding.DisplayName = "Cuentas Contoso";
+        await db.SaveChangesAsync();
         Assert.Equal(new EmailBrand("Cuentas Contoso", "https://ayuda.contoso.example/"), await EmailBranding.ForCodeAsync(db, system.Code, CancellationToken.None));
         Assert.Equal("Cuentas Contoso", await EmailBranding.NameAsync(db, system.Id, CancellationToken.None));
     }
