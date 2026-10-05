@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { oauthClientPayload, oauthClientSchema } from "./oauth-client";
+import { grantLabel, oauthClientPayload, oauthClientSchema } from "./oauth-client";
+
+describe("grantLabel", () => {
+  it("names the grants by what they do and keeps unknown ones", () => {
+    expect(grantLabel("authorization_code")).toBe("Código de autorización");
+    expect(grantLabel("urn:ietf:params:oauth:grant-type:token-exchange")).toBe("Intercambio de tokens");
+    expect(grantLabel("urn:example:custom")).toBe("urn:example:custom");
+  });
+});
 
 const valid = {
   applicationSystemId: "11111111-1111-4111-8111-111111111111",

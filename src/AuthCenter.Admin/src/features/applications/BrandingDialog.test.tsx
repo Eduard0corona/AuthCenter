@@ -28,7 +28,7 @@ it("submits every existing branding field without deleting privacy or terms", as
   const onSave = vi.fn().mockResolvedValue(undefined);
   render(<BrandingDialog application={application} busy={false} error="" onSave={onSave} onClose={vi.fn()} />);
 
-  await user.click(screen.getByRole("button", { name: "Guardar branding" }));
+  await user.click(screen.getByRole("button", { name: "Guardar marca" }));
 
   expect(onSave.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
     displayName: "Mi tienda",

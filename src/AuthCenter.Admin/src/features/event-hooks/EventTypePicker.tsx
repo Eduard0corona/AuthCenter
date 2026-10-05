@@ -41,7 +41,7 @@ export function EventTypePicker({ catalog, value, onChange, disabled = false, er
           <label className="field"><span>Filtrar tipos</span><input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="LOGIN, MFA, USER…" /></label>
           <p className="field-help" aria-live="polite">{selected.size === 1 ? "1 tipo seleccionado" : `${selected.size} tipos seleccionados`} (máximo 100)</p>
         </div>
-        {retired.length > 0 ? <div className="alert alert--warning"><p>Este hook incluye tipos que ya no existen: {retired.join(", ")}. Quítalos para poder guardar.</p><button className="button button--small button--secondary" type="button" onClick={() => onChange(value.filter((type) => known.has(type)))}>Quitar tipos retirados</button></div> : null}
+        {retired.length > 0 ? <div className="alert alert--warning"><p>Este webhook incluye tipos que ya no existen: {retired.join(", ")}. Quítalos para poder guardar.</p><button className="button button--small button--secondary" type="button" onClick={() => onChange(value.filter((type) => known.has(type)))}>Quitar tipos retirados</button></div> : null}
         <div className="event-type-groups">
           {visible.map((group) => {
             const all = group.types.every((type) => selected.has(type));

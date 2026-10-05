@@ -32,8 +32,8 @@ export function ApiScopePicker({ value, onChange, disabled = false, error }: Api
 
   return (
     <fieldset className="check-group" disabled={disabled} aria-describedby={error ? errorId : undefined}>
-      <legend>Scopes de APIs</legend>
-      <p className="field-help">El access token tendrá como audiencia el API de los scopes pedidos. Administra el catálogo en <Link to="/api-resources">Recursos de API</Link>.</p>
+      <legend>Permisos de APIs (scopes)</legend>
+      <p className="field-help">El token de acceso será para el API de los permisos que pida. Administra el catálogo en <Link to="/api-resources">Recursos de API</Link>.</p>
       {catalog.isPending ? <p className="muted">Cargando el catálogo de APIs…</p> : null}
       {catalog.isError ? <p className="alert alert--error" role="alert">{errorMessage(catalog.error)}</p> : null}
       {catalog.data && catalog.data.length === 0 ? <p className="muted">Todavía no hay APIs registrados.</p> : null}

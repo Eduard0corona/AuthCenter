@@ -37,7 +37,7 @@ export function BrandingDialog({ application, busy, error, onSave, onClose }: Br
   return (
     <dialog ref={dialogRef} className="dialog dialog--wide" aria-labelledby="branding-dialog-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
       <form onSubmit={(event) => void handleSubmit(onSave)(event)}>
-        <div className="dialog__heading"><div><p className="eyebrow">Aplicaciones</p><h2 id="branding-dialog-title">Editar branding</h2><p>{application?.code}</p></div><button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Cerrar">×</button></div>
+        <div className="dialog__heading"><div><p className="eyebrow">Aplicaciones</p><h2 id="branding-dialog-title">Editar marca</h2><p>{application?.code}</p></div><button className="icon-button" type="button" onClick={onClose} disabled={busy} aria-label="Cerrar">×</button></div>
         <div className="branding-layout">
           <div className="form-stack">
             <Field label="Nombre visible" error={errors.displayName?.message}><input {...register("displayName")} maxLength={100} /></Field>
@@ -51,7 +51,7 @@ export function BrandingDialog({ application, busy, error, onSave, onClose }: Br
             <Field label="Privacidad HTTPS" error={errors.privacyUrl?.message}><input {...register("privacyUrl")} type="url" placeholder="https://…" /></Field>
             <Field label="Términos HTTPS" error={errors.termsUrl?.message}><input {...register("termsUrl")} type="url" placeholder="https://…" /></Field>
           </div>
-          <section className="brand-preview" style={{ backgroundColor: values.backgroundColor }} aria-label="Vista previa del branding">
+          <section className="brand-preview" style={{ backgroundColor: values.backgroundColor }} aria-label="Vista previa de la marca">
             <p>Vista previa</p>
             <div className="brand-preview__card">
               {values.logoUrl ? <img src={values.logoUrl} alt="" /> : <span className="brand-preview__placeholder" aria-hidden="true">A</span>}
@@ -62,7 +62,7 @@ export function BrandingDialog({ application, busy, error, onSave, onClose }: Br
           </section>
         </div>
         {error ? <p className="alert alert--error" role="alert">{error}</p> : null}
-        <div className="dialog__actions"><button className="button button--secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button><button className="button" type="submit" disabled={busy}>{busy ? "Guardando…" : "Guardar branding"}</button></div>
+        <div className="dialog__actions"><button className="button button--secondary" type="button" onClick={onClose} disabled={busy}>Cancelar</button><button className="button" type="submit" disabled={busy}>{busy ? "Guardando…" : "Guardar marca"}</button></div>
       </form>
     </dialog>
   );

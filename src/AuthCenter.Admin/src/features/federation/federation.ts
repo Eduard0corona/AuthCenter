@@ -15,8 +15,8 @@ export const federationProviderSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio.").max(150, "Usa máximo 150 caracteres."),
   protocol: z.enum(federationProtocols),
   // OIDC issuers are HTTPS URLs; SAML entity IDs may be any absolute URI (https, http or urn).
-  issuer: z.string().trim().min(1, "El issuer es obligatorio.").max(500, "Usa máximo 500 caracteres."),
-  discoveryEndpoint: optionalHttpsUrl("El discovery endpoint debe ser una URL HTTPS."),
+  issuer: z.string().trim().min(1, "El emisor (issuer) es obligatorio.").max(500, "Usa máximo 500 caracteres."),
+  discoveryEndpoint: optionalHttpsUrl("La URL de descubrimiento debe ser HTTPS."),
   clientId: z.string().trim(),
   oidcCallbackUrl: z.string().trim(),
   clientSecret: z.string(),
@@ -36,10 +36,10 @@ export const federationProviderSchema = z.object({
   hasStoredCertificate: z.boolean()
 }).superRefine((values, context) => {
   if (values.protocol === "Oidc") {
-    if (!isHttps(values.issuer)) context.addIssue({ code: "custom", path: ["issuer"], message: "El issuer OIDC debe ser una URL HTTPS." });
+    if (!isHttps(values.issuer)) context.addIssue({ code: "custom", path: ["issuer"], message: "El emisor OIDC debe ser una URL HTTPS." });
     if (!values.clientId) context.addIssue({ code: "custom", path: ["clientId"], message: "El client ID es obligatorio para OIDC." });
     // Blank uses AuthCenter's hosted callback; any other value must be exact and HTTPS.
-    if (values.oidcCallbackUrl && !isHttps(values.oidcCallbackUrl)) context.addIssue({ code: "custom", path: ["oidcCallbackUrl"], message: "La callback URL debe ser HTTPS y exacta." });
+    if (values.oidcCallbackUrl && !isHttps(values.oidcCallbackUrl)) context.addIssue({ code: "custom", path: ["oidcCallbackUrl"], message: "La URL de retorno debe ser HTTPS y exacta." });
   } else {
     if (!isAbsoluteUri(values.issuer)) context.addIssue({ code: "custom", path: ["issuer"], message: "El entity ID del IdP debe ser una URI absoluta (https:, http: o urn:)." });
     if (!isHttps(values.samlSingleSignOnUrl)) context.addIssue({ code: "custom", path: ["samlSingleSignOnUrl"], message: "La URL de SSO debe ser HTTPS." });
@@ -113,15 +113,15 @@ export function federationProviderPayload(values: FederationProviderFormValues, 
 export const connectionCheckLabels: Record<string, string> = {
   "provider.active": "Proveedor activo",
   "routing.domain": "Regla por dominio",
-  "oidc.discovery": "Documento de discovery",
-  "oidc.issuer": "Issuer",
+  "oidc.discovery": "Documento de descubrimiento (discovery)",
+  "oidc.issuer": "Emisor (issuer)",
   "oidc.endpoints": "Endpoints HTTPS",
   "oidc.signing_keys": "Llaves de firma",
-  "oidc.response_type": "Authorization code",
+  "oidc.response_type": "Código de autorización",
   "oidc.pkce": "PKCE S256",
-  "oidc.callback": "Callback hospedado",
-  "oidc.client_secret": "Client secret",
-  "oidc.email_scope": "Scope email",
+  "oidc.callback": "URL de retorno hospedada",
+  "oidc.client_secret": "Secreto del cliente",
+  "oidc.email_scope": "Permiso email (scope)",
   "saml.idp_certificate": "Certificado del IdP",
   "saml.idp_key": "Llave del IdP",
   "saml.sso_url": "URL de SSO",

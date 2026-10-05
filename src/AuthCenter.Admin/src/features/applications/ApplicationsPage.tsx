@@ -39,7 +39,7 @@ export default function ApplicationsPage() {
       })
     }),
     onSuccess: async () => {
-      setFeedback("El branding se actualizó sin perder enlaces existentes.");
+      setFeedback("La marca quedó guardada.");
       setSelected(null);
       await queryClient.invalidateQueries({ queryKey: ["applications"] });
     }
@@ -56,7 +56,7 @@ export default function ApplicationsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones y branding" description="Administra identidad, registro y autenticación desde rutas que puedes compartir." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
+      <PageHeader eyebrow="Aplicaciones" title="Aplicaciones" description="Administra identidad, registro y autenticación desde rutas que puedes compartir." actions={canWrite ? <Link className="button" to="/applications/new">Nueva aplicación</Link> : undefined} />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       {applications.isPending ? <PageState title="Cargando aplicaciones" busy /> : null}
       {applications.isError ? <PageState title="No pudimos cargar aplicaciones" detail={errorMessage(applications.error)} tone="error" action={<button className="button" type="button" onClick={() => void applications.refetch()}>Reintentar</button>} /> : null}
@@ -65,10 +65,10 @@ export default function ApplicationsPage() {
           <div className="application-card__heading"><span className="application-logo" style={{ background: application.branding?.backgroundColor ?? "#f8fafc", color: application.branding?.primaryColor ?? "#2563eb" }}>{application.branding?.logoUrl ? <img src={application.branding.logoUrl} alt="" /> : application.code.slice(0, 2)}</span><StatusBadge active={application.isActive} activeLabel="Activa" inactiveLabel="Inactiva" /></div>
           <div><p className="eyebrow">{application.code}</p><h2>{application.branding?.displayName ?? application.name}</h2><p>{application.description ?? "Sin descripción"}</p></div>
           <div className="application-card__links">{application.branding?.privacyUrl ? <span>Privacidad ✓</span> : <span>Privacidad pendiente</span>}{application.branding?.termsUrl ? <span>Términos ✓</span> : <span>Términos pendientes</span>}</div>
-          <div className="application-card__actions"><Link className="button button--secondary" to={`/applications/${application.id}`}>Ver configuración</Link>{canWrite ? <button className="button button--quiet" type="button" onClick={() => { updateBranding.reset(); setSelected(application); }}>Branding</button> : null}</div>
+          <div className="application-card__actions"><Link className="button button--secondary" to={`/applications/${application.id}`}>Ver configuración</Link>{canWrite ? <button className="button button--quiet" type="button" onClick={() => { updateBranding.reset(); setSelected(application); }}>Editar marca<span className="sr-only"> de {application.name}</span></button> : null}</div>
         </article>
       ))}</div><Pagination page={applications.data.page} pageSize={applications.data.pageSize} totalCount={applications.data.totalCount} totalPages={applications.data.totalPages} onPageChange={(value) => updatePage("page", value)} onPageSizeChange={(value) => updatePage("pageSize", value)} /></> : null}
-      {selected ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { await updateBranding.mutateAsync({ id: selected.id, values }); }} /></Suspense> : null}
+      {selected ? <Suspense fallback={<p className="alert" role="status">Cargando el editor de marca…</p>}><BrandingDialog application={selected} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setSelected(null); }} onSave={async (values) => { await updateBranding.mutateAsync({ id: selected.id, values }); }} /></Suspense> : null}
     </>
   );
 }

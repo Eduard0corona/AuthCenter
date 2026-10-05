@@ -4,6 +4,25 @@ import type { OAuthClientSummary } from "../../api/types";
 export const oauthScopes = ["openid", "profile", "email", "offline_access"] as const;
 export const tokenExchangeGrant = "urn:ietf:params:oauth:grant-type:token-exchange";
 export const oauthGrants = ["authorization_code", "client_credentials", "refresh_token", tokenExchangeGrant] as const;
+
+// What each grant and OIDC scope is for; the console shows the protocol name next to it.
+export const grantLabels: Record<(typeof oauthGrants)[number], string> = {
+  authorization_code: "Código de autorización",
+  client_credentials: "Credenciales del cliente (servicio a servicio)",
+  refresh_token: "Token de actualización",
+  [tokenExchangeGrant]: "Intercambio de tokens"
+};
+export const scopeLabels: Record<(typeof oauthScopes)[number], string> = {
+  openid: "Identidad de quien inicia sesión",
+  profile: "Nombre y foto de perfil",
+  email: "Dirección de correo",
+  offline_access: "Mantener el acceso (token de actualización)"
+};
+
+/** A grant's name for people; an unknown grant keeps its protocol name. */
+export function grantLabel(grant: string): string {
+  return grantLabels[grant as (typeof oauthGrants)[number]] ?? grant;
+}
 // API scopes come from the API catalog; the server checks that each one exists.
 const apiScopePattern = /^[a-z][a-z0-9_.:-]{1,127}$/;
 const isOidcScope = (scope: string): scope is (typeof oauthScopes)[number] => (oauthScopes as readonly string[]).includes(scope);
@@ -40,7 +59,7 @@ export const oauthClientSchema = z.object({
   redirectUris: z.string(),
   allowedScopes: z.array(z.enum(oauthScopes)),
   apiScopes: z.string(),
-  grantTypes: z.array(z.enum(oauthGrants)).min(1, "Selecciona al menos un grant."),
+  grantTypes: z.array(z.enum(oauthGrants)).min(1, "Selecciona al menos un flujo."),
   loginUrl: z.string().trim().refine(secureBrowserUrl, "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales."),
   allowedCorsOrigins: z.string(),
   postLogoutRedirectUris: z.string(),
@@ -54,7 +73,7 @@ export const oauthClientSchema = z.object({
 }).superRefine((values, context) => {
   const apiScopes = uriLines.parse(values.apiScopes);
   if (values.allowedScopes.length === 0 && apiScopes.length === 0) {
-    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "Selecciona al menos un scope." });
+    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "Elige al menos un dato o un permiso de API que pueda pedir." });
   }
   if (apiScopes.some((scope) => !apiScopePattern.test(scope) || isOidcScope(scope))) {
     context.addIssue({ code: "custom", path: ["apiScopes"], message: "Usa nombres del catálogo de APIs: minúsculas, dígitos, '.', '_', ':' o '-'." });
@@ -63,7 +82,7 @@ export const oauthClientSchema = z.object({
     context.addIssue({ code: "custom", path: ["apiScopes"], message: "No repitas scopes." });
   }
   if (values.clientType === "1" && values.grantTypes.includes(tokenExchangeGrant)) {
-    context.addIssue({ code: "custom", path: ["grantTypes"], message: "Un cliente público no puede usar token exchange." });
+    context.addIssue({ code: "custom", path: ["grantTypes"], message: "Un cliente público no puede usar el intercambio de tokens." });
   }
   const redirects = uriLines.parse(values.redirectUris);
   if (values.grantTypes.includes("authorization_code") && redirects.length === 0) {
@@ -73,7 +92,7 @@ export const oauthClientSchema = z.object({
     context.addIssue({ code: "custom", path: ["redirectUris"], message: "Cada URI debe usar HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
   }
   if (new Set(redirects).size !== redirects.length) {
-    context.addIssue({ code: "custom", path: ["redirectUris"], message: "No repitas redirect URIs." });
+    context.addIssue({ code: "custom", path: ["redirectUris"], message: "No repitas URLs de regreso." });
   }
   const corsOrigins = uriLines.parse(values.allowedCorsOrigins);
   if (corsOrigins.some((origin) => !isOrigin(origin))) {
@@ -93,22 +112,22 @@ export const oauthClientSchema = z.object({
     context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "Usa HTTPS o HTTP loopback, sin fragmentos ni credenciales." });
   }
   if (values.backchannelLogoutUri && !values.grantTypes.includes("authorization_code")) {
-    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "El back-channel logout sólo aplica a clientes con authorization code." });
+    context.addIssue({ code: "custom", path: ["backchannelLogoutUri"], message: "El aviso de cierre de sesión sólo aplica al flujo de código de autorización." });
   }
   if (values.grantTypes.includes("authorization_code") && !values.requirePkce) {
-    context.addIssue({ code: "custom", path: ["requirePkce"], message: "Authorization code requiere PKCE." });
+    context.addIssue({ code: "custom", path: ["requirePkce"], message: "El flujo de código de autorización requiere PKCE." });
   }
   if (values.clientType === "1" && values.grantTypes.includes("client_credentials")) {
-    context.addIssue({ code: "custom", path: ["grantTypes"], message: "Un cliente público no puede usar client credentials." });
+    context.addIssue({ code: "custom", path: ["grantTypes"], message: "Un cliente público no puede usar credenciales del cliente." });
   }
   if (values.grantTypes.includes("refresh_token") && !values.grantTypes.includes("authorization_code")) {
-    context.addIssue({ code: "custom", path: ["grantTypes"], message: "Refresh token requiere authorization code." });
+    context.addIssue({ code: "custom", path: ["grantTypes"], message: "El token de actualización requiere el flujo de código de autorización." });
   }
   if (values.allowedScopes.includes("offline_access") && (!values.grantTypes.includes("authorization_code") || !values.grantTypes.includes("refresh_token"))) {
-    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "offline_access requiere authorization code y refresh token." });
+    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "offline_access requiere los flujos de código de autorización y de token de actualización." });
   }
   if (values.grantTypes.length === 1 && values.grantTypes[0] === "client_credentials" && (values.allowedScopes.includes("openid") || values.allowedScopes.includes("offline_access"))) {
-    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "Un cliente machine-to-machine no puede solicitar openid ni offline_access." });
+    context.addIssue({ code: "custom", path: ["allowedScopes"], message: "Un cliente de servicio a servicio no puede pedir openid ni offline_access." });
   }
 });
 

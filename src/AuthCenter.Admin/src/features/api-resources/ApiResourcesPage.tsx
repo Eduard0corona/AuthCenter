@@ -55,7 +55,7 @@ export default function ApiResourcesPage() {
         <div className="data-table" tabIndex={0} role="region" aria-label="Recursos de API, desplazamiento horizontal" aria-busy={resources.isFetching || undefined}>
           <table>
             <caption className="sr-only">Recursos de API</caption>
-            <thead><tr><th scope="col">API</th><th scope="col">Aplicación</th><th scope="col">Scopes</th><th scope="col">Estado</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
+            <thead><tr><th scope="col">API</th><th scope="col">Aplicación</th><th scope="col">Permisos (scopes)</th><th scope="col">Estado</th><th scope="col"><span className="sr-only">Acciones</span></th></tr></thead>
             <tbody>{resources.data.items.map((resource) => <tr key={resource.id}>
               <td><strong>{resource.displayName}</strong><span className="cell-detail mono">{resource.identifier}</span></td>
               <td>{resource.applicationName}<span className="cell-detail">{resource.applicationCode}</span></td>

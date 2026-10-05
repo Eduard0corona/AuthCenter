@@ -106,7 +106,7 @@ function ProfileSchemaEditorPage({ create }: { create: boolean }) {
           </div>
         </section>
         <section className="settings-panel" aria-labelledby="attribute-rules">
-          <div className="settings-panel__heading"><div><h2 id="attribute-rules">Valores y validación</h2><p>Las reglas se aplican al editar un perfil, a SCIM y a los profile mappings.</p></div></div>
+          <div className="settings-panel__heading"><div><h2 id="attribute-rules">Valores y validación</h2><p>Las reglas se aplican al editar un perfil, a SCIM y a los mapeos de perfil.</p></div></div>
           <div className="form-grid">
             {dataType === "Boolean"
               ? <Field label="Valor predeterminado" error={errors.defaultValue?.message}><select {...form.register("defaultValue")}><option value="">Sin valor</option><option value="true">Sí</option><option value="false">No</option></select></Field>

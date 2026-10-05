@@ -41,7 +41,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Overview" title={`Hola, ${user.name?.split(" ")[0] ?? "operador"}`} documentTitle="Inicio" description="Opera AuthCenter desde módulos cargados bajo demanda. Cada acción vuelve a autorizarse en el servidor." />
+      <PageHeader eyebrow="Inicio" title={`Hola, ${user.name?.split(" ")[0] ?? "operador"}`} documentTitle="Inicio" description="Opera AuthCenter desde módulos cargados bajo demanda. Cada acción vuelve a autorizarse en el servidor." />
       {canReadMetrics ? (
         <section className="settings-panel dashboard-panel" aria-labelledby="platform-status" aria-busy={dashboard.isFetching || undefined}>
           <div className="settings-panel__heading">
@@ -83,9 +83,9 @@ function metrics(data: AdminDashboard): Metric[] {
     { key: "applications", label: "Aplicaciones activas", value: data.activeApplications, to: "/applications", permission: "AUTHCENTER_APPLICATIONS_READ", tone: "neutral" },
     { key: "groups", label: "Grupos activos", value: data.activeGroups, to: "/groups", permission: "AUTHCENTER_GROUPS_READ", tone: "neutral" },
     { key: "federation", label: "Proveedores federados activos", value: data.activeFederationProviders, to: "/federation", permission: "AUTHCENTER_FEDERATION_READ", tone: "neutral" },
-    { key: "tokens", label: "Provisioning tokens por vencer", value: data.expiringProvisioningTokens, detail: "En los próximos 30 días", to: "/provisioning-tokens", permission: "AUTHCENTER_PROVISIONING_READ", tone: attention(data.expiringProvisioningTokens) },
-    { key: "hooks", label: "Event hooks sin verificar", value: data.unverifiedEventHooks, detail: "No reciben eventos hasta verificarse", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ", tone: attention(data.unverifiedEventHooks) },
-    { key: "dead-letters", label: "Entregas en dead letter", value: data.deadLetterDeliveries, detail: "Agotaron sus reintentos", to: "/event-hooks/deliveries?status=dead-letter", permission: "AUTHCENTER_EVENT_HOOKS_READ", tone: data.deadLetterDeliveries > 0 ? "critical" : "neutral" },
+    { key: "tokens", label: "Tokens de aprovisionamiento por vencer", value: data.expiringProvisioningTokens, detail: "En los próximos 30 días", to: "/provisioning-tokens", permission: "AUTHCENTER_PROVISIONING_READ", tone: attention(data.expiringProvisioningTokens) },
+    { key: "hooks", label: "Webhooks sin verificar", value: data.unverifiedEventHooks, detail: "No reciben eventos hasta verificarse", to: "/event-hooks", permission: "AUTHCENTER_EVENT_HOOKS_READ", tone: attention(data.unverifiedEventHooks) },
+    { key: "dead-letters", label: "Entregas fallidas", value: data.deadLetterDeliveries, detail: "Agotaron sus reintentos", to: "/event-hooks/deliveries?status=dead-letter", permission: "AUTHCENTER_EVENT_HOOKS_READ", tone: data.deadLetterDeliveries > 0 ? "critical" : "neutral" },
     { key: "failed-logins", label: "Inicios de sesión rechazados", value: data.failedLoginsLast24Hours, detail: "Últimas 24 horas", to: "/system-log?action=LOGIN_FAILED", permission: "AUTHCENTER_AUDIT_LOGS_READ", tone: attention(data.failedLoginsLast24Hours) },
     { key: "risk", label: "Inicios de sesión de riesgo alto", value: data.highRiskObservationsLast24Hours, detail: "Últimas 24 horas", tone: data.highRiskObservationsLast24Hours > 0 ? "critical" : "neutral" }
   ];

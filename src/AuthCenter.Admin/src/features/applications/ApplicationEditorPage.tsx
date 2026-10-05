@@ -80,7 +80,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
     }),
     onSuccess: async () => {
       setBrandingOpen(false);
-      setFeedback("El branding se actualizó sin perder enlaces existentes.");
+      setFeedback("La marca quedó guardada.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["application", applicationId] }),
         queryClient.invalidateQueries({ queryKey: ["applications"] })
@@ -143,15 +143,15 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
           {create ? <p className="alert alert--info">Crea primero la aplicación; después podrás asignar uno de sus roles como predeterminado.</p> : null}
           <fieldset className="check-group"><legend>Métodos de autenticación</legend><div className="checkbox-grid">
             <Checkbox label="Contraseña" registration={form.register("allowPasswordLogin")} />
-            <Checkbox label="Magic link" registration={form.register("allowMagicLink")} />
+            <Checkbox label="Enlace de acceso por correo" registration={form.register("allowMagicLink")} />
             <Checkbox label="Google" registration={form.register("allowGoogleLogin")} />
             <Checkbox label="Microsoft" registration={form.register("allowMicrosoftLogin")} />
             <Checkbox label="GitHub" registration={form.register("allowGitHubLogin")} />
             <Checkbox label="Apple" registration={form.register("allowAppleLogin")} />
           </div>{form.formState.errors.allowPasswordLogin ? <p className="field-error">{form.formState.errors.allowPasswordLogin.message}</p> : null}</fieldset>
           <fieldset className="check-group"><legend>Requisitos de seguridad</legend><div className="checkbox-grid">
-            <Checkbox label="Confirmación de email" registration={form.register("requireEmailConfirmation")} />
-            <Checkbox label="MFA obligatorio" registration={form.register("requireMfa")} />
+            <Checkbox label="Confirmación de correo" registration={form.register("requireEmailConfirmation")} />
+            <Checkbox label="Verificación en dos pasos (MFA) obligatoria" registration={form.register("requireMfa")} />
           </div></fieldset>
         </section>
         </fieldset>
@@ -164,12 +164,12 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
       {current && permissions.has("AUTHCENTER_GOVERNANCE_READ") ? <ApplicationGovernancePanel applicationId={current.id} /> : null}
 
       {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="application-actions">
-        <div className="settings-panel__heading"><div><h2 id="application-actions">Operación</h2><p>El branding mantiene el contrato completo; la aplicación del sistema no puede desactivarse.</p></div></div>
-        <div className="button-group"><button className="button button--secondary" type="button" onClick={() => { updateBranding.reset(); setBrandingOpen(true); }}>Editar branding</button><button className="button button--danger-quiet" type="button" disabled={current.code === "AUTHCENTER" || changeStatus.isPending} onClick={() => setConfirmStatus(true)}>{current.isActive ? "Desactivar" : "Activar"}</button></div>
+        <div className="settings-panel__heading"><div><h2 id="application-actions">Operación</h2><p>Cambia la marca que ven sus usuarios al iniciar sesión, o desactiva la aplicación para bloquear el acceso.</p></div></div>
+        <div className="button-group"><button className="button button--secondary" type="button" onClick={() => { updateBranding.reset(); setBrandingOpen(true); }}>Editar marca</button><button className="button button--danger-quiet" type="button" disabled={current.code === "AUTHCENTER" || changeStatus.isPending} onClick={() => setConfirmStatus(true)}>{current.isActive ? "Desactivar" : "Activar"}</button></div>
         {current.code === "AUTHCENTER" ? <p className="muted">AUTHCENTER debe permanecer activa para conservar el acceso administrativo.</p> : null}
         {changeStatus.error ? <p className="alert alert--error" role="alert">{errorMessage(changeStatus.error)}</p> : null}
       </section> : null}
-      {brandingOpen && current ? <Suspense fallback={<p className="alert" role="status">Cargando editor de branding…</p>}><BrandingDialog application={current} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setBrandingOpen(false); }} onSave={async (values) => { await updateBranding.mutateAsync(values); }} /></Suspense> : null}
+      {brandingOpen && current ? <Suspense fallback={<p className="alert" role="status">Cargando el editor de marca…</p>}><BrandingDialog application={current} busy={updateBranding.isPending} error={updateBranding.error ? errorMessage(updateBranding.error) : ""} onClose={() => { if (!updateBranding.isPending) setBrandingOpen(false); }} onSave={async (values) => { await updateBranding.mutateAsync(values); }} /></Suspense> : null}
       <ConfirmDialog open={confirmStatus} title={`${current?.isActive ? "Desactivar" : "Activar"} ${current?.name ?? "aplicación"}`} detail={current?.isActive ? "Los inicios de sesión nuevos quedarán bloqueados y las sesiones activas serán revocadas." : "La aplicación volverá a aceptar accesos según su política."} confirmLabel={current?.isActive ? "Desactivar aplicación" : "Activar aplicación"} dangerous={Boolean(current?.isActive)} busy={changeStatus.isPending} error={changeStatus.error} onCancel={() => setConfirmStatus(false)} onConfirm={() => changeStatus.mutate()} />
     </>
   );

@@ -24,7 +24,7 @@ export default function ProfileSchemaPage() {
       <PageHeader
         eyebrow="Directorio"
         title="Esquema de perfil"
-        description="Atributos personalizados del perfil universal: tipos, valores permitidos y reglas que usan los profile mappings, las group rules y el routing de federación."
+        description="Atributos personalizados del perfil universal: tipos, valores permitidos y reglas que usan los mapeos de perfil, las reglas de grupo y el enrutamiento de federación."
         actions={canWrite ? <Link className="button" to="/profile-schema/new">Nuevo atributo</Link> : undefined}
       />
       <section className="toolbar" aria-label="Filtros del esquema">

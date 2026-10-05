@@ -76,11 +76,11 @@ test("the skip link moves focus to the content and navigation focuses each page'
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
 
-  const systemLog = page.getByRole("link", { name: "System Log" }).first();
+  const systemLog = page.getByRole("link", { name: "Registro de actividad" }).first();
   await systemLog.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin-v2\/system-log$/);
-  await expect(page.getByRole("heading", { level: 1, name: "System Log" })).toBeFocused();
+  await expect(page.getByRole("heading", { level: 1, name: "Registro de actividad" })).toBeFocused();
 });
 
 test("names each browser tab after its page", async ({ page }, testInfo) => {
@@ -114,7 +114,7 @@ test("dialogs keep focus inside, close with Escape and give focus back to their 
   const trigger = page.getByRole("button", { name: /Reintentar entrega/ });
   await trigger.focus();
   await page.keyboard.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "Reintentar dead letter" });
+  const dialog = page.getByRole("dialog", { name: "Reintentar la entrega fallida" });
   await expect(dialog).toBeVisible();
   await expect.poll(() => dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
 

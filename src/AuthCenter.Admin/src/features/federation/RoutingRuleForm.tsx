@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import type { DirectoryGroupSummary, FederationProvider, FederationRoutingRule, ProfileAttributeDefinition } from "../../api/types";
+import { dataTypeLabel } from "../profile-schema/profile-schema";
 import { routingRuleDefaults, routingRuleSchema, type RoutingRuleFormValues } from "./federation";
 
 interface RoutingRuleFormProps {
@@ -26,7 +27,7 @@ export function RoutingRuleForm({ rule, nextPriority, providers, groups, schema,
   const unknownAttributeId = rule?.profileAttributeDefinitionId && !schema.some((item) => item.id === rule.profileAttributeDefinitionId) ? rule.profileAttributeDefinitionId : null;
 
   return <section className="settings-panel" aria-labelledby="routing-rule-editor">
-    <div className="settings-panel__heading"><div><h2 id="routing-rule-editor">{rule ? "Editar routing rule" : "Nueva routing rule"}</h2><p>Se evalúa la primera regla activa que coincida, en orden de prioridad. Las condiciones se combinan con Y.</p></div></div>
+    <div className="settings-panel__heading"><div><h2 id="routing-rule-editor">{rule ? "Editar regla de enrutamiento" : "Nueva regla de enrutamiento"}</h2><p>Se evalúa la primera regla activa que coincida, en orden de prioridad. Las condiciones se combinan con Y.</p></div></div>
     {error ? <p className="alert alert--error" role="alert">{error}</p> : null}
     <form className="form-stack" onSubmit={(event) => void form.handleSubmit(onSave)(event)}>
       <div className="form-grid">
@@ -37,8 +38,8 @@ export function RoutingRuleForm({ rule, nextPriority, providers, groups, schema,
       <div className="form-grid">
         <Field label="Dominio de correo" error={form.formState.errors.emailDomain?.message} help="Sin @, por ejemplo empresa.com."><input {...form.register("emailDomain")} className="mono" autoComplete="off" spellCheck={false} /></Field>
         <Field label="Grupo del directorio" error={form.formState.errors.directoryGroupId?.message}><select {...form.register("directoryGroupId")}><option value="">Sin condición de grupo</option>{unknownGroupId ? <option value={unknownGroupId}>Grupo actual ({unknownGroupId})</option> : null}{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></Field>
-        <Field label="Atributo del perfil" error={form.formState.errors.profileAttributeDefinitionId?.message}><select {...form.register("profileAttributeDefinitionId")}><option value="">Sin condición de atributo</option>{unknownAttributeId ? <option value={unknownAttributeId}>Atributo actual ({unknownAttributeId})</option> : null}{schema.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.displayName} ({item.key}, {item.dataType})</option>)}</select></Field>
-        {attributeId ? <Field label="Valor esperado" error={form.formState.errors.expectedValue?.message} help={definition ? `Se compara como ${definition.dataType}.` : "Sin permiso de esquema solo puedes conservar el valor actual."}><input {...form.register("expectedValue")} className="mono" autoComplete="off" spellCheck={false} /></Field> : <input type="hidden" {...form.register("expectedValue")} />}
+        <Field label="Atributo del perfil" error={form.formState.errors.profileAttributeDefinitionId?.message}><select {...form.register("profileAttributeDefinitionId")}><option value="">Sin condición de atributo</option>{unknownAttributeId ? <option value={unknownAttributeId}>Atributo actual ({unknownAttributeId})</option> : null}{schema.filter((item) => item.isActive).map((item) => <option key={item.id} value={item.id}>{item.displayName} ({item.key}, {dataTypeLabel(item.dataType)})</option>)}</select></Field>
+        {attributeId ? <Field label="Valor esperado" error={form.formState.errors.expectedValue?.message} help={definition ? `Se compara como ${dataTypeLabel(definition.dataType).toLowerCase()}.` : "Sin permiso de esquema solo puedes conservar el valor actual."}><input {...form.register("expectedValue")} className="mono" autoComplete="off" spellCheck={false} /></Field> : <input type="hidden" {...form.register("expectedValue")} />}
       </div>
       <div className="checkbox-grid"><label className="checkbox-field"><input type="checkbox" {...form.register("isActive")} /><span>Regla activa</span></label></div>
       <div className="form-footer"><button className="button button--secondary" type="button" onClick={onCancel}>Cancelar</button><button className="button">{rule ? "Verificar y guardar" : "Verificar y crear"}</button></div>
