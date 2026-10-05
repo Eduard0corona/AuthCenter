@@ -18,6 +18,7 @@ import { PageHeader } from "../../components/PageHeader";
 import { PageState } from "../../components/PageState";
 import { StatusBadge } from "../../components/StatusBadge";
 import { ApplicationGovernancePanel } from "../governance/ApplicationGovernancePanel";
+import { ApplicationIntegrationsPanel } from "./ApplicationIntegrationsPanel";
 import { applicationDefaults, applicationPayload, applicationSchema, type ApplicationFormValues } from "./application";
 import type { BrandingFormValues } from "./branding";
 
@@ -119,6 +120,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
       />
       {feedback ? <p className="alert alert--success" role="status">{feedback}</p> : null}
       <SaveError error={save.error} onReload={() => { save.reset(); void application.refetch().then((fresh) => { if (fresh.data) form.reset(applicationDefaults(fresh.data)); }); }} />
+      {current ? <ApplicationIntegrationsPanel application={current} /> : null}
       <form className="settings-form" onSubmit={(event) => void form.handleSubmit((values) => save.mutateAsync(values))(event)}>
         <fieldset className="settings-fieldset" disabled={!canWrite}>
         <section className="settings-panel" aria-labelledby="application-identity">
@@ -166,7 +168,7 @@ export default function ApplicationEditorPage({ create = false }: { create?: boo
       {current && permissions.has("AUTHCENTER_GOVERNANCE_READ") ? <ApplicationGovernancePanel applicationId={current.id} /> : null}
 
       {current && canWrite ? <section className="settings-panel settings-panel--actions" aria-labelledby="application-actions">
-        <div className="settings-panel__heading"><div><h2 id="application-actions">Operación</h2><p>Cambia la marca que ven sus usuarios al iniciar sesión, o desactiva la aplicación para bloquear el acceso.</p></div></div>
+        <div className="settings-panel__heading"><div><h2 id="application-actions">Marca y estado</h2><p>Cambia la marca que ven sus usuarios al iniciar sesión, o desactiva la aplicación para bloquear el acceso.</p></div></div>
         <div className="button-group"><button className="button button--secondary" type="button" onClick={() => { updateBranding.reset(); setBrandingOpen(true); }}>Editar marca</button><button className="button button--danger-quiet" type="button" disabled={current.code === "AUTHCENTER" || changeStatus.isPending} onClick={() => setConfirmStatus(true)}>{current.isActive ? "Desactivar" : "Activar"}</button></div>
         {current.code === "AUTHCENTER" ? <p className="muted">AUTHCENTER debe permanecer activa para conservar el acceso administrativo.</p> : null}
         {changeStatus.error ? <p className="alert alert--error" role="alert">{errorMessage(changeStatus.error)}</p> : null}
