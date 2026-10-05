@@ -58,6 +58,8 @@ $clientId = $target.ClientId
 
 $desiredSettings = [ordered]@{
     registrationMode         = 'Open'
+    # Paquetenvia's customers sign in: the login speaks to consumers and offers to create an account.
+    audience                 = 'Consumers'
     allowPasswordLogin       = $true
     allowMagicLink           = $true
     allowGoogleLogin         = $false

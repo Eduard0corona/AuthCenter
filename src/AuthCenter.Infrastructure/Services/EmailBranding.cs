@@ -1,4 +1,3 @@
-using AuthCenter.Domain.Constants;
 using AuthCenter.Domain.Entities;
 using AuthCenter.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -42,7 +41,7 @@ internal static class EmailBranding
         if (application is null)
             return null;
 
-        var name = EndUserName(application.Code, application.Name, application.DisplayName);
+        var name = EndUserNames.Of(application.Code, application.Name, application.DisplayName);
         // Treated exactly as no application: no name and no help link either.
         if (string.IsNullOrWhiteSpace(name))
             return new EmailBrand(null, null);
@@ -53,16 +52,4 @@ internal static class EmailBranding
         return new EmailBrand(string.Join(' ', name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)), support);
     }
 
-    /// <summary>
-    /// The name people see for an application: its brand's display name, else its name. AuthCenter's
-    /// own application still called AuthCenter (as the migrations leave it) gets none (empty).
-    /// </summary>
-    private static string EndUserName(string code, string name, string? brandedName)
-    {
-        var shown = string.IsNullOrWhiteSpace(brandedName) ? name : brandedName;
-        return string.Equals(code, DomainConstants.SystemCodes.AuthCenter, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(shown.Trim(), "AuthCenter", StringComparison.OrdinalIgnoreCase)
-            ? string.Empty
-            : shown;
-    }
 }

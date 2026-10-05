@@ -450,6 +450,17 @@ Cubre lo que hoy hace `scripts/ops/Register-Paquetenvia.ps1`, salvo escribir en 
 - Un step-up fallido no saca de la consola.
 - Se puede crear un cliente BFF sin tocar "Login URL" y su primer login funciona.
 
+**Estado (2026-10-05):** implementada en la rama `claude/confident-ramanujan-eqlj5e`, con las
+decisiones del §11. Además de la tabla:
+- Marca blanca: ni páginas, ni portal, ni correos, ni la página de error SAML nombran a AuthCenter.
+- Ajuste *Público* por aplicación (*Consumidores* o *Empleados*), con su migración.
+- Pantalla "No podemos continuar" con "Volver a {app}" y `/logout` útil sin solicitud.
+- Nombres de aplicación legibles en las sesiones y descripciones de permisos en el portal.
+- El botón "Continuar" ya no envía el formulario antes de que cargue la página.
+
+Antes de desplegar hay que aplicar la migración `20261005003754_AddApplicationAudience` (OPS-03)
+y revisar OPS-18 (nombre de la cuenta, remitente y emisor de la app de autenticación).
+
 ### Fase 1 — Fundamentos (3–5 semanas)
 
 - Tokens y componentes compartidos; foco y bordes ≥3:1; objetivos de 44 px (UX-16, UX-20, ADM-UX-30).
@@ -503,11 +514,16 @@ Cubre lo que hoy hace `scripts/ops/Register-Paquetenvia.ps1`, salvo escribir en 
 | Accesibilidad | Axe con contraste y estados poblados; reflow a 320 px | 0 violaciones |
 | Usabilidad percibida | 5 personas por perfil, cuestionario SUS | ≥ 80 |
 
-## 11. Decisiones de producto pendientes
+## 11. Decisiones de producto
 
-1. **Idiomas:** ¿sólo español, o español e inglés? Recomendación: español por defecto e inglés, con la arquitectura lista para más.
-2. **Marca:** ¿AuthCenter invisible para el usuario final? Recomendación: marca de la aplicación con pie opcional "Protegido por AuthCenter".
-3. **Público por aplicación (consumidores o empleados)** que cambie textos y valores por defecto. Recomendación: sí.
+Tomadas por el propietario el 2026-10-05:
+
+1. **Idiomas:** sólo español por ahora. El catálogo de mensajes de la Fase 1 sigue siendo útil para quitar los textos del servidor de las páginas, aunque haya un solo idioma.
+2. **Marca:** AuthCenter es invisible para el usuario final, sin pie "Protegido por AuthCenter". La app del sistema no tiene nombre visible hasta que un administrador le pone uno (OPS-18).
+3. **Público por aplicación:** sí, con dos valores, *Consumidores* y *Empleados*. Si no se indica, el registro abierto implica *Consumidores*.
+
+Pendientes:
+
 4. **Modo esencial:** ¿ocultar Gobierno, SCIM y Automatización hasta activarlos? Recomendación: sí, por instancia; reduce el menú a unas 6 entradas.
 5. **Login social hospedado para Paquetenvia (B2C):** ¿cuándo? Recomendación: al inicio de la Fase 3, o antes si el registro abierto lo necesita.
 6. **Publicar los SDK** (OPS-14): requiere decidir la licencia.

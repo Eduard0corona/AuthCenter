@@ -13,8 +13,9 @@ internal static class EndUserNames
 
     public static string Of(string code, string name, string? brandedName)
     {
-        var shown = string.IsNullOrWhiteSpace(brandedName) ? name : brandedName.Trim();
-        return code == DomainConstants.SystemCodes.AuthCenter && string.Equals(shown, ProductName, StringComparison.OrdinalIgnoreCase)
+        var shown = (string.IsNullOrWhiteSpace(brandedName) ? name : brandedName).Trim();
+        return string.Equals(code, DomainConstants.SystemCodes.AuthCenter, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(shown, ProductName, StringComparison.OrdinalIgnoreCase)
             ? string.Empty
             : shown;
     }

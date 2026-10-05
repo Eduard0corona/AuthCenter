@@ -9,7 +9,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 |---|---|---|
 | OPS-01 | Reactivar la ejecución de GitHub Actions (hecho el 2026-09-26) | Administrador de la organización / facturación |
 | OPS-02 | Proteger `main` | Administrador del repositorio |
-| OPS-03 | Aplicar las migraciones pendientes en Azure SQL (hecho el 2026-09-26: 35 migraciones) | Administrador Microsoft Entra de la base |
+| OPS-03 | Aplicar las migraciones pendientes en Azure SQL (hecho el 2026-09-26: 35 migraciones; pendiente para la Fase 0 de UX: `20261005003754_AddApplicationAudience`) | Administrador Microsoft Entra de la base |
 | OPS-04 | Carga inicial productiva (primer administrador) | Operador con acceso a App Service y Key Vault |
 | OPS-05 | Primera rotación de la llave de firma | Operador con acceso a Key Vault |
 | OPS-06 | Purgar del historial la llave RSA retirada | Autorización expresa: reescribe el historial |
@@ -19,6 +19,7 @@ de cambio quién lo hizo y cuándo (UTC); nunca pegues secretos, cadenas de cone
 | OPS-15 | Dominio propio de AuthCenter (hecho el 2026-09-27: `authcenter.info`) | Operador de App Service |
 | OPS-16 | Alta de Paquetenvia (aplicación, cliente OAuth y secreto) | Administrador de AuthCenter con MFA; Azure CLI con acceso al Key Vault de Paquetenvia |
 | OPS-17 | Correo saliente de AuthCenter (SMTP) | Cuenta del proveedor de correo, DNS de `authcenter.info`, operador de App Service |
+| OPS-18 | Marca blanca: nombre de la cuenta, remitente y emisor de la app de autenticación | Administrador de AuthCenter; operador de App Service |
 | UI-07 | Revisión manual con lectores de pantalla | Persona con NVDA/JAWS/VoiceOver |
 
 ## OPS-01 · GitHub Actions no ejecuta
@@ -56,7 +57,8 @@ Service no enruta tráfico a una instancia con el esquema atrasado.
 
 1. Descarga el artefacto `database-migrations` del run de `CI/CD` del commit a desplegar, o genera
    el mismo script idempotente (aplica sólo las migraciones que falten; la última del repositorio
-   al cerrar la remediación es `20260926170104_AddAccessGovernance`):
+   al cerrar la remediación es `20260926170104_AddAccessGovernance`; la Fase 0 de UX agrega
+   `20261005003754_AddApplicationAudience`, que debe aplicarse antes de desplegarla):
    ```bash
    dotnet tool restore
    dotnet ef migrations script --idempotent --project src/AuthCenter.Infrastructure \
@@ -197,9 +199,9 @@ pasos con su nombre.
 `scripts/ops/Register-Paquetenvia.ps1` hace el alta que pide Paquetenvia en
 `docs/development/auth-001-authcenter-bff.md` (§10 y §10.1):
 
-- **Aplicación `PAQUETENVIA`:** registro abierto, contraseña y enlace mágico. Exige confirmar el
-  correo y no exige MFA a todos: los roles privilegiados de Paquetenvia suben de nivel con
-  `acr_values`.
+- **Aplicación `PAQUETENVIA`:** registro abierto, público `Consumers` (el login habla a clientes y
+  ofrece "Crear cuenta"), contraseña y enlace mágico. Exige confirmar el correo y no exige MFA a
+  todos: los roles privilegiados de Paquetenvia suben de nivel con `acr_values`.
 - **Cliente confidencial `paquetenvia-web-prod`:**
   - `authorization_code` y `refresh_token`, con PKCE;
   - scopes `openid profile email offline_access`;
@@ -272,7 +274,7 @@ despliegue no documentaba uno.
    | `Email__UserName` | usuario SMTP del proveedor |
    | `Email__Password` | `@Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/<secreto>)` |
    | `Email__FromAddress` | una dirección del dominio verificado, por ejemplo `no-reply@authcenter.info` |
-   | `Email__FromName` | `AuthCenter` |
+   | `Email__FromName` | el nombre de tu organización, por ejemplo `Paquetenvia` (ver OPS-18) |
 
    Usa el puerto 587 (STARTTLS). El cliente SMTP de .NET no habla TLS implícito, así que el puerto
    465 no funciona.
@@ -280,6 +282,31 @@ despliegue no documentaba uno.
 - **Comprobación:** en `https://authcenter.info/login`, "¿Olvidaste tu contraseña?" con tu cuenta
   entrega el correo, y su enlace abre `https://authcenter.info`. El log registra
   `Password reset email sent` y no aparece `Failed to dispatch outbox message`.
+
+## OPS-18 · Marca blanca
+
+Las personas sólo conocen la aplicación en la que entran: el login, el portal y los correos no
+nombran a AuthCenter y llevan la marca de la aplicación. Tres nombres dependen de ti:
+
+1. **La cuenta (app del sistema `AUTHCENTER`).** El login directo (`/login`), el portal y los correos
+   sin aplicación no muestran ningún nombre mientras su marca siga llamándose "AuthCenter", como la
+   dejan las migraciones. Para mostrar el de tu organización, en la consola abre *Aplicaciones* →
+   *AuthCenter* → *Marca* y cambia el nombre visible (por ejemplo "Paquetenvia"), el logo y los
+   colores.
+2. **El remitente.** Los correos de una aplicación salen con su nombre; los que no tienen aplicación
+   usan `Email__FromName` (OPS-17). Ponle el nombre de tu organización.
+3. **La app de autenticación.** La cuenta que ven Google Authenticator o Microsoft Authenticator
+   lleva `Mfa__TotpIssuer` (hoy `AuthCenter`). Cámbialo antes de que la gente active la
+   verificación en dos pasos: las cuentas ya agregadas conservan el nombre anterior.
+
+El dominio (`authcenter.info`) sigue visible en la barra de direcciones y en los enlaces. Para una
+marca blanca completa, publica AuthCenter en un dominio tuyo (por ejemplo `cuenta.paquetenvia.com`)
+siguiendo OPS-15, y actualiza `Jwt__Issuer`, `Oidc__PublicOrigin`, `ActionLinks__DefaultBaseUrl` y
+el `LoginUrl` de los clientes.
+
+- **Comprobación:** `https://authcenter.info/login` y `https://authcenter.info/login?application=PAQUETENVIA`
+  no contienen la palabra "AuthCenter"; un restablecimiento de contraseña pedido ahí llega con
+  asunto, remitente y pie en español y con el nombre de la aplicación.
 
 ## UI-07 · Revisión manual con lectores de pantalla
 

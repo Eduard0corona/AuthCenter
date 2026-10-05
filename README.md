@@ -345,10 +345,25 @@ seed and key rotation, SDK publishing, outbound email, registering Paquetenvia w
 
 | Route | Purpose |
 |---|---|
-| `/login` | Hosted sign-in with application branding: password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); OAuth consent and step-up; an authorization request that expires tells the user to go back to the application |
+| `/login` | Hosted sign-in with application branding, one step per card (each with its own heading and document title, worded for the application's audience): password, passkeys (with or without the email), emailed sign-in links, forgotten password, enterprise federation, the second factor (authenticator, emailed code or backup code) and, when the application requires a factor the user lacks, its guided enrollment (authenticator with QR code and backup codes, or a passkey); an unconfirmed email sends its confirmation again from here; OAuth consent (what the client may do, in words, the signed-in account and "¿No eres tú?") and step-up; a request that can no longer continue offers to go back to the application (the origin of its redirect URI or assertion consumer service). Administrators who sign in without a destination land in the console |
 | `/portal` | Account portal: password, two-step verification (authenticator or email, backup codes), passkeys, sessions and trusted devices, applications (**Abrir** signs in to a SAML application that accepts sign-ins started by AuthCenter; access requests with their status), approvals for application owners (access requests and access reviews), linked identity providers (link an organization's provider, unlink), consent grants, email change and account deletion. Sensitive changes ask for the password or a passkey again |
 | `/reset-password`, `/accept-invitation`, `/confirm-email`, `/confirm-email-change`, `/magic-link` | Pages the links in AuthCenter's emails open when `ActionLinks` point at AuthCenter. The single-use token leaves the address bar at once, the pages send no referrer and each action needs a click |
+| `/logout` | Confirms a sign-out an application asked for but could not prove (RP-Initiated Logout), with that application's branding; opened directly, it signs out this browser's session. Signing out lands on the login, which says so |
 | `/admin-v2/` | Administrative console: directory and profile schema, applications (with their owners), OAuth clients and API catalog, SAML applications, lifecycle, federation, roles, permissions and access policies, access governance (requests, reviews, separation of duties), System Log and Event Hooks. `/admin` redirects here |
+
+**White label.** End users only know the applications they sign in to, so the hosted pages and the
+emails never name AuthCenter. Both are in Spanish: the pages carry the application's name, logo,
+colors and legal links, and the emails its name and help link. The system application (`AUTHCENTER`, which the migrations brand as "AuthCenter")
+has no name on them until an administrator renames it in its branding. Two settings still name
+something on their own: `Email:FromName`, the sender of emails with no application (an
+application's emails are sent in its name), and `Mfa:TotpIssuer`, the account name authenticator
+apps show; set both to your organization. The public host stays visible in the address bar:
+serve AuthCenter from a domain of your own for a full white label.
+
+**Audience.** Each application's registration settings carry `Audience`: `Consumers` (neutral
+wording, "Continúa en {app}") or `Employees` ("Usa tu cuenta de la empresa…"). Left out when an
+application is created, it is `Consumers` for `Open` registration and `Employees` otherwise; an
+update that leaves it out keeps it.
 
 These pages use a server-issued encrypted cookie; bearer tokens and refresh tokens are never
 written to browser storage. Cookie-authenticated writes require the `X-AuthCenter-CSRF` double-
@@ -1020,7 +1035,9 @@ and emails written to a pickup directory, and drives the login, the portal, the 
 axe checks (`HOSTED_UI_CHROMIUM` can point at a local Chromium). The same variable runs the SQL
 Server integration tests of `dotnet test`. The console's own Playwright suite (`npm run test:e2e`)
 uses mocked responses and checks every route with axe (including the WCAG 2.2 `target-size` rule)
-on desktop and mobile, and its reflow at 320 pixels.
+on desktop and mobile, and its reflow at 320 pixels. The hosted suite's `mobile` project (a phone
+at 390 pixels) checks that the sign-in, the emailed-link pages, the sign-out and every portal panel
+reflow down to 320 pixels without horizontal scrolling.
 
 Coverage and capacity, as CI runs them:
 
