@@ -1,6 +1,6 @@
 import {
-  api, appendTheme, copyText, createPasskey, downloadText, getPasskey, groupSecret, passkeyErrorMessage,
-  passwordProblem, safeLocalPath, serializeCredential, setCsrf, status
+  api, appendTheme, copyText, createPasskey, downloadText, errorMessage, getPasskey, groupSecret, legalLinks,
+  passkeyErrorMessage, passwordProblem, safeLocalPath, serializeCredential, setCsrf, status
 } from "./shared.js";
 import { qrSvg } from "./qr.js";
 
@@ -19,6 +19,10 @@ const passwordChangeForm = document.querySelector("#password-change-form");
 const consentView = document.querySelector("#consent");
 const registerForm = document.querySelector("#register-form");
 const registerSentView = document.querySelector("#register-sent-view");
+const blockedView = document.querySelector("#blocked-view");
+const pageTitle = document.querySelector("#page-title");
+const pageSubtitle = document.querySelector("#page-subtitle");
+const confirmPrompt = document.querySelector("#confirm-prompt");
 const PENDING_KEY = "authcenter.pendingSignIn";
 
 const params = new URLSearchParams(location.search);
@@ -28,8 +32,11 @@ const magicLinkPage = location.pathname === "/magic-link";
 const federationResult = params.get("federation_result");
 const federationError = params.get("federation_error");
 const magicToken = magicLinkPage ? params.get("token") : null;
-if (federationResult || federationError || magicLinkPage) {
-  for (const name of ["federation_result", "federation_error", "token", "email"]) params.delete(name);
+// Where the user arrives after signing out or deleting the account: said once, not on a reload.
+const signedOut = params.get("signed_out") === "1";
+const accountDeleted = params.get("account_deleted") === "1";
+if (federationResult || federationError || magicLinkPage || signedOut || accountDeleted) {
+  for (const name of ["federation_result", "federation_error", "token", "email", "signed_out", "account_deleted"]) params.delete(name);
   history.replaceState(null, "", `${magicLinkPage ? "/login" : location.pathname}${params.size ? `?${params}` : ""}`);
 }
 
@@ -51,6 +58,10 @@ let stepTimer = 0;
 // A consent decision waiting for the step-up the client's application requires.
 let pendingConsent = null;
 
+// The application of a request saved in this browser, should the request itself expire: the way back
+// to it when the page cannot continue.
+let savedApplication = null;
+
 // The sign-in continues where the emailed link was requested, when it is opened in the same browser.
 if (magicLinkPage) {
   const pending = readPendingSignIn();
@@ -59,7 +70,11 @@ if (magicLinkPage) {
     samlInteraction = pending.saml === true && Boolean(interactionId);
     returnUrl = pending.returnUrl || null;
     if (pending.application) application.value = pending.application;
+    savedApplication = savedApplicationOf(pending);
   }
+} else if (interactionId) {
+  const pending = readPendingSignIn();
+  if (pending?.interactionId === interactionId) savedApplication = savedApplicationOf(pending);
 }
 
 // Filled by initialize(); the handlers below are registered first and wait for it, so an early
@@ -70,6 +85,7 @@ let passwordAllowed = true;
 let magicLinkAllowed = false;
 let federationAvailable = false;
 let selfRegistrationAllowed = false;
+let brandName = "";
 let registeredEmail = "";
 let current = null;
 let markReady;
@@ -77,11 +93,28 @@ const ready = new Promise(resolve => { markReady = resolve; });
 
 // --- Views -----------------------------------------------------------------------------
 
+// Each step is the whole card: its title is the page's heading and the document's title.
 function showView(view, focus) {
   for (const item of views) item.hidden = item !== view;
-  document.querySelector("#restart").hidden = true;
+  confirmPrompt.hidden = true;
   clearTimeout(stepTimer);
-  (focus ?? view?.querySelector("input:not([type=hidden]):not([hidden]), button"))?.focus();
+  setHeader(view?.dataset.title ?? "Inicia sesión", view === loginForm ? loginSubtitle() : "");
+  (focus ?? view?.querySelector("input:not([type=hidden]):not([hidden]), button") ?? pageTitle).focus();
+}
+
+function setHeader(title, subtitle = "") {
+  pageTitle.textContent = title;
+  pageSubtitle.textContent = subtitle;
+  pageSubtitle.hidden = !subtitle;
+  document.title = brandName ? `${title} · ${brandName}` : title;
+}
+
+// The login speaks to who signs in (the application's audience) and names where they continue.
+function loginSubtitle() {
+  const target = interaction?.clientDisplayName || brandName;
+  if (options?.audience === "Employees")
+    return target ? `Usa tu cuenta de la empresa para continuar en ${target}.` : "Usa tu cuenta de la empresa.";
+  return target ? `Continúa en ${target}.` : "";
 }
 
 function backToLogin(text, type = "") {
@@ -93,14 +126,22 @@ function backToLogin(text, type = "") {
   status(message, text, type);
 }
 
-// A dead end: nothing on this page can continue the request.
+// Nothing on this page can continue the request: say why and offer the way out.
 function showBlocked(text) {
-  showView(null);
   pendingConsent = null;
-  status(message, text, "error");
   // An authorization request can only be restarted from the application that sent it.
-  document.querySelector("#restart").hidden = Boolean(interactionId);
-  document.querySelector("#restart-link").href = loginPath();
+  const target = interaction ?? savedApplication;
+  const back = document.querySelector("#blocked-back");
+  back.hidden = !target?.applicationUrl;
+  if (target?.applicationUrl) {
+    back.href = target.applicationUrl;
+    back.textContent = target.clientDisplayName ? `Volver a ${target.clientDisplayName}` : "Volver a la aplicación";
+  }
+  const restart = document.querySelector("#restart-link");
+  restart.hidden = Boolean(interactionId);
+  restart.href = loginPath();
+  showView(blockedView);
+  status(message, text, "error");
 }
 
 function showUnavailable(text = "Esta solicitud de inicio de sesión expiró o se abrió en otro navegador. Vuelve a la aplicación e inténtalo de nuevo.") {
@@ -227,8 +268,25 @@ function handleSignInError(error) {
   if (error.status === 429) return status(message, "Demasiados intentos. Espera un momento e inténtalo de nuevo.", "error");
   if (["INVALID_MFA_TOKEN", "TOKEN_ALREADY_USED", "INVALID_ENROLLMENT", "INVALID_FORCED_CHANGE_TOKEN"].includes(error.code))
     return backToLogin(signInMessages[error.code], "error");
-  status(message, signInMessages[error.code] ?? error.message, "error");
+  status(message, signInMessages[error.code] ?? errorMessage(error), "error");
+  // An unconfirmed address gets its link again from here, without creating the account again.
+  if (["EMAIL_NOT_CONFIRMED", "EMAIL_CONFIRMATION_REQUIRED"].includes(error.code) && !loginForm.hidden) confirmPrompt.hidden = false;
 }
+
+email.addEventListener("input", () => { confirmPrompt.hidden = true; });
+
+document.querySelector("#confirm-resend").addEventListener("click", async () => {
+  await ready;
+  if (!email.value || !email.validity.valid) return status(message, "Introduce un correo válido.", "error");
+  try {
+    await api("/api/auth/resend-email-confirmation", {
+      method: "POST",
+      body: JSON.stringify({ email: email.value, applicationCode: application.value })
+    });
+    showRegistrationSent(email.value,
+      `Te enviamos de nuevo el enlace de confirmación a ${email.value}. Ábrelo en este navegador para confirmar tu correo y continuar.`);
+  } catch (error) { handleSignInError(error); }
+});
 
 // --- Forgot password and emailed sign-in links -------------------------------------------
 
@@ -279,7 +337,8 @@ async function redeemMagicLink(token) {
   }
 }
 
-// Remembers, in this browser only, which request the emailed link should continue.
+// Remembers, in this browser only, which request the emailed link should continue, and the way
+// back to its application should the request expire first.
 function savePendingSignIn() {
   try {
     localStorage.setItem(PENDING_KEY, JSON.stringify({
@@ -287,9 +346,16 @@ function savePendingSignIn() {
       saml: samlInteraction,
       application: application.value,
       returnUrl: interactionId ? null : returnUrl,
+      applicationUrl: interaction?.applicationUrl ?? null,
+      clientDisplayName: interaction?.clientDisplayName ?? null,
       expiresAt: Date.now() + 15 * 60 * 1000
     }));
   } catch { /* Storage may be disabled: the link then signs in without continuing the request. */ }
+}
+
+function savedApplicationOf(pending) {
+  const url = typeof pending.applicationUrl === "string" && /^https?:\/\//.test(pending.applicationUrl) ? pending.applicationUrl : null;
+  return url ? { applicationUrl: url, clientDisplayName: pending.clientDisplayName || "" } : null;
 }
 
 function readPendingSignIn() {
@@ -309,7 +375,8 @@ document.querySelector("#register-link").addEventListener("click", async () => {
   await ready;
   registerForm.reset();
   document.querySelector("#register-email").value = email.value;
-  const name = options?.applicationName;
+  // The account belongs to the application, whichever of its clients asked for the sign-in.
+  const name = brandName || interaction?.clientDisplayName;
   document.querySelector("#register-description").textContent = name
     ? `Con esta cuenta entrarás a ${name}.`
     : "Con esta cuenta entrarás a la aplicación.";
@@ -351,10 +418,10 @@ registerForm.addEventListener("submit", async event => {
 });
 
 // The same answer whether the address is new or already has an account: the email tells which.
-function showRegistrationSent(address) {
+function showRegistrationSent(address, text) {
   registeredEmail = address;
   savePendingSignIn();
-  document.querySelector("#register-sent-description").textContent =
+  document.querySelector("#register-sent-description").textContent = text ??
     `Te enviamos un mensaje a ${address}. Ábrelo en este navegador para confirmar tu correo y continuar. Si ya tenías una cuenta, el mensaje te dice cómo entrar.`;
   showView(registerSentView, document.querySelector("#register-resend"));
   status(message, "");
@@ -687,13 +754,23 @@ async function finishLogin() {
   clearTimeout(stepTimer);
   clearPendingSignIn();
   if (!interactionId) {
+    const destination = await landingPage();
     leaving = true;
-    return location.replace(safeLocalPath(returnUrl, location.origin, "/portal"));
+    return location.replace(destination);
   }
   if (pendingConsent === null) return showConsent();
   const consent = pendingConsent;
   pendingConsent = null;
   return completeConsent(consent);
+}
+
+// A direct sign-in continues where it was asked to; a request that expired meanwhile, back at its
+// application; otherwise administrators land in the console and everyone else in their account.
+async function landingPage() {
+  if (returnUrl) return safeLocalPath(returnUrl, location.origin, "/portal");
+  if (savedApplication?.applicationUrl) return savedApplication.applicationUrl;
+  const session = await currentSession();
+  return session?.user?.permissions?.some(value => value.startsWith("AUTHCENTER_")) ? "/admin-v2/" : "/portal";
 }
 
 // The client's application asked for a stronger sign-in than the current session: verify a
@@ -735,7 +812,7 @@ function requireFreshSignIn() {
 function handleInteractionError(error) {
   if (error.code === "LOGIN_REQUIRED") return requireFreshSignIn();
   if (["INVALID_INTERACTION", "INTERACTION_BINDING_MISMATCH", "INVALID_CLIENT"].includes(error.code)) return showUnavailable();
-  status(message, error.message, "error");
+  status(message, errorMessage(error), "error");
 }
 
 async function showConsent() {
@@ -746,15 +823,41 @@ async function showConsent() {
   catch (error) { return handleInteractionError(error); }
   if (details.requiresReauthentication) return requireFreshSignIn();
   if (!details.requiresConsent) return completeConsent(true);
-  showView(consentView, document.querySelector("#consent-allow"));
-  status(message, "");
-  document.querySelector("#consent-description").textContent = `${details.clientDisplayName} solicita acceso a ${details.applicationName}.`;
-  const scopes = document.querySelector("#consent-scopes");
-  scopes.replaceChildren(...details.scopes.map(scope => {
-    const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = scope; return badge;
+  // What the client may do, in words, and with which account: the user decides knowing both.
+  document.querySelector("#consent-description").textContent = brandName
+    ? `${details.clientDisplayName} quiere acceder a tu cuenta de ${brandName}:`
+    : `${details.clientDisplayName} quiere acceder a tu cuenta:`;
+  const descriptions = details.scopeDescriptions?.length
+    ? details.scopeDescriptions
+    : details.scopes.map(scope => ({ scope, description: scope }));
+  document.querySelector("#consent-scopes").replaceChildren(...descriptions.map(item => {
+    const entry = document.createElement("li");
+    entry.textContent = item.description;
+    if (item.detail) {
+      const detail = document.createElement("span");
+      detail.className = "detail";
+      detail.textContent = item.detail;
+      entry.append(detail);
+    }
+    return entry;
   }));
+  const session = await currentSession();
+  const account = session?.user?.email || session?.user?.name;
+  document.querySelector("#consent-account").textContent = account ? `Conectado como ${account}.` : "";
+  document.querySelector("#consent-switch").onclick = switchAccount;
   document.querySelector("#consent-allow").onclick = () => completeConsent(true);
   document.querySelector("#consent-deny").onclick = () => completeConsent(false);
+  showView(consentView, document.querySelector("#consent-allow"));
+  status(message, "");
+}
+
+// "¿No eres tú?": ends this browser's session and signs in again for the same request.
+async function switchAccount() {
+  try { await api("/ui-api/session/logout", { method: "POST" }); } catch { /* Already signed out. */ }
+  setCsrf("");
+  current = null;
+  email.value = "";
+  backToLogin("Inicia sesión con tu cuenta para continuar.");
 }
 
 async function completeConsent(consent) {
@@ -782,20 +885,25 @@ function loginPath() {
   return `/login${query.size ? `?${query}` : ""}`;
 }
 
+// The application is the brand: its name, logo, colors and links. Without branding the page names
+// no product at all.
 async function loadBranding() {
   const code = application.value.trim() || "AUTHCENTER";
   if (code !== themeCode) { appendTheme(code); themeCode = code; }
-  try {
-    const branding = await api(`/api/applications/branding/${encodeURIComponent(code)}`);
-    document.querySelector("#brand-name").textContent = branding.displayName;
-    document.title = `Iniciar sesión · ${branding.displayName}`;
-    const logo = document.querySelector("#brand-logo");
-    if (branding.logoUrl) { logo.src = branding.logoUrl; logo.alt = `Logo de ${branding.displayName}`; logo.hidden = false; }
-    else { logo.hidden = true; logo.removeAttribute("src"); }
-    const legal = document.querySelector("#legal");
-    legal.replaceChildren(...[[branding.privacyUrl, "Privacidad"], [branding.termsUrl, "Términos"], [branding.supportUrl, "Soporte"]]
-      .filter(([url]) => url).map(([url, label]) => { const link = document.createElement("a"); link.href = url; link.rel = "noopener noreferrer"; link.textContent = label; return link; }));
-  } catch { document.querySelector("#brand-name").textContent = "AuthCenter"; }
+  let branding = null;
+  try { branding = await api(`/api/applications/branding/${encodeURIComponent(code)}`); }
+  catch { /* An unknown or inactive application has no branding. */ }
+  brandName = branding?.displayName ?? "";
+  document.querySelector("#brand-name").textContent = brandName;
+  const logo = document.querySelector("#brand-logo");
+  if (branding?.logoUrl) {
+    logo.src = branding.logoUrl;
+    // Next to the name the logo is decorative; alone, it names the application.
+    logo.alt = brandName ? "" : "Logo de la aplicación";
+    logo.hidden = false;
+  } else { logo.hidden = true; logo.removeAttribute("src"); }
+  document.querySelector("#brand").hidden = !brandName && logo.hidden;
+  document.querySelector("#legal").replaceChildren(...legalLinks(branding));
 }
 
 // An authorization request names its application: the page signs the user in to that
@@ -820,6 +928,7 @@ async function initialize() {
   document.querySelector("#federation-hint").hidden = !federationAvailable;
   document.querySelector("#register-prompt").hidden = !selfRegistrationAllowed;
   document.querySelector("#passkey").hidden = !window.PublicKeyCredential;
+  if (!loginForm.hidden) setHeader(loginForm.dataset.title, loginSubtitle());
   watchInteractionExpiry();
   current = await currentSession();
   markReady();
@@ -829,9 +938,15 @@ async function initialize() {
   else if (federationResult) await completeFederation(federationResult);
   else if (federationError) showFederationError(federationError);
   else if (interaction?.requiresFreshLogin) {
-    if (!await federateFromHints()) status(message, `Confirma tu identidad para continuar en ${interaction.applicationName}.`);
+    if (!await federateFromHints()) status(message, `Confirma tu identidad para continuar en ${interaction.clientDisplayName || brandName || "la aplicación"}.`);
   }
-  else if (!await resumeExistingSession()) await federateFromHints();
+  else if (!await resumeExistingSession()) {
+    if (signedOut) status(message, "Cerraste sesión.", "success");
+    else if (accountDeleted) status(message, "Tu cuenta se eliminó.", "success");
+    await federateFromHints();
+  }
 }
 
+// Every handler is registered: the form can be submitted, and waits for initialize() if early.
+document.querySelector("#login-submit").disabled = false;
 await initialize();

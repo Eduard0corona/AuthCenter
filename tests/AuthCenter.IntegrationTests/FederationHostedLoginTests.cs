@@ -45,6 +45,8 @@ public sealed class FederationHostedLoginTests : IClassFixture<FederationAuthCen
         var context = await ReadDataAsync(await browser.GetAsync($"/oauth/interactions/{interactionId}/context"));
         Assert.True(context.GetProperty("federationAvailable").GetBoolean());
         Assert.Equal("Employees", context.GetProperty("audience").GetString());
+        // A request that can no longer continue offers to go back to the application.
+        Assert.Equal("https://federation-rp.test/", context.GetProperty("applicationUrl").GetString());
         Assert.Equal(provider.Id, context.GetProperty("identityProvider").GetProperty("id").GetGuid());
         Assert.Equal("Oidc", context.GetProperty("identityProvider").GetProperty("protocol").GetString());
 

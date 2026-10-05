@@ -1,5 +1,5 @@
 import {
-  api, copyText, createPasskey, downloadText, formatDate, getPasskey, groupSecret, passkeyErrorMessage,
+  api, copyText, createPasskey, downloadText, errorMessage, formatDate, getPasskey, groupSecret, passkeyErrorMessage,
   passwordProblem, requireSessionState, serializeCredential, signOut, status
 } from "./shared.js";
 import { qrSvg } from "./qr.js";
@@ -56,7 +56,7 @@ async function refresh() {
     renderProviders(providers, linkable);
     renderConsents(consents);
     renderAccount();
-  } catch (error) { status(message, error.message, "error"); }
+  } catch (error) { status(message, errorText(error), "error"); }
 }
 
 // --- Rendering -----------------------------------------------------------------------------
@@ -126,7 +126,8 @@ function renderPasskeys() {
 function renderSessions(sessions, devices) {
   renderList("sessions-list", sessions, item => [
     `${item.id === session.sessionId ? "Esta sesión · " : ""}${describeAgent(item.userAgent)}`,
-    `${item.applicationCode} · iniciada ${formatDate(item.createdAt)}${item.ipAddress ? ` · IP ${item.ipAddress}` : ""} · expira ${formatDate(item.expiresAt)}`
+    [item.applicationName, `iniciada ${formatDate(item.createdAt)}`, item.ipAddress ? `IP ${item.ipAddress}` : null, `expira ${formatDate(item.expiresAt)}`]
+      .filter(Boolean).join(" · ")
   ], item => [button(item.id === session.sessionId ? "Cerrar esta sesión" : "Revocar", "danger", () => revokeSession(item))], "No hay sesiones activas.");
   renderList("devices-list", devices, item => [
     item.deviceName || "Dispositivo",
@@ -319,9 +320,11 @@ function renderProviders(providers, linkable) {
 }
 
 function renderConsents(consents) {
+  // What each application may do, in the words of the consent screen.
   renderList("consents-list", consents, item => [
     item.clientDisplayName,
-    `${item.applicationName} · ${item.scopes.join(", ")} · desde ${formatDate(item.grantedAt)}`
+    [item.applicationName, (item.scopeDescriptions?.length ? item.scopeDescriptions.map(scope => scope.description) : item.scopes).join(", "), `desde ${formatDate(item.grantedAt)}`]
+      .filter(Boolean).join(" · ")
   ], item => [button("Revocar", "danger", () => mutate(`/oauth/consents/${item.id}`, "DELETE", null, "Consentimiento revocado."))], "No has autorizado aplicaciones de terceros.");
 }
 
@@ -424,7 +427,7 @@ document.querySelector("#revoke-all-sessions").addEventListener("click", async (
   if (!proof) return;
   try {
     await api("/api/auth/sessions", { method: "DELETE", headers: { "X-AuthCenter-Reauthentication": proof } });
-    location.replace("/login");
+    location.replace("/login?signed_out=1");
   } catch (error) { status(message, errorText(error), "error"); }
 });
 
@@ -461,7 +464,7 @@ document.querySelector("#delete-form").addEventListener("submit", async event =>
   if (profile.hasLocalPassword && !password) return status(message, "Escribe tu contraseña para eliminar la cuenta.", "error");
   try {
     await api("/api/auth/account", { method: "DELETE", body: JSON.stringify({ password: password || null, confirmDeletion: true }) });
-    location.replace("/login");
+    location.replace("/login?account_deleted=1");
   } catch (error) { status(message, errorText(error), "error"); }
 });
 
@@ -789,8 +792,7 @@ const errorMessages = {
 };
 
 function errorText(error) {
-  if (error.status === 429) return "Demasiados intentos. Espera un momento e inténtalo de nuevo.";
-  return errorMessages[error.code] ?? error.message;
+  return errorMessages[error.code] ?? errorMessage(error);
 }
 
 function showPanel(id, updateHash) {

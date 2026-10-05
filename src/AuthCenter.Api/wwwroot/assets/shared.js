@@ -17,7 +17,8 @@ export async function api(path, options = {}) {
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("json") ? await response.json() : null;
   if (!response.ok) {
-    const error = new Error(payload?.message || payload?.error?.message || `Request failed (${response.status})`);
+    // The server's own message is for developers; pages show errorMessage() or their own text.
+    const error = new Error(payload?.message || payload?.error?.message || `HTTP ${response.status}`);
     error.code = payload?.errorCode || payload?.error?.code || "REQUEST_FAILED";
     error.status = response.status;
     throw error;
@@ -55,6 +56,30 @@ export async function requireSession() {
   return (await requireSessionState())?.user ?? null;
 }
 
+// What a page says for an error it has no text of its own for. Server messages are written for
+// developers, in English, so they never reach the page.
+export function errorMessage(error) {
+  if (error?.code === "NETWORK_ERROR") return error.message;
+  if (error?.status === 429) return "Demasiados intentos. Espera un momento e inténtalo de nuevo.";
+  if (error?.status === 401) return "Tu sesión terminó. Inicia sesión de nuevo.";
+  if (error?.status >= 500) return "Algo salió mal de nuestro lado. Inténtalo de nuevo en unos minutos.";
+  return "No pudimos completar la operación. Revisa los datos e inténtalo de nuevo.";
+}
+
+// The application's privacy, terms and help pages, opened apart so the flow is not lost.
+export function legalLinks(branding) {
+  return [[branding?.privacyUrl, "Privacidad"], [branding?.termsUrl, "Términos"], [branding?.supportUrl, "Ayuda"]]
+    .filter(([url]) => url)
+    .map(([url, label]) => {
+      const link = document.createElement("a");
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = label;
+      return link;
+    });
+}
+
 export function status(element, message, type = "") {
   element.textContent = message || "";
   element.className = `status ${type}`.trim();
@@ -72,7 +97,7 @@ export function textCell(value) {
 
 export async function signOut() {
   await api("/ui-api/session/logout", { method: "POST" });
-  location.replace("/login");
+  location.replace("/login?signed_out=1");
 }
 
 export function appendTheme(applicationCode) {
@@ -137,7 +162,8 @@ export function passkeyErrorMessage(error, cancelled = "La operación con passke
   if (error?.name === "NotAllowedError" || error?.name === "AbortError") return cancelled;
   if (error?.name === "InvalidStateError") return "Esta passkey ya está registrada en tu cuenta.";
   if (error?.name === "SecurityError") return "Este sitio no puede usar passkeys desde esta dirección.";
-  return error?.message || "No se pudo completar la operación con passkey.";
+  // The browser's own messages follow its language, not the page's.
+  return "No se pudo completar la operación con passkey. Inténtalo de nuevo.";
 }
 
 // A base32 secret in groups of four, easier to type into an authenticator app.

@@ -9,6 +9,12 @@ public class OAuthInteractionContextResponse
     public string ApplicationCode { get; init; } = string.Empty;
     public string ApplicationName { get; init; } = string.Empty;
     public string ClientDisplayName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The origin of the address the application receives the answer at (HTTPS, or HTTP on
+    /// loopback), so a request that can no longer continue offers to go back to the application.
+    /// </summary>
+    public string? ApplicationUrl { get; init; }
     public string? LoginHint { get; init; }
     public bool RequiresFreshLogin { get; init; }
     public bool AllowPasswordLogin { get; init; }

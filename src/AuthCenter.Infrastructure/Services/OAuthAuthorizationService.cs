@@ -292,6 +292,7 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
             ApplicationCode = client.ApplicationSystem.Code,
             ApplicationName = client.ApplicationSystem.Name,
             ClientDisplayName = client.DisplayName,
+            ApplicationUrl = ApplicationOrigin.From(session.RedirectUri),
             LoginHint = session.LoginHint,
             RequiresFreshLogin = session.Prompt.Contains(PromptLogin) || session.Prompt.Contains(PromptSelectAccount),
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
@@ -789,19 +790,24 @@ public class OAuthAuthorizationService : IOAuthAuthorizationService
                 ClientDisplayName = item.OAuthClient.DisplayName,
                 ApplicationCode = item.OAuthClient.ApplicationSystem.Code,
                 ApplicationName = item.OAuthClient.ApplicationSystem.Name,
+                BrandedName = item.OAuthClient.ApplicationSystem.BrandingSettings == null ? null : item.OAuthClient.ApplicationSystem.BrandingSettings.DisplayName,
                 item.ScopesJson,
                 item.GrantedAt,
                 item.UpdatedAt
             })
             .ToListAsync(ct);
+        var scopes = grants.ToDictionary(item => item.Id, item => DeserializeValues(item.ScopesJson));
+        var descriptions = (await DescribeScopesAsync(scopes.Values.SelectMany(values => values).Distinct(StringComparer.Ordinal).ToList(), ct))
+            .ToDictionary(item => item.Scope, StringComparer.Ordinal);
         return grants.Select(item => new OAuthConsentGrantDto
         {
             Id = item.Id,
             ClientId = item.ClientId,
             ClientDisplayName = item.ClientDisplayName,
             ApplicationCode = item.ApplicationCode,
-            ApplicationName = item.ApplicationName,
-            Scopes = DeserializeValues(item.ScopesJson),
+            ApplicationName = EndUserNames.Of(item.ApplicationCode, item.ApplicationName, item.BrandedName),
+            Scopes = scopes[item.Id],
+            ScopeDescriptions = scopes[item.Id].Select(scope => descriptions[scope]).ToList(),
             GrantedAt = item.GrantedAt,
             UpdatedAt = item.UpdatedAt
         }).ToList();

@@ -78,9 +78,10 @@ test("the portal opens the SAML application, and its next request needs no sign-
   expect(unsolicited).not.toContain("InResponseTo=");
   expect(textOf(unsolicited, "NameID")).toBe(user.email);
 
-  // The browser session answers the application's own request without the login.
+  // The browser session answers the application's own request without the login. The answer is a
+  // form that posts itself at once, so the navigation is only awaited until it starts.
   const requestId = `_${randomBytes(16).toString("hex")}`;
-  await page.goto(`/saml/idp/sso?${new URLSearchParams({ SAMLRequest: authnRequest(requestId) })}`);
+  await page.goto(`/saml/idp/sso?${new URLSearchParams({ SAMLRequest: authnRequest(requestId) })}`, { waitUntil: "commit" });
   const answered = decode((await acs.next()).get("SAMLResponse"));
   expect(answered).toContain(`InResponseTo="${requestId}"`);
   expect(textOf(answered, "NameID")).toBe(user.email);
@@ -95,7 +96,9 @@ test("a request from an application AuthCenter does not know is refused on AuthC
 
   expect(response.status()).toBe(400);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("No se pudo iniciar sesión en la aplicación");
-  await expect(page.getByRole("alert")).toHaveText("The application that sent this request is not registered in AuthCenter.");
+  await expect(page.getByRole("alert")).toHaveText("La aplicación que envió esta solicitud no está registrada.");
+  // End users only know the application: the page names no product.
+  await expect(page.locator("body")).not.toContainText("AuthCenter");
   expect(posts).toEqual([]);
 });
 

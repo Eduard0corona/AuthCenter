@@ -1,4 +1,4 @@
-import { api, appendTheme, passwordProblem, setCsrf, status } from "./shared.js";
+import { api, appendTheme, errorMessage, legalLinks, passwordProblem, passwordRules, setCsrf, status } from "./shared.js";
 
 // Pages opened from the links AuthCenter emails: set a password (reset or invitation) and
 // confirm an email address or an email change. The single-use token leaves the address bar
@@ -49,6 +49,7 @@ const config = pages[page];
 const passwordForm = document.querySelector("#password-form");
 const confirmForm = document.querySelector("#confirm-form");
 
+let brandName = "";
 let markReady;
 const ready = new Promise(resolve => { markReady = resolve; });
 
@@ -84,8 +85,10 @@ confirmForm.addEventListener("submit", async event => {
 
 function fail(error) {
   if (error.status === 429) return status(message, "Demasiados intentos. Espera un momento e inténtalo de nuevo.", "error");
-  if (error.code === "WEAK_PASSWORD") return status(message, `La contraseña no cumple la política de seguridad: ${error.message}`, "error");
+  if (error.code === "WEAK_PASSWORD") return status(message, `La contraseña no cumple la política de seguridad. ${passwordRules}`, "error");
   if (error.code === "VALIDATION_FAILED" && config.kind === "password") return status(message, passwordProblem(""), "error");
+  // The link is still good after a network or server failure: the form stays for another try.
+  if (error.code === "NETWORK_ERROR" || error.status >= 500) return status(message, errorMessage(error), "error");
   passwordForm.hidden = true;
   confirmForm.hidden = true;
   finish("El enlace no es válido, expiró o ya se usó. Pide uno nuevo.", "error");
@@ -115,18 +118,19 @@ function pendingSignInPath() {
   return `/login?${query}`;
 }
 
+// The application the link was sent for is the brand; without one the page names no product.
 async function loadBranding() {
   const code = applicationCode || "AUTHCENTER";
   appendTheme(code);
-  try {
-    const branding = await api(`/api/applications/branding/${encodeURIComponent(code)}`);
-    document.querySelector("#brand-name").textContent = branding.displayName;
-    const logo = document.querySelector("#brand-logo");
-    if (branding.logoUrl) { logo.src = branding.logoUrl; logo.alt = `Logo de ${branding.displayName}`; logo.hidden = false; }
-    const legal = document.querySelector("#legal");
-    legal.replaceChildren(...[[branding.privacyUrl, "Privacidad"], [branding.termsUrl, "Términos"], [branding.supportUrl, "Soporte"]]
-      .filter(([url]) => url).map(([url, label]) => { const link = document.createElement("a"); link.href = url; link.rel = "noopener noreferrer"; link.textContent = label; return link; }));
-  } catch { /* The default brand stays. */ }
+  let branding = null;
+  try { branding = await api(`/api/applications/branding/${encodeURIComponent(code)}`); }
+  catch { /* No branding: the page stays neutral. */ }
+  brandName = branding?.displayName ?? "";
+  document.querySelector("#brand-name").textContent = brandName;
+  const logo = document.querySelector("#brand-logo");
+  if (branding?.logoUrl) { logo.src = branding.logoUrl; logo.alt = brandName ? "" : "Logo de la aplicación"; logo.hidden = false; }
+  document.querySelector("#brand").hidden = !brandName && logo.hidden;
+  document.querySelector("#legal").replaceChildren(...legalLinks(branding));
 }
 
 async function initialize() {
@@ -136,11 +140,12 @@ async function initialize() {
 
   if (!config || !token || !emailAddress || (config.kind === "email-change" && !userId)) {
     document.querySelector("#page-title").textContent = "Enlace incompleto";
+    document.title = brandName ? `Enlace incompleto · ${brandName}` : "Enlace incompleto";
     finish("El enlace está incompleto o ya no es válido. Pide uno nuevo desde la página de inicio de sesión.", "error");
   } else {
     document.querySelector("#page-title").textContent = config.title;
     document.querySelector("#page-subtitle").textContent = config.subtitle;
-    document.title = `${config.title} · AuthCenter`;
+    document.title = brandName ? `${config.title} · ${brandName}` : config.title;
     if (config.kind === "password") {
       document.querySelector("#account-email").value = emailAddress;
       document.querySelector("#password-submit").textContent = config.submit;

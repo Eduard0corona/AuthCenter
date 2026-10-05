@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>Mi cuenta · AuthCenter</title>
+  <title>Mi cuenta</title>
   <link rel="stylesheet" href="/assets/app.css"><script type="module" src="/assets/portal.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#content">Saltar al contenido</a>
   <div class="app-shell">
-    <aside class="sidebar"><h1>AuthCenter</h1><nav aria-label="Mi cuenta">
+    <aside class="sidebar"><h1>Mi cuenta</h1><nav aria-label="Mi cuenta">
       <a href="#overview" data-panel="overview" aria-current="page">Resumen</a>
       <a href="#security" data-panel="security">Seguridad</a>
       <a href="#sessions" data-panel="sessions">Sesiones</a>
@@ -20,7 +20,7 @@
       <a href="#account" data-panel="account">Cuenta</a>
     </nav></aside>
     <main id="content" class="main">
-      <header class="topbar"><div><p class="muted">Portal de usuario</p><h2 id="user-name">Cargando…</h2><p id="user-email" class="muted"></p></div><div class="actions"><a id="admin-link" class="button" href="/admin-v2/" hidden>Administración</a><button id="logout" class="secondary">Cerrar sesión</button></div></header>
+      <header class="topbar"><div class="who"><h2 id="user-name">Cargando…</h2><p id="user-email" class="muted"></p></div><div class="actions"><a id="admin-link" class="button" href="/admin-v2/" hidden>Administración</a><button id="logout" class="secondary">Cerrar sesión</button></div></header>
       <p id="status" class="status" role="status" aria-live="polite"></p>
 
       <section id="overview" class="panel active" tabindex="-1" aria-labelledby="overview-title"><h2 id="overview-title">Resumen de seguridad</h2><div id="overview-grid" class="grid"></div></section>
@@ -88,7 +88,7 @@
 
       <section id="providers" class="panel" tabindex="-1" aria-labelledby="providers-title">
         <h2 id="providers-title">Proveedores de identidad</h2>
-        <p class="muted">Cuentas externas con las que puedes iniciar sesión en AuthCenter.</p>
+        <p class="muted">Cuentas externas con las que puedes iniciar sesión.</p>
         <h3>Vinculados</h3><div id="providers-list" class="list"></div>
         <h3>Disponibles en tus aplicaciones</h3><p class="muted">Vincula la cuenta de tu organización para iniciar sesión con ella.</p><div id="linkable-list" class="list"></div>
       </section>

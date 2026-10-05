@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="referrer" content="no-referrer">
-  <title>Iniciar sesión · AuthCenter</title>
+  <title>Inicia sesión</title>
   <link rel="stylesheet" href="/assets/app.css">
   <script type="module" src="/assets/login.js"></script>
 </head>
@@ -13,24 +13,26 @@
   <a class="skip-link" href="#main">Saltar al formulario</a>
   <main id="main" class="auth-shell">
     <section class="auth-panel" aria-labelledby="page-title">
-      <div class="brand">
+      <div id="brand" class="brand" hidden>
         <img id="brand-logo" alt="" hidden>
-        <div>
-          <strong id="brand-name">AuthCenter</strong>
-          <div class="muted">Identidad segura para tus aplicaciones</div>
-        </div>
+        <strong id="brand-name"></strong>
       </div>
-      <div>
-        <h1 id="page-title">Inicia sesión</h1>
-        <p id="page-subtitle" class="muted">Usa tu cuenta organizacional. Nunca compartiremos tus credenciales con la aplicación.</p>
+      <!-- One heading for the whole card: each step sets it (and the document title) in showView. -->
+      <div class="page-header">
+        <h1 id="page-title" tabindex="-1">Inicia sesión</h1>
+        <p id="page-subtitle" class="muted" hidden></p>
       </div>
+      <!-- Messages sit under the heading, in view even with a phone's keyboard open. -->
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p id="confirm-prompt" hidden><button id="confirm-resend" class="link" type="button">Reenviar el correo de confirmación</button></p>
 
-      <form id="login-form" class="stack" novalidate data-view method="post">
+      <form id="login-form" class="stack" novalidate data-view data-title="Inicia sesión" method="post">
         <input id="application" name="application" type="hidden" value="AUTHCENTER">
         <label>Correo electrónico <input id="email" name="email" type="email" autocomplete="username webauthn" required></label>
         <p id="federation-hint" class="muted" hidden>Si tu organización usa inicio de sesión único, te llevaremos a su página al continuar.</p>
         <label id="password-field">Contraseña <input id="password" name="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit">Continuar</button>
+        <!-- Enabled by login.js once it handles the form: before that a submission would post the password natively. -->
+        <button id="login-submit" type="submit" disabled>Continuar</button>
         <div class="link-row">
           <button id="forgot-link" class="link" type="button">¿Olvidaste tu contraseña?</button>
           <button id="magic-link" class="link" type="button" hidden>Envíame un enlace de acceso</button>
@@ -40,8 +42,7 @@
         <p id="register-prompt" class="muted" hidden>¿No tienes cuenta? <button id="register-link" class="link" type="button">Crear cuenta</button></p>
       </form>
 
-      <form id="register-form" class="stack" novalidate hidden data-view method="post">
-        <h2>Crea tu cuenta</h2>
+      <form id="register-form" class="stack" novalidate hidden data-view data-title="Crea tu cuenta" method="post">
         <p id="register-description" class="muted">Con esta cuenta entrarás a la aplicación.</p>
         <label>Nombre completo <input id="register-name" name="name" autocomplete="name" maxlength="200" required></label>
         <label>Correo electrónico <input id="register-email" name="email" type="email" autocomplete="username" maxlength="256" required></label>
@@ -51,21 +52,18 @@
         <div class="actions"><button type="submit">Crear cuenta</button><button class="secondary" type="button" data-back>Ya tengo cuenta</button></div>
       </form>
 
-      <section id="register-sent-view" class="stack" hidden data-view aria-labelledby="register-sent-title">
-        <h2 id="register-sent-title">Revisa tu correo</h2>
+      <section id="register-sent-view" class="stack" hidden data-view data-title="Revisa tu correo">
         <p id="register-sent-description" class="muted"></p>
         <div class="actions"><button id="register-resend" class="secondary" type="button">Reenviar el correo</button><button type="button" data-back>Volver a iniciar sesión</button></div>
       </section>
 
-      <form id="forgot-form" class="stack" novalidate hidden data-view method="post">
-        <h2>Restablece tu contraseña</h2>
+      <form id="forgot-form" class="stack" novalidate hidden data-view data-title="Restablece tu contraseña" method="post">
         <p class="muted">Te enviaremos un enlace para crear una contraseña nueva. Caduca en poco tiempo y sólo funciona una vez.</p>
         <label>Correo electrónico <input id="forgot-email" type="email" autocomplete="username" required></label>
         <div class="actions"><button type="submit">Enviar enlace</button><button class="secondary" type="button" data-back>Volver</button></div>
       </form>
 
-      <form id="mfa-form" class="stack" novalidate hidden data-view method="post">
-        <h2>Verificación en dos pasos</h2>
+      <form id="mfa-form" class="stack" novalidate hidden data-view data-title="Verificación en dos pasos" method="post">
         <p id="mfa-description" class="muted">Introduce el código de 6 dígitos de tu app de autenticación.</p>
         <label><span id="mfa-label">Código de verificación</span> <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required></label>
         <div class="link-row">
@@ -75,8 +73,7 @@
         <div class="actions"><button type="submit">Verificar</button><button class="secondary" type="button" data-back>Cancelar</button></div>
       </form>
 
-      <form id="enroll-totp-form" class="stack" novalidate hidden data-view method="post">
-        <h2>Activa la verificación en dos pasos</h2>
+      <form id="enroll-totp-form" class="stack" novalidate hidden data-view data-title="Activa la verificación en dos pasos" method="post">
         <p class="muted">Esta aplicación exige un segundo factor. Escanea el código con tu app de autenticación (por ejemplo Microsoft Authenticator o Google Authenticator) y escribe el código que muestre.</p>
         <div id="totp-qr" class="qr" aria-live="polite"></div>
         <details class="secret">
@@ -88,8 +85,7 @@
         <div class="actions"><button type="submit">Activar y continuar</button><button class="secondary" type="button" data-back>Cancelar</button></div>
       </form>
 
-      <section id="backup-codes-view" class="stack" hidden data-view aria-labelledby="backup-codes-title">
-        <h2 id="backup-codes-title">Guarda tus códigos de respaldo</h2>
+      <section id="backup-codes-view" class="stack" hidden data-view data-title="Guarda tus códigos de respaldo">
         <p class="muted">Cada código sirve una sola vez si pierdes el acceso a tu app de autenticación. No volveremos a mostrarlos.</p>
         <ol id="backup-codes-list" class="codes"></ol>
         <div class="actions"><button id="backup-copy" class="secondary" type="button">Copiar</button><button id="backup-download" class="secondary" type="button">Descargar</button></div>
@@ -97,34 +93,35 @@
         <button id="backup-continue" type="button" disabled>Continuar</button>
       </section>
 
-      <section id="enroll-passkey-view" class="stack" hidden data-view aria-labelledby="enroll-passkey-title">
-        <h2 id="enroll-passkey-title">Crea una passkey</h2>
+      <section id="enroll-passkey-view" class="stack" hidden data-view data-title="Crea una passkey">
         <p id="enroll-passkey-description" class="muted">Esta aplicación exige una passkey, resistente al phishing. Créala con el desbloqueo de este dispositivo o una llave de seguridad.</p>
         <div class="actions"><button id="enroll-passkey-create" type="button">Crear passkey</button><button class="secondary" type="button" data-back>Cancelar</button></div>
       </section>
 
-      <form id="password-change-form" class="stack" hidden novalidate data-view method="post">
-        <h2>Cambia tu contraseña temporal</h2>
+      <form id="password-change-form" class="stack" hidden novalidate data-view data-title="Cambia tu contraseña temporal" method="post">
         <p class="muted">Tu cuenta usa una contraseña temporal. Define una nueva para continuar.</p>
         <label>Nueva contraseña <input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label>
         <label>Confirmar contraseña <input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required></label>
         <div class="actions"><button type="submit">Guardar y continuar</button><button class="secondary" type="button" data-back>Cancelar</button></div>
       </form>
 
-      <section id="consent" class="card" hidden data-view aria-labelledby="consent-title">
-        <h2 id="consent-title">Autorizar aplicación</h2>
+      <section id="consent" class="stack" hidden data-view data-title="Permite el acceso">
         <p id="consent-description"></p>
-        <div id="consent-scopes"></div>
-        <div class="actions"><button id="consent-allow" type="button">Permitir</button><button id="consent-deny" class="secondary" type="button">Denegar</button></div>
+        <ul id="consent-scopes" class="scopes"></ul>
+        <p class="signed-in-as"><span id="consent-account"></span> <button id="consent-switch" class="link" type="button">¿No eres tú?</button></p>
+        <div class="actions"><button id="consent-allow" type="button">Permitir</button><button id="consent-deny" class="secondary" type="button">Cancelar</button></div>
       </section>
 
-      <p id="status" class="status" role="status" aria-live="polite"></p>
-      <p id="restart" hidden><a id="restart-link" href="/login">Volver a iniciar sesión</a></p>
+      <!-- A request this page can no longer continue: the way out, never a dead end. -->
+      <section id="blocked-view" class="stack" hidden data-view data-title="No podemos continuar">
+        <div class="actions">
+          <a id="blocked-back" class="button" href="/" hidden>Volver a la aplicación</a>
+          <a id="restart-link" class="button secondary" href="/login" hidden>Volver a iniciar sesión</a>
+        </div>
+      </section>
+
       <nav id="legal" class="actions" aria-label="Enlaces legales"></nav>
     </section>
-    <aside class="auth-hero" aria-label="Información de seguridad">
-      <div><p class="badge">Passwordless · MFA · OIDC · SAML</p><h2>Una identidad, controles consistentes.</h2><p>Sesiones revocables, autenticación resistente a phishing y consentimiento transparente.</p></div>
-    </aside>
   </main>
 </body>
 </html>

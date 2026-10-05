@@ -8,6 +8,9 @@ public sealed class OAuthConsentGrantDto
     public string ApplicationCode { get; init; } = string.Empty;
     public string ApplicationName { get; init; } = string.Empty;
     public IReadOnlyList<string> Scopes { get; init; } = [];
+
+    /// <summary>What each granted scope lets the client do, in the words of the consent screen.</summary>
+    public IReadOnlyList<ScopeDescription> ScopeDescriptions { get; init; } = [];
     public DateTime GrantedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 }

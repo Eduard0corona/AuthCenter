@@ -39,6 +39,12 @@ test("the console opens from the hosted sign-in with live metrics, environment a
   await expect(page).toHaveURL(/\/admin-v2\/$/);
 });
 
+test("an administrator who signs in without a destination lands in the console", async ({ page }) => {
+  await signInWithPassword(page, admin);
+
+  await expect(page).toHaveURL(/\/admin-v2\/$/);
+});
+
 test("creates a profile attribute and finds it in the System Log and its CSV export", async ({ page, request }) => {
   const key = `e2e_level_${randomBytes(3).toString("hex")}`;
   await openConsole(page, "/admin-v2/profile-schema/new");

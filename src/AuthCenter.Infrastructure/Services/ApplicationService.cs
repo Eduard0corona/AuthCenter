@@ -96,7 +96,20 @@ public class ApplicationService : IApplicationService
             .AsNoTracking()
             .Include(item => item.BrandingSettings)
             .FirstOrDefaultAsync(item => item.Code == code && item.IsActive, ct);
-        return app is null ? null : MapBranding(app);
+        if (app is null) return null;
+        // The hosted pages show the name end users know, never the identity service's own.
+        var branding = MapBranding(app);
+        return new ApplicationBrandingDto
+        {
+            ApplicationCode = branding.ApplicationCode,
+            DisplayName = EndUserNames.Of(app.Code, app.Name, app.BrandingSettings?.DisplayName),
+            PrimaryColor = branding.PrimaryColor,
+            BackgroundColor = branding.BackgroundColor,
+            LogoUrl = branding.LogoUrl,
+            SupportUrl = branding.SupportUrl,
+            PrivacyUrl = branding.PrivacyUrl,
+            TermsUrl = branding.TermsUrl
+        };
     }
 
     public async Task<OperationResult<ApplicationBrandingDto>> UpdateBrandingAsync(

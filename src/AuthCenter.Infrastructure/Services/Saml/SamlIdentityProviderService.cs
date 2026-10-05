@@ -104,7 +104,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
     public async Task<SamlEndpointOutcome> SignInAsync(SamlSignInStart start, AuthorizationCaller caller, CancellationToken ct = default)
     {
         if (_keys.SigningCertificate(out _) is null)
-            return SamlEndpointOutcome.Error(503, "AuthCenter is not configured as a SAML identity provider.");
+            return SamlEndpointOutcome.Error(503, "El inicio de sesión con esta aplicación no está disponible en este momento.");
         var now = _clock.UtcNow;
         SamlServiceProvider? provider;
         SamlInboundRequest? request = null;
@@ -116,7 +116,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
             provider = await _db.SamlServiceProviders.AsNoTracking().Include(item => item.ApplicationSystem)
                 .SingleOrDefaultAsync(item => item.Id == start.ServiceProviderId && item.IsActive && item.AllowIdpInitiated && item.ApplicationSystem.IsActive, ct);
             if (provider is null)
-                return SamlEndpointOutcome.Error(404, "This application cannot be opened from AuthCenter.");
+                return SamlEndpointOutcome.Error(404, "Esta aplicación no se puede abrir desde aquí.");
             assertionConsumerService = AssertionConsumerServices(provider)[0];
             relayState ??= provider.DefaultRelayState;
         }
@@ -129,12 +129,12 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
             var registered = AssertionConsumerServices(provider);
             // The response only goes to an address the provider registered.
             if (request.AssertionConsumerServiceUrl is { } requested && !registered.Contains(requested, StringComparer.Ordinal))
-                return await RejectAsync(provider, "UnregisteredAssertionConsumerService", "The assertion consumer service URL is not registered for this application.", ct);
+                return await RejectAsync(provider, "UnregisteredAssertionConsumerService", "La aplicación pidió la respuesta en una dirección que no tiene registrada.", ct);
             if (request.ProtocolBinding is { } binding && binding != SamlIdpMessages.PostBinding)
-                return await RejectAsync(provider, "UnsupportedBinding", "Responses are only sent with the HTTP-POST binding.", ct);
+                return await RejectAsync(provider, "UnsupportedBinding", "La aplicación pidió la respuesta en un formato que no se admite.", ct);
             assertionConsumerService = request.AssertionConsumerServiceUrl ?? registered[0];
             if (!await _state.TryConsumeAsync(RequestIdPurpose, $"{provider.Id:N}:{request.Id}", now.Add(InteractionLifetime), ct))
-                return await RejectAsync(provider, "ReplayedRequest", "This sign-in request was already used.", ct);
+                return await RejectAsync(provider, "ReplayedRequest", "Esta solicitud de inicio de sesión ya se usó. Vuelve a la aplicación e inicia sesión de nuevo.", ct);
         }
 
         // From here the request is trusted: failures are answered to the service provider.
@@ -181,6 +181,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
             ApplicationCode = provider.ApplicationSystem.Code,
             ApplicationName = provider.ApplicationSystem.Name,
             ClientDisplayName = provider.Name,
+            ApplicationUrl = ApplicationOrigin.From(interaction.AssertionConsumerServiceUrl),
             LoginHint = interaction.LoginHint,
             RequiresFreshLogin = interaction.ForceAuthn,
             AllowPasswordLogin = settings?.AllowPasswordLogin ?? true,
@@ -250,13 +251,13 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
     public async Task<SamlEndpointOutcome> LogoutAsync(SamlSignInStart start, AuthorizationCaller caller, CancellationToken ct = default)
     {
         if (_keys.SigningCertificate(out _) is not { } certificate)
-            return SamlEndpointOutcome.Error(503, "AuthCenter is not configured as a SAML identity provider.");
+            return SamlEndpointOutcome.Error(503, "El inicio de sesión con esta aplicación no está disponible en este momento.");
         var checkedRequest = await ReadTrustedRequestAsync(start, "LogoutRequest", ct);
         if (checkedRequest.Error is { } error)
             return error;
         var (request, provider) = (checkedRequest.Request!, checkedRequest.Provider!);
         if (provider.SingleLogoutServiceUrl is not { } destination)
-            return await RejectAsync(provider, "NoSingleLogoutService", "This application has no single logout URL registered.", ct);
+            return await RejectAsync(provider, "NoSingleLogoutService", "Esta aplicación no tiene configurado el cierre de sesión.", ct);
 
         // The session the provider names (SessionIndex) or, failing that, the browser's, if the
         // name identifier is the one issued to this provider for its user.
@@ -297,7 +298,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
         if (request is null || request.Kind != kind)
         {
             await _audit.LogAsync("SAML_REQUEST_REJECTED", metadata: new { reason = "Unreadable", kind }, ct: ct);
-            return (null, null, SamlEndpointOutcome.Error(400, "The SAML request could not be read."));
+            return (null, null, SamlEndpointOutcome.Error(400, "No pudimos leer la solicitud de la aplicación."));
         }
         var provider = request.Issuer is null
             ? null
@@ -306,7 +307,7 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
         if (provider is null)
         {
             await _audit.LogAsync("SAML_REQUEST_REJECTED", metadata: new { reason = "UnknownServiceProvider", issuer = Bound(request.Issuer, 300) }, ct: ct);
-            return (null, null, SamlEndpointOutcome.Error(400, "The application that sent this request is not registered in AuthCenter."));
+            return (null, null, SamlEndpointOutcome.Error(400, "La aplicación que envió esta solicitud no está registrada."));
         }
 
         var signingCertificate = Certificate(provider.SigningCertificate);
@@ -320,14 +321,14 @@ public sealed class SamlIdentityProviderService : ISamlIdentityProviderService
                 ? SamlIdpMessages.VerifyRedirectSignature(start.RawQuery ?? string.Empty, signingCertificate)
                 : SamlIdpMessages.VerifyXmlSignature(request.Document, signingCertificate));
             if (!valid)
-                return (null, null, await RejectAsync(provider, "InvalidSignature", "The request's signature could not be verified.", ct));
+                return (null, null, await RejectAsync(provider, "InvalidSignature", "No pudimos verificar la firma de la solicitud.", ct));
         }
         var now = _clock.UtcNow;
         if (request.IssueInstant is not { } issued || issued > now.Add(_keys.ClockSkew) || issued < now.Subtract(RequestLifetime).Subtract(_keys.ClockSkew))
-            return (null, null, await RejectAsync(provider, "StaleRequest", "The request is too old or dated in the future.", ct));
+            return (null, null, await RejectAsync(provider, "StaleRequest", "La solicitud caducó o tiene una fecha no válida. Vuelve a la aplicación e inténtalo de nuevo.", ct));
         if (request.Destination is { } destination &&
             !string.Equals(destination, kind == "LogoutRequest" ? _keys.SingleLogoutUrl : _keys.SingleSignOnUrl, StringComparison.OrdinalIgnoreCase))
-            return (null, null, await RejectAsync(provider, "WrongDestination", "The request was addressed to another endpoint.", ct));
+            return (null, null, await RejectAsync(provider, "WrongDestination", "La solicitud iba dirigida a otra dirección.", ct));
         return (request, provider, null);
     }
 

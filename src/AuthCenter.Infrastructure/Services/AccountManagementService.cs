@@ -68,10 +68,16 @@ public class AccountManagementService : IAccountManagementService
     public async Task<IReadOnlyList<SessionDto>> GetActiveSessionsAsync(Guid userId, CancellationToken ct = default)
     {
         var tokens = await _refreshTokenService.GetActiveSessionsAsync(userId, ct);
+        var codes = tokens.Select(t => t.ApplicationCode).Distinct().ToList();
+        var names = await _db.ApplicationSystems.AsNoTracking()
+            .Where(app => codes.Contains(app.Code))
+            .Select(app => new { app.Code, app.Name, BrandedName = app.BrandingSettings == null ? null : app.BrandingSettings.DisplayName })
+            .ToDictionaryAsync(app => app.Code, app => EndUserNames.Of(app.Code, app.Name, app.BrandedName), ct);
         return tokens.Select(t => new SessionDto
         {
             Id = t.Id,
             ApplicationCode = t.ApplicationCode,
+            ApplicationName = names.GetValueOrDefault(t.ApplicationCode, string.Empty),
             IpAddress = t.IpAddress,
             UserAgent = t.UserAgent,
             CreatedAt = t.CreatedAt,

@@ -23,6 +23,9 @@ public sealed class SamlIdpController : ControllerBase
 {
     private readonly ISamlIdentityProviderService _saml;
 
+    private const string SignInErrorTitle = "No se pudo iniciar sesión en la aplicación";
+    private const string LogoutErrorTitle = "No se pudo cerrar la sesión";
+
     public SamlIdpController(ISamlIdentityProviderService saml) => _saml = saml;
 
     [AllowAnonymous]
@@ -31,7 +34,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var metadata = _saml.Metadata();
         return metadata is null
-            ? ErrorPage(StatusCodes.Status503ServiceUnavailable, "AuthCenter is not configured as a SAML identity provider.")
+            ? ErrorPage(StatusCodes.Status503ServiceUnavailable, "El inicio de sesión SAML no está configurado.")
             : Content(metadata, "application/samlmetadata+xml");
     }
 
@@ -54,7 +57,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var form = await Request.ReadFormAsync(ct);
         if (string.IsNullOrEmpty(form["SAMLRequest"]))
-            return ErrorPage(StatusCodes.Status400BadRequest, "The SAML request could not be read.");
+            return ErrorPage(StatusCodes.Status400BadRequest, "No pudimos leer la solicitud de la aplicación.");
         var key = await _saml.KeepPostedMessageAsync(form["SAMLRequest"]!, NullIfEmpty(form["RelayState"]), ct);
         return SeeOther($"/saml/idp/sso/posted/{Uri.EscapeDataString(key)}");
     }
@@ -66,7 +69,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var posted = await _saml.TakePostedMessageAsync(key, ct);
         return posted is not { } message
-            ? ErrorPage(StatusCodes.Status400BadRequest, "The SAML request expired. Start the sign-in again from the application.")
+            ? ErrorPage(StatusCodes.Status400BadRequest, "La solicitud de inicio de sesión expiró. Vuelve a la aplicación e inicia sesión de nuevo.")
             : await SignInAsync(new SamlSignInStart(SamlRequestBinding.Post, message.SamlMessage, message.RelayState, null), ct);
     }
 
@@ -127,7 +130,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var message = await _saml.TakePendingResponseAsync(responseId, BrowserBinding.Read(HttpContext), ct);
         return message is null
-            ? ErrorPage(StatusCodes.Status404NotFound, "The response for the application expired or was already sent. Start the sign-in again from the application.")
+            ? ErrorPage(StatusCodes.Status404NotFound, "La respuesta para la aplicación expiró o ya se envió. Vuelve a la aplicación e inicia sesión de nuevo.")
             : Post(message);
     }
 
@@ -146,7 +149,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var form = await Request.ReadFormAsync(ct);
         if (string.IsNullOrEmpty(form["SAMLRequest"]))
-            return ErrorPage(StatusCodes.Status400BadRequest, "The SAML logout request could not be read.");
+            return ErrorPage(StatusCodes.Status400BadRequest, "No pudimos leer la solicitud de cierre de sesión de la aplicación.", LogoutErrorTitle);
         var key = await _saml.KeepPostedMessageAsync(form["SAMLRequest"]!, NullIfEmpty(form["RelayState"]), ct);
         return SeeOther($"/saml/idp/slo/posted/{Uri.EscapeDataString(key)}");
     }
@@ -158,7 +161,7 @@ public sealed class SamlIdpController : ControllerBase
     {
         var posted = await _saml.TakePostedMessageAsync(key, ct);
         return posted is not { } message
-            ? ErrorPage(StatusCodes.Status400BadRequest, "The SAML logout request expired.")
+            ? ErrorPage(StatusCodes.Status400BadRequest, "La solicitud de cierre de sesión expiró. Vuelve a la aplicación e inténtalo de nuevo.", LogoutErrorTitle)
             : await LogoutAsync(new SamlSignInStart(SamlRequestBinding.Post, message.SamlMessage, message.RelayState, null), ct);
     }
 
@@ -178,13 +181,13 @@ public sealed class SamlIdpController : ControllerBase
             await HttpContext.SignOutAsync(AuthenticationSchemes.UiCookie);
             Response.Cookies.Delete(UiCsrfMiddleware.CookieName, new CookieOptions { Secure = true, SameSite = SameSiteMode.Strict, Path = "/" });
         }
-        return Render(outcome);
+        return Render(outcome, LogoutErrorTitle);
     }
 
-    private IActionResult Render(SamlEndpointOutcome outcome) =>
+    private IActionResult Render(SamlEndpointOutcome outcome, string title = SignInErrorTitle) =>
         outcome.Post is { } message ? Post(message)
         : outcome.RedirectUrl is { } url ? Redirect(url)
-        : ErrorPage(outcome.ErrorStatus, outcome.ErrorMessage ?? "The SAML request could not be processed.");
+        : ErrorPage(outcome.ErrorStatus, outcome.ErrorMessage ?? "No pudimos procesar la solicitud de la aplicación.", title);
 
     private static IActionResult Post(SamlPostMessage message) =>
         AuthorizationResponseResult.Create(new AuthorizationResponse
@@ -217,14 +220,17 @@ public sealed class SamlIdpController : ControllerBase
         UserAgent = Request.Headers.UserAgent.ToString()
     };
 
-    /// <summary>A plain page: an untrusted request is never answered at the address it names.</summary>
-    private ContentResult ErrorPage(int status, string message)
+    /// <summary>
+    /// A plain page in the hosted pages' style: an untrusted request is never answered at the
+    /// address it names. It names no product, since end users only know the application.
+    /// </summary>
+    private ContentResult ErrorPage(int status, string message, string title = SignInErrorTitle)
     {
         Response.Headers.CacheControl = "no-store";
         Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
         var html = "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-            "<title>No se pudo iniciar sesión</title><link rel=\"stylesheet\" href=\"/assets/app.css\"></head><body><main class=\"auth-shell\"><section class=\"auth-card\">" +
-            "<h1>No se pudo iniciar sesión en la aplicación</h1><p class=\"status error\" role=\"alert\">" + System.Net.WebUtility.HtmlEncode(message) + "</p>" +
+            "<title>" + title + "</title><link rel=\"stylesheet\" href=\"/assets/app.css\"></head><body><main class=\"auth-shell\"><section class=\"auth-panel\">" +
+            "<h1>" + title + "</h1><p class=\"status error\" role=\"alert\">" + System.Net.WebUtility.HtmlEncode(message) + "</p>" +
             "<p><a href=\"/portal\">Ir a mis aplicaciones</a></p></section></main></body></html>";
         return new ContentResult { StatusCode = status, ContentType = "text/html; charset=utf-8", Content = html };
     }

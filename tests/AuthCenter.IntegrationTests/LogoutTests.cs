@@ -88,6 +88,8 @@ public sealed class LogoutTests : IClassFixture<HttpsAuthCenterFactory>
 
         var pending = await ReadDataAsync(await browser.GetAsync($"/oauth/logout/{logoutId}"));
         Assert.Equal("Logout test client", pending.GetProperty("clientDisplayName").GetString());
+        // The page shows the branding of the client's application.
+        Assert.Equal(DomainConstants.SystemCodes.AuthCenter, pending.GetProperty("applicationCode").GetString());
         using (var other = CreateBrowser())
             Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync($"/oauth/logout/{logoutId}")).StatusCode);
 
@@ -145,6 +147,17 @@ public sealed class LogoutTests : IClassFixture<HttpsAuthCenterFactory>
         var response = await browser.GetAsync($"/oauth/logout?client_id={client}&post_logout_redirect_uri={Uri.EscapeDataString(SignedOut)}");
 
         Assert.Equal(SignedOut, response.Headers.Location!.OriginalString);
+    }
+
+    [Fact]
+    public async Task WithoutARegisteredUri_TheLoginKeepsTheClientsApplication()
+    {
+        var client = await RegisterClientAsync();
+        using var browser = CreateBrowser();
+
+        var response = await browser.GetAsync($"/oauth/logout?client_id={client}");
+
+        Assert.Equal($"/login?application={DomainConstants.SystemCodes.AuthCenter}&signed_out=1", response.Headers.Location!.OriginalString);
     }
 
     [Fact]

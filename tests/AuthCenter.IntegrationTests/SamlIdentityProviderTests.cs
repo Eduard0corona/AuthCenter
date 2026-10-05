@@ -118,6 +118,7 @@ public sealed class SamlIdentityProviderTests : IClassFixture<FederationAuthCent
         Assert.Equal(DomainConstants.SystemCodes.AuthCenter, context.GetProperty("applicationCode").GetString());
         Assert.Equal(provider.Name, context.GetProperty("clientDisplayName").GetString());
         Assert.Equal("Employees", context.GetProperty("audience").GetString());
+        Assert.Equal("https://sp.example.test/", context.GetProperty("applicationUrl").GetString());
         using (var stranger = CreateBrowser())
             Assert.Equal(HttpStatusCode.NotFound, (await stranger.GetAsync($"/saml/idp/interactions/{interaction}/context")).StatusCode);
 
@@ -487,6 +488,10 @@ public sealed class SamlIdentityProviderTests : IClassFixture<FederationAuthCent
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("<form", html, StringComparison.Ordinal);
         Assert.Contains("form-action 'none'", response.Headers.GetValues("Content-Security-Policy").Single());
+        // End users read it in Spanish, and it names no product: they only know the application.
+        Assert.Contains("<html lang=\"es\">", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"auth-panel\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuthCenter", html, StringComparison.OrdinalIgnoreCase);
     }
 
     private HttpClient CreateBrowser() => _factory.CreateClient(new WebApplicationFactoryClientOptions

@@ -63,7 +63,15 @@ export default defineConfig({
     trace: "retain-on-failure",
     launchOptions: executablePath ? { executablePath } : {}
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], launchOptions: executablePath ? { executablePath } : {} } }],
+  projects: [
+    { name: "chromium", testIgnore: "responsive.spec.mjs", use: { ...devices["Desktop Chrome"], launchOptions: executablePath ? { executablePath } : {} } },
+    // A phone-sized Chromium for the reflow checks (the console has its own at 320 px).
+    {
+      name: "mobile",
+      testMatch: "responsive.spec.mjs",
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 }, launchOptions: executablePath ? { executablePath } : {} }
+    }
+  ],
   webServer: {
     command: `dotnet run --project "${path.join(root, "src/AuthCenter.Api/AuthCenter.Api.csproj")}" --configuration Release --no-build --no-launch-profile --urls ${baseURL}`,
     url: `${baseURL}/health/live`,

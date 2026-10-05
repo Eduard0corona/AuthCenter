@@ -61,7 +61,10 @@ public sealed class EndSessionService : IEndSessionService
         if (clientId is not null && client is null)
             return Failure("INVALID_CLIENT", "Unknown or inactive client.");
 
-        var redirectUrl = SignedOutPage;
+        // Without an address of its own, the client's application keeps its branding on the login.
+        var redirectUrl = client is null
+            ? SignedOutPage
+            : $"/login?application={Uri.EscapeDataString(client.ApplicationSystem.Code)}&signed_out=1";
         if (!string.IsNullOrWhiteSpace(request.PostLogoutRedirectUri))
         {
             if (client is null)
@@ -89,7 +92,7 @@ public sealed class EndSessionService : IEndSessionService
         }
 
         var logoutId = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
-        var pending = new PendingLogout(client?.ClientId, client?.DisplayName, client?.ApplicationSystem.Name, redirectUrl, HashBinding(caller.BrowserBinding), _clock.UtcNow);
+        var pending = new PendingLogout(client?.ClientId, client?.DisplayName, client?.ApplicationSystem.Name, redirectUrl, HashBinding(caller.BrowserBinding), _clock.UtcNow, client?.ApplicationSystem.Code);
         await _transientState.SetAsync(PendingPrefix, logoutId, JsonSerializer.Serialize(pending), _clock.UtcNow.AddMinutes(PendingMinutes), ct);
         return OperationResult<EndSessionResult>.Success(new EndSessionResult { RedirectUrl = $"/logout?logout_id={logoutId}", LogoutId = logoutId });
     }
@@ -103,6 +106,7 @@ public sealed class EndSessionService : IEndSessionService
         {
             ClientDisplayName = pending.ClientDisplayName,
             ApplicationName = pending.ApplicationName,
+            ApplicationCode = pending.ApplicationCode,
             ExpiresAt = pending.CreatedAt.AddMinutes(PendingMinutes)
         });
     }
@@ -157,5 +161,6 @@ public sealed class EndSessionService : IEndSessionService
         string? ApplicationName,
         string RedirectUrl,
         string? BindingHash,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        string? ApplicationCode = null);
 }

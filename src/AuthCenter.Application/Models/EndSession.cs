@@ -33,5 +33,8 @@ public sealed class EndSessionContext
 {
     public string? ClientDisplayName { get; init; }
     public string? ApplicationName { get; init; }
+
+    /// <summary>The client's application, whose branding the page shows.</summary>
+    public string? ApplicationCode { get; init; }
     public DateTime ExpiresAt { get; init; }
 }

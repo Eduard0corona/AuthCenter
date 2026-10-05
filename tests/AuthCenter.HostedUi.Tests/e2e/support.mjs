@@ -69,7 +69,7 @@ export async function registerUser(request, applicationCode, { email = newEmail(
 }
 
 /** A public OAuth client of the application whose login is the hosted page. */
-export async function createClient(request, token, applicationId) {
+export async function createClient(request, token, applicationId, { autoConsent = true } = {}) {
   const clientId = `e2e-${randomBytes(5).toString("hex")}`;
   const redirectUri = `${baseURL}/e2e-callback`;
   await required(request, "POST", "/api/oauth/clients", {
@@ -84,7 +84,7 @@ export async function createClient(request, token, applicationId) {
       grantTypes: ["authorization_code"],
       loginUrl: `${baseURL}/login`,
       requirePkce: true,
-      autoConsent: true
+      autoConsent
     }
   });
   return { clientId, redirectUri };

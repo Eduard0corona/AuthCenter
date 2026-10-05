@@ -194,6 +194,22 @@ public sealed class HostedAccountTests : IClassFixture<HttpsAuthCenterFactory>
     }
 
     [Fact]
+    public async Task PublicBranding_NamesNoProductForTheUnbrandedSystemApplication()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var (_, code) = await CreateApplicationAsync(admin);
+        using var browser = CreateBrowser();
+
+        // End users only know the applications: the system one has no name until it is branded.
+        var system = await ReadDataAsync(await browser.GetAsync($"/api/applications/branding/{DomainConstants.SystemCodes.AuthCenter}"));
+        Assert.Equal(string.Empty, system.GetProperty("displayName").GetString());
+        Assert.Equal("#2563EB", system.GetProperty("primaryColor").GetString());
+
+        var application = await ReadDataAsync(await browser.GetAsync($"/api/applications/branding/{code}"));
+        Assert.Equal("Hosted " + code, application.GetProperty("displayName").GetString());
+    }
+
+    [Fact]
     public async Task SignUp_WhereTheEmailMustBeConfirmed_SignsInOnlyAfterTheLinkIsFollowed()
     {
         using var admin = await CreateAdminClientAsync();
